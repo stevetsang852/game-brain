@@ -6,9 +6,12 @@ __all__ = ["Adapter", "GameAdapter", "make_adapter"]
 
 
 def make_adapter(name: str, **kwargs) -> Adapter:
-    """Factory used by the demo CLI. Only "mock" ships in this package for now;
-    the mGBA/FireRed bridge is developed separately (see notes/adapter-interface.md)."""
+    """Factory used by the demo CLI. "mock" needs nothing; "mgba" needs the
+    mGBA Python bindings and a ROM path via $GAME_BRAIN_ROM (see notes/mgba-bridge.md)."""
     if name == "mock":
         from .mock import MockAdapter
         return MockAdapter(**kwargs)
-    raise ValueError(f"unknown adapter {name!r} (available: mock)")
+    if name in ("mgba", "gba_mgba", "firered"):
+        from .gba_mgba import MgbaFireRedAdapter
+        return MgbaFireRedAdapter(**kwargs)
+    raise ValueError(f"unknown adapter {name!r} (available: mock, mgba)")
