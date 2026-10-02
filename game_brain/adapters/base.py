@@ -8,7 +8,7 @@ game- and emulator-agnostic and only speaks the messages in ``game_brain.schema`
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from ..schema import Action, Observation
 
@@ -39,6 +39,26 @@ class Adapter(ABC):
     @abstractmethod
     def frame(self) -> int:
         """Current emulator frame number (monotonic since reset)."""
+
+    # ------------------------------------------------------------------ save states (optional)
+    #: True if save_state()/load_state() work (save/resume, notes/savestate-format.md)
+    supports_save_state: bool = False
+
+    def save_state(self) -> bytes:
+        """Emulator snapshot of the current moment (for mGBA: the raw save state)."""
+        raise NotImplementedError(f"{self.name}: save states not supported")
+
+    def adapter_state(self) -> Dict[str, Any]:
+        """Small JSON-able adapter-side state that is not in the emulator snapshot (sidecar)."""
+        return {}
+
+    def load_state(self, data: bytes, frame: int = 0, adapter_state: Optional[Dict[str, Any]] = None) -> Observation:
+        """Restore a save_state() snapshot (call after reset()); the frame counter continues at ``frame``."""
+        raise NotImplementedError(f"{self.name}: save states not supported")
+
+    def battery_save(self) -> Optional[bytes]:
+        """In-game battery save (.sav) contents, or None if there is none / unsupported."""
+        return None
 
     def screenshot(self, path: str) -> Optional[str]:
         """Write a PNG of the current frame to ``path``; return it, or None if unsupported."""

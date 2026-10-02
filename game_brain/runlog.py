@@ -43,7 +43,8 @@ with the previous step that had a ``battle`` key (steps outside battle don't res
 optimisations have no markers and pass through unchanged.
 
 Determinism: replaying ``executed_action`` of every step against the same start state
-reproduces the run (see :func:`replay`).
+reproduces the run (see :func:`replay`). A resumed run's header has ``resumed_from`` (save state
+path, sha1, step, frame); :func:`replay` loads that state first (notes/savestate-format.md).
 """
 
 from __future__ import annotations
@@ -238,6 +239,14 @@ def replay(path: "str | Path", adapter) -> List[str]:
     """
     mismatches: List[str] = []
     adapter.reset()
+    head = next(read_log(path), {})
+    res = head.get("resumed_from") if head.get("kind") == "header" else None
+    if res:   # the run continued from a save state (game_brain.savestate): start from the same one
+        import hashlib
+        data = Path(res["state"]).read_bytes()
+        if hashlib.sha1(data).hexdigest() != res["state_sha1"]:
+            return [f"resumed_from state {res['state']}: sha1 does not match the log header"]
+        adapter.load_state(data, frame=res["frame"], adapter_state=res.get("adapter_state"))
     for rec in iter_steps(path):
         obs = adapter.observe()
         if obs.frame != rec["frame"]:

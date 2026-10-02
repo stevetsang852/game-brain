@@ -224,6 +224,21 @@ print(replay('runs/<timestamp>/run.jsonl', make_adapter('mock')))   # [] = 完�
 
 真 ROM 嘅 log 就用 `make_adapter('mgba')`，而且要設定同上面一樣嘅 env。因為時間全部用 frame 計，又冇 wall-clock sleep，同一個起點加同一串 Action 一定得到同一個結果。範例 log：[`examples/mock_run.jsonl`](examples/mock_run.jsonl)（mock 遊戲，合成數據）。
 
+## Save / resume（存檔同續玩）
+
+```bash
+# 預設存去 ~/.game-brain/saves（或者 $GAME_BRAIN_SAVE_DIR）；每到一個里程碑、每 500 步、同埋完結都會存
+python -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 3000 --save-every 500
+# 由最新嗰個存檔繼續（或者俾 .json / .state 路徑）
+python -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 1000 --resume latest
+```
+
+- 每個存檔：`.state`（mGBA save state，主要）＋`.json` sidecar（step、frame、地圖、座標、里程碑、HP（有先有）、ROM SHA1、brains、git commit、時間）＋`.sav`（遊戲入面自己 SAVE 過先有，只係備份）。
+- **存檔目錄唔可以喺 repo 入面**（repo 係 public）：會直接拒絕。`--no-save` 唔存。
+- 續玩：檢查 ROM SHA1 → 載入 state → 還原里程碑 → step / frame 由存檔嗰度繼續；log header 有 `resumed_from`，`replay()` 會自動由同一個 state 開始。
+- Docker 入面預設存喺 container 自己嘅 `~/.game-brain/saves`，想留低就加 volume（image 用戶係 `brain`：`-v ~/.game-brain:/home/brain/.game-brain`，未喺 Docker 實測，因為 box 上 docker daemon 用唔到）。Dashboard（`live.py`）未支援 resume。
+- 格式：[`notes/savestate-format.md`](notes/savestate-format.md)。
+
 ## PathBrain（自動尋路）
 
 ```bash
