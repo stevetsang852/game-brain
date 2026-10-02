@@ -52,3 +52,11 @@ The page renders these when present and falls back gracefully when absent (old l
 - The RAM table summarises `collision` and `warps` instead of dumping them.
 
 The live wire still carries collision/warps on every observation; log dedupe (map-change-only) does not affect the page.
+
+## NPCs and party count
+
+- `ram.npcs` `[{x, y, local_id, elevation, gfx, ...}]` -> purple squares on the mini-map; hovering one shows its
+  `local_id`, position, elevation and gfx. Entries outside the map or without integer x/y are skipped.
+- `ram.party_count` -> "隊伍：n 隻" pill in the header ("–" when the adapter does not report it).
+- The RAM table shows `npcs` as a count. The live wire carries the full NPC list every step; the log dedupe
+  from PR #14 (`npcs_same` / `npcs_delta`) only affects the file.
