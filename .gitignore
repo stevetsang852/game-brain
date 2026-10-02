@@ -14,6 +14,17 @@ roms/
 saves/
 bios/
 *.bin
+# save/resume (game_brain/savestate.py) writes outside the repo by default; never commit these
+.game-brain/
+*.tmp
+# model files
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.pkl
+*.npz
 
 # --- Run artifacts (logs, screenshots of copyrighted game) ---
 runs/

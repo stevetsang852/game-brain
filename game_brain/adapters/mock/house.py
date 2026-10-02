@@ -31,6 +31,7 @@ It emits the same ``Observation.ram`` keys as the real adapter (see notes/nav.md
 
 from __future__ import annotations
 
+import ast
 from typing import Dict, List, Optional, Tuple
 
 from ..base import Adapter
@@ -156,6 +157,19 @@ class MockHouseAdapter(Adapter):
     @property
     def frame(self) -> int:
         return self._frame
+
+    # ------------------------------------------------------------------ save states (tests)
+    supports_save_state = True
+
+    def save_state(self) -> bytes:
+        """The whole mock world as a Python literal (stands in for an emulator snapshot)."""
+        return repr(dict(sorted(self.__dict__.items()))).encode()
+
+    def load_state(self, data: bytes, frame: int = 0, adapter_state=None) -> Observation:
+        for k, v in ast.literal_eval(data.decode()).items():   # literals only: no code runs
+            setattr(self, k, v)
+        self._frame = int(frame)
+        return self.observe()
 
     def _m(self) -> dict:
         return MAPS[self.map]

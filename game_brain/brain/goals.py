@@ -212,6 +212,12 @@ class GoalPlanner:
             return m
         return None
 
+    def restore(self, done_ids) -> None:
+        """Mark milestones done from a save sidecar (resume); unknown ids are ignored."""
+        for mid in done_ids or ():
+            if mid in self._done:
+                self._done[mid] = True
+
     @property
     def current(self) -> Optional[Milestone]:
         return next((m for m in self.milestones if not self._done[m.id]), None)
