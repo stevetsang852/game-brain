@@ -3,7 +3,7 @@ from pathlib import Path
 
 from game_brain import demo
 from game_brain.adapters.mock import MockAdapter
-from game_brain.runlog import read_log, replay
+from game_brain.runlog import iter_steps, read_log, replay
 from game_brain.schema import Action, Decision, from_json
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "mock_run.jsonl"
@@ -13,7 +13,7 @@ def test_demo_writes_log_and_replays_deterministically(tmp_path):
     s = demo.run("mock", steps=50, mode="auto", out_dir=str(tmp_path), quiet=True)
     recs = list(read_log(s["log"]))
     assert recs[0]["kind"] == "header" and recs[-1]["kind"] == "summary"
-    steps = [r for r in recs if r["kind"] == "step"]
+    steps = list(iter_steps(s["log"]))  # restores executed_action deduped against proposed_action
     assert len(steps) == 50
     for r in steps:
         Decision.from_dict(r["decision"])

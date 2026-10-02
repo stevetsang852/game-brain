@@ -154,6 +154,14 @@ Dashboard 可以控制遊戲，所以**只會 bind 嗰部機嘅 127.0.0.1**。�
 - `step`：`step`、`frame`、`mode`、`observation`（RAM 摘要，唔包截圖）、`decision`（包括 `actor`）、`proposed_action`、`executed_action`、`frames_advanced`、`notes`
 - `mode_change`、`summary`
 
+為咗慳位，log 檔入面有啲嘢只係「有變先寫」（dashboard live 收到嘅 envelope 永遠係完整，唔受影響）：
+
+- `map`：collision / warps / map size 每張地圖寫一次，`step` 用 `observation.map_ref` 指返去
+- `decision.milestones`：同上一步一樣就唔寫，`step` 改為帶 `"milestones_same": true`
+- `executed_action`：同 `proposed_action` 一樣就唔寫，`step` 改為帶 `"executed_same": true`；真係冇執行動作就照寫 `"executed_action": null`
+
+讀 log 請用 `game_brain.runlog.iter_steps()`（`replay()` 都係用佢），佢會將以上全部還原；舊 log 照讀，結果一樣。
+
 Replay 會將 log 入面每一步嘅 `executed_action`（包括人手動作）喺一個新 reset 嘅 adapter 上重做一次，逐步比較 `frame` 同 RAM：
 
 ```bash

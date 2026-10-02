@@ -192,7 +192,8 @@ def test_live_loop_with_mock_end_to_end(server, tmp_path):
     assert result["mode_final"] == "manual" and result["steps"] == 60
     log_lines = [json.loads(l) for l in open(result["log"])]
     assert any(l["kind"] == "mode_change" and l.get("issued_by") == "dashboard" for l in log_lines)
-    assert any(l["kind"] == "step" and l["executed_action"]["source"] == "manual" for l in log_lines)
+    from game_brain.runlog import iter_steps  # executed_action may be deduped in the raw line
+    assert any(l["executed_action"]["source"] == "manual" for l in iter_steps(result["log"]))
     c.close()
 
 
