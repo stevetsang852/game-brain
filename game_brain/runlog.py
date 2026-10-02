@@ -30,8 +30,16 @@ record). Compared with the previous step that had an ``npcs`` key:
   changed entries (list index = object-event slot order, which is stable);
 * anything else (first NPC step, NPC count changed, delta not smaller) -> full ``npcs`` list.
 
-:func:`iter_steps` (and so :func:`replay`) restores ``decision.milestones``, ``npcs`` and
-``executed_action`` on every step and strips the markers. Logs written before these
+Step-line ``observation.ram.battle`` dedupe (only present while ``in_battle``). Compared
+with the previous step that had a ``battle`` key (steps outside battle don't reset it):
+
+* unchanged dict -> key dropped, ``observation.ram`` carries ``"battle_same": true``;
+* some top-level keys changed -> ``"battle_delta": {key: value, ...}`` with only the changed
+  top-level keys (``menu``/``cursor``/``player``/``opponent``/``outcome``), when smaller;
+* anything else (first battle step, key set changed, delta not smaller) -> full ``battle``.
+
+:func:`iter_steps` (and so :func:`replay`) restores ``decision.milestones``, ``npcs``,
+``battle`` and ``executed_action`` on every step and strips the markers. Logs written before these
 optimisations have no markers and pass through unchanged.
 
 Determinism: replaying ``executed_action`` of every step against the same start state
@@ -62,6 +70,24 @@ class RunLogWriter:
         self._last_map: Optional[Dict[str, Any]] = None
         self._last_milestones: Optional[List[Dict[str, Any]]] = None
         self._last_npcs: Optional[List[Dict[str, Any]]] = None
+        self._last_battle: Optional[Dict[str, Any]] = None
+
+    def _dedupe_battle(self, summary: Dict[str, Any]) -> None:
+        ram = summary.get("ram") or {}
+        if "battle" not in ram:
+            return
+        battle, last = ram["battle"], self._last_battle
+        self._last_battle = json.loads(json.dumps(battle))
+        if not isinstance(battle, dict) or not isinstance(last, dict):
+            return
+        if battle == last:
+            del ram["battle"]
+            ram["battle_same"] = True
+        elif battle.keys() == last.keys():
+            delta = {k: v for k, v in battle.items() if v != last[k]}
+            if len(json.dumps(delta)) < len(json.dumps(battle)):
+                del ram["battle"]
+                ram["battle_delta"] = delta
 
     def _dedupe_npcs(self, summary: Dict[str, Any]) -> None:
         ram = summary.get("ram") or {}
@@ -117,6 +143,7 @@ class RunLogWriter:
         summary = obs.summary()
         self._dedupe_map(step, obs.frame, summary)
         self._dedupe_npcs(summary)
+        self._dedupe_battle(summary)
         rec = {
             "kind": "step",
             "step": step,
@@ -159,11 +186,12 @@ def read_log(path: "str | Path") -> Iterator[Dict[str, Any]]:
 
 def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
     """Step records with ``observation.ram`` restored to what the adapter returned
-    (map keys merged back from the matching ``map`` record), ``decision.milestones`` and
-    ``executed_action`` restored where the writer deduped them. Old logs pass through unchanged."""
+    (map keys merged back from the matching ``map`` record; ``npcs`` and ``battle`` rebuilt from
+    their markers), ``decision.milestones`` and ``executed_action`` restored where the writer deduped them. Old logs pass through unchanged."""
     maps: Dict[int, Dict[str, Any]] = {}
     last_ms: Optional[List[Dict[str, Any]]] = None
     last_npcs: Optional[List[Dict[str, Any]]] = None
+    last_battle: Optional[Dict[str, Any]] = None
     for rec in read_log(path):
         kind = rec.get("kind")
         if kind == "map":
@@ -185,6 +213,13 @@ def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
                     ram["npcs"] = npcs
                 if "npcs" in ram:
                     last_npcs = json.loads(json.dumps(ram["npcs"]))
+                if ram.pop("battle_same", False):
+                    ram["battle"] = json.loads(json.dumps(last_battle))
+                bdelta = ram.pop("battle_delta", None)
+                if bdelta is not None:
+                    ram["battle"] = {**json.loads(json.dumps(last_battle)), **bdelta}
+                if "battle" in ram:
+                    last_battle = json.loads(json.dumps(ram["battle"]))
             dec = rec.get("decision")
             if rec.pop("milestones_same", False):
                 dec["milestones"] = json.loads(json.dumps(last_ms))
