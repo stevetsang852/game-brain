@@ -71,3 +71,30 @@ def test_decision_actor_defaults_and_validation():
     assert to_envelope(Decision(brain="human", plan="p", actor="human"), 0)["payload"]["actor"] == "human"
     with pytest.raises(SchemaError):
         Decision(brain="x", plan="p", actor="robot")
+
+
+def test_decision_nav_fields_optional_and_roundtrip():
+    plain = Decision(brain="rule", plan="p")
+    d = plain.to_dict()
+    assert "goal" not in d and "path" not in d and "milestones" not in d  # omitted when None
+    nav = Decision(brain="path", plan="p", goal="Leave the bedroom", path=[(6, 6), [7, 6]],
+                   milestones=[{"id": "intro", "label": "Intro", "done": True},
+                               {"id": "leave_bedroom", "label": "Leave the bedroom", "done": False}])
+    assert nav.path == [[6, 6], [7, 6]]
+    env = json.loads(json.dumps(to_envelope(nav, frame=3, ts=1.0)))
+    assert env["payload"]["goal"] == "Leave the bedroom" and env["payload"]["path"][0] == [6, 6]
+    assert env["payload"]["milestones"][0] == {"id": "intro", "label": "Intro", "done": True}
+    assert from_envelope(env) == nav
+    assert from_json(to_json(nav)) == nav
+    legacy = {"type": "decision", "v": 1, "brain": "rule", "plan": "p", "executed": True}  # old log line
+    old = Decision.from_dict(legacy)
+    assert old.goal is None and old.path is None and old.milestones is None
+
+
+def test_decision_nav_fields_validation():
+    with pytest.raises(SchemaError):
+        Decision(brain="path", plan="p", path=[[1, 2, 3]])
+    with pytest.raises(SchemaError):
+        Decision(brain="path", plan="p", milestones=[{"label": "no id"}])
+    with pytest.raises(SchemaError):
+        Decision(brain="path", plan="p", goal=5)
