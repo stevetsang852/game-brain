@@ -4,6 +4,9 @@ runs/
 roms/
 saves/
 bios/
+notes/
+README.md
+requirements.txt
 *.gba
 *.gbc
 *.gb
