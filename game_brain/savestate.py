@@ -112,7 +112,8 @@ class SaveManager:
     def __init__(self, save_dir: "str | Path", adapter, brains: List[str], run_id: str,
                  every: int = DEFAULT_SAVE_EVERY, on_milestone: bool = True,
                  resumed_from: Optional[str] = None, roots: Optional[Iterable[Path]] = None,
-                 keep_periodic: int = DEFAULT_KEEP_PERIODIC):
+                 keep_periodic: int = DEFAULT_KEEP_PERIODIC,
+                 extra: Optional[Dict[str, Any]] = None):
         self.root = check_save_dir(save_dir, roots)
         self.dir = self.root / run_id
         self.adapter = adapter
@@ -123,6 +124,8 @@ class SaveManager:
         self.pruned: List[str] = []          # sidecar paths deleted by prune_periodic()
         self.on_milestone = on_milestone
         self.resumed_from = resumed_from
+        self.extra = extra if extra is not None else {}   # copied into every sidecar at save time
+                                                          # (live dict: e.g. the starter pick)
         self.commit = git_commit()
         self.saved: List[Dict[str, Any]] = []
         self._done: Optional[set] = None
@@ -210,6 +213,7 @@ class SaveManager:
             "rom_sha1": getattr(a, "rom_sha1", None), "brains": self.brains,
             "git_commit": self.commit, "run_id": self.run_id, "resumed_from": self.resumed_from,
             "timestamp": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            **json.loads(json.dumps(self.extra)),
         }
         side_path = base.with_suffix(".json")
         _atomic_write(side_path, (json.dumps(side, indent=1) + "\n").encode())

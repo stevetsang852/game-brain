@@ -68,15 +68,17 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
         seed: int = 0, steps: int = 0, step_delay: float = 0.25, screenshot_every: int = 1,
         out_dir: str = "runs", quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
-        resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC) -> dict:
+        resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
+        starter: Optional[str] = None) -> dict:
     """Adapter / brains (battle, path + FireRed milestones, rule) / saves come from
     :class:`game_brain.setup.Session`, the same setup the CLI uses. ``save_dir`` None = no saves."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
-                   quiet=quiet, keep_periodic=keep_periodic)
+                   quiet=quiet, keep_periodic=keep_periodic, starter=starter)
     adapter, arbiter = sess.adapter, sess.arbiter
     if not quiet:
         c = sess.config()
         print(f"setup: adapter={c['adapter']} brains={','.join(n for n, _ in c['brains'])} mode={c['mode']} "
+              f"starter={c['starter']['requested']}->{c['starter_plan']} (seed {c['starter']['seed']}) "
               f"milestones={len(c['milestones'] or [])} saves={c['save_dir'] or 'off'}"
               + (f" every={c['save_every']}" if c['saving'] else "")
               + (f" resumed_from={c['resumed_from']}" if c['resumed_from'] else ""))
@@ -109,6 +111,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                 "executed_action": result.executed.to_dict() if result.executed else None,
                 "frames_advanced": advanced, "pending_manual": arbiter.pending_manual,
                 "notes": list(result.notes) + outcomes, "display": pacer.status(),
+                "starter": dict(sess.starter_info),
             }})
             if not quiet and outcomes:
                 print(f"step {step} frame {obs.frame}: " + "; ".join(outcomes))
@@ -125,7 +128,8 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
         summary = {"steps": step - sess.start_step, "final_frame": adapter.frame, "mode_final": arbiter.mode.value,
                    "log": str(sess.log_path), "saves": sess.saves,
                    "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None,
-                   "wall_seconds": round(time.time() - t0, 3), "stopped_by": stop.name}
+                   "wall_seconds": round(time.time() - t0, 3), "stopped_by": stop.name,
+                   "starter": dict(sess.starter_info)}
         log.event("summary", **summary)
     adapter.close()
     return summary
@@ -153,7 +157,7 @@ def main(argv=None) -> int:
             s = run(server, a.adapter, a.mode, a.brains, a.seed, a.steps, a.step_delay,
                     a.screenshot_every, a.out, a.quiet, battle_confidence=a.battle_confidence,
                     save_dir=save_dir_from_args(a), save_every=a.save_every, resume=a.resume,
-                    keep_periodic=a.keep_periodic)
+                    keep_periodic=a.keep_periodic, starter=a.starter)
         except (ValueError, FileNotFoundError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2

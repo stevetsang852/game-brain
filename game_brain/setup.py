@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import random
 import signal
 import sys
 import threading
@@ -33,11 +34,34 @@ from . import savestate
 from .adapters import make_adapter
 from .arbiter import Arbiter
 from .brain import make_brains
+from .brain.goals import FR_STARTER, FR_STARTER_BALLS
 from .schema import Mode
 
 #: brains that get the full FireRed stack (battle in battle, A* + milestones outside, A-mash fallback)
 FULL_BRAINS = "battle,path,rule"
 MGBA_NAMES = ("mgba", "gba_mgba", "firered")
+
+
+#: --starter choices; the ball positions are in brain/goals.py (FR_STARTER_BALLS)
+STARTERS = tuple(sorted(k.lower() for k in FR_STARTER_BALLS))      # bulbasaur, charmander, squirtle
+#: --starter default (YIN): random, chosen from --seed (seed 0 -> bulbasaur, as before --starter)
+DEFAULT_STARTER = "random"
+
+
+def default_starter() -> str:
+    """``--starter`` default: $GAME_BRAIN_STARTER (e.g. set by compose.yaml) or ``random``."""
+    return (os.environ.get("GAME_BRAIN_STARTER") or DEFAULT_STARTER).strip().lower()
+
+
+def resolve_starter(spec: str, seed: int) -> str:
+    """``random`` -> one of :data:`STARTERS`, chosen from ``seed`` only (a string-seeded
+    ``random.Random``, stable across Python versions and processes); a name -> itself."""
+    spec = (spec or DEFAULT_STARTER).strip().lower()
+    if spec == "random":
+        return random.Random(f"game-brain-starter:{int(seed)}").choice(STARTERS)
+    if spec not in STARTERS:
+        raise ValueError(f"unknown starter {spec!r} (choose from {', '.join(STARTERS)} or random)")
+    return spec
 
 
 def resolve_adapter(name: str) -> str:
@@ -63,6 +87,9 @@ def add_run_args(ap: argparse.ArgumentParser, *, adapter_default: str, brains_de
     ap.add_argument("--battle-confidence", type=float, default=None, metavar="X",
                     help="RuleBattleBrain confidence threshold 0-1 (default 0.6); below it hands off in assist")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--starter", default=None, type=str.lower, choices=list(STARTERS) + ["random"],
+                    help="starter Pokemon to pick in Oak's lab: random (default, or $GAME_BRAIN_STARTER) = chosen "
+                         "from --seed; or a fixed one. On --resume the save's recorded choice is used (no re-roll)")
     ap.add_argument("--out", default="runs")
     ap.add_argument("--save-dir", default=None, metavar="DIR",
                     help="save states go here (default ~/.game-brain/saves or $GAME_BRAIN_SAVE_DIR; "
@@ -130,7 +157,8 @@ class Session:
                  seed: int = 0, battle_confidence: Optional[float] = None, out_dir: str = "runs",
                  save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
                  resume: Optional[str] = None, quiet: bool = False,
-                 keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC):
+                 keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
+                 starter: Optional[str] = None):
         self.quiet = quiet
         self.seed = seed
         self.battle_confidence = battle_confidence
@@ -143,7 +171,28 @@ class Session:
             if self.side.get("_sav_path") and adapter_name in MGBA_NAMES:
                 kw["battery"] = open(self.side["_sav_path"], "rb").read()
         self.adapter = make_adapter(adapter_name, **kw)
-        self.brains = make_brains(brains, seed=seed, battle_confidence=battle_confidence)
+        # the starter. ``starter_info`` = {"requested", "picked", "seed"} (log header / status / summary /
+        # every sidecar); "picked" stays None until the ball is taken in Oak's lab (get_starter done).
+        # On resume the save's record is used: never a re-roll.
+        requested = (starter or default_starter()).strip().lower()
+        if self.side is not None:
+            rec = self.side.get("starter")
+            if not isinstance(rec, dict):   # saves from before --starter: bulbasaur was the only choice
+                got = "get_starter" in (self.side.get("milestones_done") or ())
+                rec = {"requested": "bulbasaur", "picked": "bulbasaur" if got else None, "seed": seed}
+            self.starter_info = {"requested": rec.get("requested"), "picked": rec.get("picked"),
+                                 "seed": rec.get("seed", seed)}
+            self.starter = rec.get("picked") or resolve_starter(rec.get("requested"), rec.get("seed", seed))
+            self.starter_source = "resume"
+            if starter is not None and starter.lower() not in ("random", self.starter):
+                print(f"warning: --starter {starter} ignored: the save's starter is {self.starter} "
+                      f"(requested {self.starter_info['requested']}, seed {self.starter_info['seed']}); "
+                      "--resume keeps it", file=sys.stderr)
+        else:
+            self.starter = resolve_starter(requested, seed)
+            self.starter_info = {"requested": requested, "picked": None, "seed": seed}
+            self.starter_source = "random" if requested == "random" else "flag"
+        self.brains = make_brains(brains, seed=seed, battle_confidence=battle_confidence, starter=self.starter)
         self.arbiter = Arbiter(self.brains, mode=mode)
         self.arbiter.reset()
         self.start_step = 0
@@ -171,7 +220,7 @@ class Session:
         if save_dir:
             self.saver = savestate.SaveManager(save_dir, self.adapter, [b.name for b in self.brains], self.run_id,
                                                every=save_every, resumed_from=side["_path"] if side else None,
-                                               keep_periodic=keep_periodic)
+                                               keep_periodic=keep_periodic, extra={"starter": self.starter_info})
             if not self.saver.enabled:
                 print(f"warning: adapter {self.adapter.name} has no save states; --save-dir ignored",
                       file=sys.stderr)
@@ -181,12 +230,12 @@ class Session:
     def from_args(cls, a: argparse.Namespace, quiet: Optional[bool] = None) -> "Session":
         return cls(a.adapter, a.brains, a.mode, a.seed, a.battle_confidence, a.out, save_dir_from_args(a),
                    a.save_every, a.resume, quiet=a.quiet if quiet is None else quiet,
-                   keep_periodic=a.keep_periodic)
+                   keep_periodic=a.keep_periodic, starter=a.starter)
 
     # ------------------------------------------------------------------ run-loop hooks
     def header_info(self, **extra: Any) -> Dict[str, Any]:
         info = {"adapter": self.adapter.name, "brains": [b.name for b in self.brains],
-                "mode": self.arbiter.mode.value, **extra}
+                "mode": self.arbiter.mode.value, "starter": dict(self.starter_info), **extra}
         if self.resumed_from:
             info["resumed_from"] = self.resumed_from
         return info
@@ -194,6 +243,7 @@ class Session:
     def start(self, log):
         """reset() the adapter (and load the resume state); returns the first observation."""
         obs = self.adapter.reset()
+        log.event("starter", **self.starter_info, plan=self.starter, source=self.starter_source)
         side = self.side
         if side is not None:
             obs = self.adapter.load_state(savestate.read_state(side), frame=side["frame"],
@@ -208,8 +258,17 @@ class Session:
     def saving(self) -> bool:
         return bool(self.saver and self.saver.enabled)
 
+    def note_starter(self, log, steps_done: int, result) -> None:
+        """``starter_info["picked"]`` is set once the get_starter milestone is done (party >= 1)."""
+        if self.starter_info["picked"] is None and result is not None and any(
+                m.get("id") == "get_starter" and m.get("done") for m in result.decision.milestones or ()):
+            self.starter_info["picked"] = self.starter
+            log.event("starter_picked", step=steps_done, **self.starter_info)
+
     def after_step(self, log, steps_done: int, result) -> None:
-        """Call after log.step(): milestone / periodic saves (logged as ``save`` events)."""
+        """Call after log.step(): notes the starter pick, then milestone / periodic saves (``save``
+        events); a save at the get_starter milestone already records the pick."""
+        self.note_starter(log, steps_done, result)
         if not self.saving:
             return
         n_pruned = len(self.saver.pruned)
@@ -231,7 +290,8 @@ class Session:
         """What was built (tests compare the CLI and the dashboard with this)."""
         out = {"adapter": self.adapter.name, "adapter_class": type(self.adapter).__name__,
                "brains": [(b.name, type(b).__name__) for b in self.brains], "mode": self.arbiter.mode.value,
-               "seed": self.seed, "battle_confidence": None, "milestones": None,
+               "seed": self.seed, "battle_confidence": None, "milestones": None, "starter": dict(self.starter_info),
+               "starter_plan": self.starter,
                "save_dir": str(self.saver.root) if self.saver else None,
                "save_every": self.saver.every if self.saver else None, "saving": self.saving,
                "keep_periodic": self.saver.keep_periodic if self.saver else None,

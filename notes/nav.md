@@ -223,7 +223,10 @@ from-boot run below.
   Squirtle, (10,4) = Charmander. Facing (8,4) from (8,5) and pressing A showed
   "I see! BULBASAUR is your choice". The rival then took Charmander from (10,4).
 * **Why Bulbasaur:** it's strong against the first two gyms (Brock, Misty) and simple to
-  use. `firered_milestones("CHARMANDER")` / `("SQUIRTLE")` picks another.
+  use. `firered_milestones("CHARMANDER")` / `("SQUIRTLE")` picks another; from the CLI / dashboard:
+  `--starter charmander|squirtle|random` (game_brain/setup.py). The rival always takes the counter
+  starter (Bulbasaur → Charmander, Charmander → Squirtle, Squirtle → Bulbasaur), read from the
+  rival battle's species on the ROM; see the `--starter` PR for full runs with each starter.
 * **Prompt order after A on the ball:**
   1. text;
   2. "you want to go with the GRASS POKéMON BULBASAUR?" YES/NO, with the cursor on YES, so A = YES;

@@ -77,6 +77,7 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
 - `{"type": "frame_ack", "frame": <int >= 0>}`: sent by the page after it has drawn a screenshot (auto only).
 - Until the page sends `view_config`, the CLI `--step-delay` / `--screenshot-every` apply unchanged (`mode: "cli"`).
 - Every `status` carries `display: {mode, fps, target_fps, actual_fps, frame_fps, page_ms}`; the page shows it under the slider.
+- Every `status` carries `starter: {requested, picked, seed}`: `requested` = `random` | `bulbasaur` | `charmander` | `squirtle` (`--starter`, default `random`), `picked` = the starter taken in Oak's lab or `null` before that, `seed` = the seed a random pick comes from (`--seed`; on `--resume` the save's). The same object is in the log header, the run summary and every save sidecar.
 
 ## 存檔 / 續玩（save / resume）協定
 
