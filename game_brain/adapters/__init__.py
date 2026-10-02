@@ -14,7 +14,10 @@ def make_adapter(name: str, **kwargs) -> Adapter:
     if name in ("mock-house", "mock_house"):
         from .mock import MockHouseAdapter
         return MockHouseAdapter(**kwargs)
+    if name in ("mock-battle", "mock_battle"):
+        from .mock import MockBattleAdapter
+        return MockBattleAdapter(**kwargs)
     if name in ("mgba", "gba_mgba", "firered"):
         from .gba_mgba import MgbaFireRedAdapter
         return MgbaFireRedAdapter(**kwargs)
-    raise ValueError(f"unknown adapter {name!r} (available: mock, mock-house, mgba)")
+    raise ValueError(f"unknown adapter {name!r} (available: mock, mock-house, mock-battle, mgba)")

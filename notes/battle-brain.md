@@ -226,3 +226,13 @@ class BattleBrain(Brain):              # decide(obs) -> (Action, Decision)，同
 6. `Decision.intent` 夠唔夠用？定係 overworld 都要用 intent（例如 `"WALK:(8,5)"`）統一？
 7. 第一場勁敵戰：要唔要追求必勝（例如先 Growl 兩次）？定係接受亂數，輸咗都當過關？
 8. Jev early access 同費用由邊個申請、邊個批？
+
+## 8. 實作狀態（RuleBattleBrain PR）
+
+- `game_brain/brain/battle/`：`state.py`（`ram["battle"]` → `BattleState`）、`estimate.py`（Gen III 傷害，IV 15、平均亂數 0.925）、`compiler.py`（2×2 選單，唔 wrap，一步撳一下）、`rule.py`。
+- 資料：`game_brain/data/`，PokeAPI（BSD-3）commit `bc92d3b6`，Gen III 數值（`*_past` 表＋`move_changelog`）；`fr_index` = FireRed 內部種族編號。冇用 pokefirered 數據。
+- **舊數據**（Backend：`outcome` 同雙方寵物資料打完唔會清）：
+  - `outcome` 只係顯示，唔當結束訊號；結束以 `in_battle` 變 False 為準。
+  - 每場戰開始都當寵物資料唔可信，直到見到 `menu` 係 `action`/`move` 而且雙方 HP > 0。之前只會等或者撳 B 過對白，唔會揀招。
+- 里程碑：`rival_battle`（行向出口，`in_battle` True = done）→ `rival_battle_over`（返到 overworld、`in_battle` False）→ `route_1`（placeholder）。
+- 真 ROM（由開機，`battle,path,rule`）：勁敵喺 (7,8) 截停；戰鬥由 step 1147 到 2530（1384 步，揀咗 13 次 METRONOME），**贏**；step 2533 返到 4/3 (7,8)，`party_count` 1；replay 0 mismatch。

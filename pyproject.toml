@@ -16,3 +16,4 @@ testpaths = ["tests"]
 
 [tool.setuptools.package-data]
 "game_brain.dashboard" = ["static/*.html"]
+"game_brain.data" = ["*.json", "NOTICE.md"]

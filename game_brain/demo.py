@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 from .adapters import make_adapter
 from .arbiter import Arbiter
-from .brain import make_brain
+from .brain import make_brains
 from .runlog import RunLogWriter
 from .schema import Mode, ModeCommand
 
@@ -32,12 +32,9 @@ def _parse_switches(items: List[str]) -> Dict[int, Mode]:
 
 def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains: str = "rule,random",
         seed: int = 0, out_dir: str = "runs", switches: Optional[Dict[int, Mode]] = None,
-        screenshot_every: int = 0, quiet: bool = False) -> dict:
+        screenshot_every: int = 0, quiet: bool = False, battle_confidence: Optional[float] = None) -> dict:
     adapter = make_adapter(adapter_name)
-    brain_objs = []
-    for name in brains.split(","):
-        name = name.strip()
-        brain_objs.append(make_brain(name, seed=seed) if name == "random" else make_brain(name))
+    brain_objs = make_brains(brains, seed=seed, battle_confidence=battle_confidence)
     arbiter = Arbiter(brain_objs, mode=mode)
     arbiter.reset()
     switches = switches or {}
@@ -89,7 +86,10 @@ def main(argv=None) -> int:
     ap.add_argument("--adapter", default="mock", help="adapter name: mock | mgba (mgba needs $GAME_BRAIN_ROM)")
     ap.add_argument("--steps", type=int, default=60)
     ap.add_argument("--mode", default="auto", choices=[m.value for m in Mode])
-    ap.add_argument("--brains", default="rule,random", help="priority list, e.g. llm,rule,random")
+    ap.add_argument("--brains", default="rule,random",
+                    help="priority list, e.g. battle,path,rule (battle first: it only acts in battle)")
+    ap.add_argument("--battle-confidence", type=float, default=None, metavar="X",
+                    help="RuleBattleBrain confidence threshold 0-1 (default 0.6); below it hands off in assist")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="runs")
     ap.add_argument("--switch", action="append", default=[], metavar="STEP:MODE",
@@ -98,7 +98,7 @@ def main(argv=None) -> int:
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args(argv)
     s = run(a.adapter, a.steps, a.mode, a.brains, a.seed, a.out, _parse_switches(a.switch),
-            a.screenshot_every, a.quiet)
+            a.screenshot_every, a.quiet, battle_confidence=a.battle_confidence)
     print("\n=== summary ===")
     for k, v in s.items():
         print(f"{k}: {v}")

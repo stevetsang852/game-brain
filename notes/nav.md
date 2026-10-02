@@ -96,9 +96,14 @@ Once a milestone is done it stays done.
 
 * **M1:** `intro` → `leave_bedroom` (warp to 4/0) → `leave_house` (warp to 3/0) → `pallet_town`.
 * **M2:** `oak_stops_you` → `oak_lab` → `get_starter` (details below).
-* **Next** (placeholder): `rival_battle`, `script_button="B"`. PathBrain finishes the starter
-  dialogue with B (B answers NO to "give a nickname?", so the naming screen never opens), then
-  idles (`idle_on_placeholder=False` makes it report unavailable instead).
+* **Rival:** `rival_battle` (target: the lab exit warp to 3/0, `script_button="B"`; done when
+  `in_battle` is True) → `rival_battle_over` (done back in the overworld with `in_battle` False).
+  PathBrain finishes the starter dialogue with B (B answers NO to "give a nickname?", so the
+  naming screen never opens), then walks to the exit; the rival stops you at (7,8). The battle
+  brain (or RuleBrain without one) plays the battle; PathBrain still sees every observation via
+  `observe()` from the arbiter. Win or lose you are back at (7,8).
+* **Next** (placeholder): `route_1`. PathBrain idles (`idle_on_placeholder=False` makes it report
+  unavailable instead).
 
 Done-detection uses only verified signals:
 
@@ -215,7 +220,8 @@ detected by behaviour instead ("a turn didn't take"), so no RAM is needed for th
 * Water / surf tiles that show as `.`. In Pallet Town the south water has collision 0, but you
   can't walk on it.
 * Map connections (walking off the edge of an outdoor map into the next one).
-* Battles: the rival battle after the starter isn't handled; PathBrain idles before it.
+* Battles: PathBrain does not wait through the ~20-step pre-battle transition (no position, `in_battle`
+  still False); RuleBrain presses A there.
 * Scripts are handled by "press A/B while frozen". A script that needs a menu answer other than
   the default (YES) would need its own milestone.
 * Moving NPCs are handled only by bump-and-replan.

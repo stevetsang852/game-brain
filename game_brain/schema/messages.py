@@ -165,8 +165,17 @@ class Decision:
     goal: Optional[str] = None                       # human-readable current goal
     path: Optional[List[List[int]]] = None           # [[x, y], ...] grid coords; first = current position
     milestones: Optional[List[Dict[str, Any]]] = None  # [{"id", "label", "done"}, ...]
+    #: Optional battle info (RuleBattleBrain; notes/battle-brain.md section 5). Omitted when None.
+    intent: Optional[str] = None                     # BattleAction being executed, e.g. "FIGHT:0"
+    battle: Optional[Dict[str, Any]] = None          # summary of ram["battle"] (type, turn, player, opponent)
+    battle_options: Optional[List[Dict[str, Any]]] = None  # [{"id", "label", "score"}, ...]
+    chosen_option: Optional[str] = None              # id of the chosen option
+    confidence: Optional[float] = None               # 0..1
+    handoff: Optional[bool] = None                   # True = waiting for a human (Assist)
 
     TYPE = "decision"
+    OPTIONAL = ("goal", "path", "milestones", "intent", "battle", "battle_options", "chosen_option",
+                "confidence", "handoff")
     ACTORS = ("brain", "human", "none")
 
     def __post_init__(self) -> None:
@@ -189,12 +198,37 @@ class Decision:
                 out.append({"id": str(m["id"]), "label": str(m.get("label", m["id"])),
                             "done": bool(m.get("done", False))})
             self.milestones = out
+        for k in ("intent", "chosen_option"):
+            if getattr(self, k) is not None and not isinstance(getattr(self, k), str):
+                raise SchemaError(f"{k} must be a string or None")
+        if self.battle is not None and not isinstance(self.battle, dict):
+            raise SchemaError("battle must be a dict or None")
+        if self.battle_options is not None:
+            out = []
+            for o in self.battle_options:
+                if not isinstance(o, dict) or "id" not in o:
+                    raise SchemaError("battle_options must be a list of {id, label, score}")
+                item = {"id": str(o["id"]), "label": str(o.get("label", o["id"]))}
+                if o.get("score") is not None:
+                    item["score"] = round(float(o["score"]), 4)
+                out.append(item)
+            self.battle_options = out
+        if self.confidence is not None:
+            try:
+                c = float(self.confidence)
+            except (TypeError, ValueError):
+                raise SchemaError("confidence must be a number in [0, 1]") from None
+            if not 0.0 <= c <= 1.0:
+                raise SchemaError("confidence must be a number in [0, 1]")
+            self.confidence = round(c, 4)
+        if self.handoff is not None:
+            self.handoff = bool(self.handoff)
 
     def to_dict(self) -> Dict[str, Any]:
         d = {"type": self.TYPE, "v": SCHEMA_VERSION, "brain": self.brain, "plan": self.plan,
              "reason": self.reason, "mode": self.mode, "executed": self.executed,
              "actor": self.actor}
-        for k in ("goal", "path", "milestones"):
+        for k in self.OPTIONAL:
             v = getattr(self, k)
             if v is not None:
                 d[k] = v
@@ -205,8 +239,7 @@ class Decision:
         _check_type(d, cls.TYPE)
         return cls(brain=d["brain"], plan=d.get("plan", ""), reason=d.get("reason", ""),
                    mode=Mode.parse(d.get("mode", "auto")).value, executed=bool(d.get("executed", True)),
-                   actor=d.get("actor", "brain"), goal=d.get("goal"), path=d.get("path"),
-                   milestones=d.get("milestones"))
+                   actor=d.get("actor", "brain"), **{k: d.get(k) for k in cls.OPTIONAL})
 
 
 # --------------------------------------------------------------------------- ModeCommand

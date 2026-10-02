@@ -230,7 +230,12 @@ def test_pathbrain_walks_mock_house_through_m2_and_replays(tmp_path):
     last = steps[-1]["decision"]
     assert last["brain"] == "path" and "not implemented yet -> idle" in last["reason"]
     done = {m["id"]: m["done"] for m in last["milestones"]}
-    assert done["get_starter"] and not done["rival_battle"]
+    assert done["get_starter"] and done["rival_battle"] and done["rival_battle_over"] and not done["route_1"]
+    # the mock rival stopped us on row 8; the battle (no ram["battle"]) was RuleBrain's A presses
+    battle = [r for r in steps if r["observation"]["ram"].get("in_battle") is True]
+    assert battle and all(r["decision"]["brain"] == "rule" for r in battle)
+    after = steps[steps.index(battle[-1]) + 1]["observation"]["ram"]
+    assert (after["map_bank"], after["map_id"], after["player_x"], after["player_y"]) == (4, 3, 7, 8)
     assert any(r["decision"].get("path") for r in steps)
     assert replay(s["log"], MockHouseAdapter()) == []
 
@@ -262,8 +267,9 @@ def test_real_firered_pathbrain_gets_starter(tmp_path):
     fr = s["final_ram"]
     assert (fr["map_bank"], fr["map_id"], fr["party_count"], fr["scene"]) == (4, 3, 1, "overworld")
     assert all(r["decision"].get("milestones") for r in steps)
-    last = steps[-1]["decision"]
-    assert "not implemented yet -> idle" in last["reason"]   # dialogue finished, nickname declined
+    done = {m["id"]: m["done"] for m in steps[-1]["decision"]["milestones"]}
+    assert done["get_starter"]   # next: walk to the exit (the rival battle: tests/test_battle_brain_real.py)
+    assert any("press B" in r["decision"]["reason"] for r in steps)   # nickname declined
     a = make_adapter("mgba")
     assert replay(s["log"], a) == []
     # starter is Bulbasaur (species 1), not renamed: decrypt party slot 0 (gen-3 substructure layout)

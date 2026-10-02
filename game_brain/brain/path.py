@@ -119,6 +119,15 @@ class PathBrain(Brain):
         self._blocked = {k: v for k, v in self._blocked.items() if v > self._t}
         return {tile for (m, tile) in self._blocked if m == self._map}
 
+    def observe(self, obs: Observation) -> dict:
+        """Called by the arbiter when another brain acted first (e.g. the battle brain): keep the
+        milestones up to date and return them as decision context."""
+        milestone = self.planner.update(obs)
+        ctx = {"milestones": self.planner.summary()}
+        if milestone is not None:
+            ctx["goal"] = milestone.label
+        return ctx
+
     def _unavailable(self, msg: str, milestone=None) -> BrainUnavailable:
         ctx = {"milestones": self.planner.summary()}
         if milestone is not None:
