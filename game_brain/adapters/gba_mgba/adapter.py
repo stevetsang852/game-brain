@@ -39,6 +39,7 @@ class MgbaFireRedAdapter(Adapter):
         self._frame = 0
         self.rom_sha1: Optional[str] = None
         self.ram: Optional[FireRedRam] = None
+        self._battle_ready = False  # see observe(): battle data is stale until this battle's first menu
         if self._core is None:
             self._open()
 
@@ -70,6 +71,7 @@ class MgbaFireRedAdapter(Adapter):
                 self._core.load_raw_state(f.read())
         self._core.set_keys(raw=0)
         self._frame = 0
+        self._battle_ready = False
         if self.ram is None:  # mGBA only exposes memory after the first reset()
             m = self._core.memory
             self.ram = FireRedRam(lambda a: m.u8[a], lambda a: m.u16[a], lambda a: m.u32[a])
@@ -85,7 +87,17 @@ class MgbaFireRedAdapter(Adapter):
         ram = self.ram.read()
         ram.update(read_extra(self.ram, ram))  # M2 nav keys (npcs, party_count); firered_extra.py
         if ram.get("in_battle"):
-            ram["battle"] = read_battle(self.ram)  # firered_battle.py
+            battle = read_battle(self.ram)  # firered_battle.py
+            # gBattleMons and gBattleOutcome keep the previous battle's values for the first
+            # few observations of a new battle (verified on the ROM, notes/mgba-bridge.md), so
+            # only trust them once this battle has shown its first action/move menu.
+            if battle["menu"] in ("action", "move"):
+                self._battle_ready = True
+            if not self._battle_ready:
+                battle["player"] = battle["opponent"] = battle["outcome"] = None
+            ram["battle"] = battle
+        else:
+            self._battle_ready = False
         return Observation(frame=self._frame, game="POKEMON FIRE (BPRE)", ram=ram)
 
     def act(self, action: Action) -> int:

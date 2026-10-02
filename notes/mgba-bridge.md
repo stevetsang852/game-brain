@@ -122,8 +122,15 @@ right before it (not in the repo).
 
 Other things found while checking:
 
-* For the first ~5 observations after `in_battle` turns True, `gBattleMons` is still all 0, so
-  `player` and `opponent` are None.
+* **Stale values at the start of a battle.** `gBattleMons` and `gBattleOutcome` keep the
+  previous battle's values. Test: before the rival battle starts, I wrote outcome = 1 and other
+  species/HP into both slots. `in_battle` turned True at step 19, with `callback2` `0x08010509`.
+  Raw outcome was still 1 until step 23, when `callback2` became `0x08011101` (battle main
+  loop). The mons were refreshed one step later, at step 24. So the adapter only reports
+  `player`, `opponent` and `outcome` once the current battle has shown its first action or move
+  menu. Before that they are None. In the rival battle that menu first appears at step 279, so
+  those keys are None during the intro text. The flag resets when `in_battle` goes False and on
+  `reset()`.
 * B advances battle text, the same as A.
 * Gen 3 remembers the cursor between turns. Pressing past an edge does not wrap.
 * **Losing the rival battle does not stop the story.** After a loss the player is back in the

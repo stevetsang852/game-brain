@@ -130,6 +130,9 @@ def test_battle_dict_only_while_in_battle():
     assert b["player"] is None and b["opponent"] is None
     _put_mon(core, 0, 1, 5, 22, 22, [(118, 40)])            # values seen in the rival battle
     _put_mon(core, 1, 4, 5, 14, 20, [(118, 40)])
+    core.memory.put(fb.G_BATTLER_CONTROLLER_FUNCS, fb.CTRL_CHOOSE_ACTION, 4)
+    a.observe()                                              # first menu of this battle
+    core.memory.put(fb.G_BATTLER_CONTROLLER_FUNCS, 0, 4)
     b = a.observe().ram["battle"]
     assert b["player"] == {"species": 1, "level": 5, "hp": 22, "max_hp": 22, "moves": [{"id": 118, "pp": 40}]}
     assert b["opponent"]["hp_pct"] == 70 and b["opponent"]["species"] == 4
@@ -158,6 +161,32 @@ def test_battle_menu_cursor_and_outcome():
     for raw, want in ((0, None), (1, "win"), (2, "lose"), (4, "unknown")):
         core.memory.put(fb.G_BATTLE_OUTCOME, raw, 1)
         assert a.observe().ram["battle"]["outcome"] == want
+
+
+def test_battle_data_hidden_until_first_menu_of_each_battle():
+    # gBattleMons / gBattleOutcome still hold the previous battle for a few observations
+    core = FakeCore()
+    a = MgbaFireRedAdapter(core=core)
+    a.reset()
+    _put_mon(core, 0, 25, 9, 7, 30, [(33, 35)])              # leftovers from a "previous battle"
+    _put_mon(core, 1, 19, 3, 0, 12, [(33, 35)])
+    core.memory.put(fb.G_BATTLE_OUTCOME, 1, 1)
+    core.memory.put(fr.MAIN_FLAGS_439, 0x02, 1)
+    b = a.observe().ram["battle"]
+    assert b["player"] is None and b["opponent"] is None and b["outcome"] is None
+    _put_mon(core, 0, 1, 5, 22, 22, [(118, 40)])
+    _put_mon(core, 1, 4, 5, 20, 20, [(118, 40)])
+    core.memory.put(fb.G_BATTLE_OUTCOME, 0, 1)
+    core.memory.put(fb.G_BATTLER_CONTROLLER_FUNCS, fb.CTRL_CHOOSE_ACTION, 4)
+    assert a.observe().ram["battle"]["player"]["species"] == 1
+    core.memory.put(fb.G_BATTLER_CONTROLLER_FUNCS, 0, 4)      # text after the menu: still trusted
+    core.memory.put(fb.G_BATTLE_OUTCOME, 2, 1)
+    assert a.observe().ram["battle"]["outcome"] == "lose"
+    core.memory.put(fr.MAIN_FLAGS_439, 0x00, 1)               # battle over -> next battle starts untrusted
+    assert "battle" not in a.observe().ram
+    core.memory.put(fr.MAIN_FLAGS_439, 0x02, 1)
+    b = a.observe().ram["battle"]
+    assert b["player"] is None and b["outcome"] is None
 
 
 def test_reset_restarts_frame_counter():
