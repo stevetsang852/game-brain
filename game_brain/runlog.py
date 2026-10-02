@@ -22,8 +22,16 @@ carry the full decision and both actions.
   still written explicitly as ``"executed_action": null``, and a different one (SHADOW idle
   wait, ASSIST human preempt, MANUAL) is written in full, so the two cases never collide.
 
-:func:`iter_steps` (and so :func:`replay`) restores ``decision.milestones`` and
-``executed_action`` on every step and strips both markers. Logs written before these
+Step-line ``observation.ram.npcs`` dedupe (NPCs walk, so they can't go in the per-map
+record). Compared with the previous step that had an ``npcs`` key:
+
+* unchanged list -> key dropped, ``observation.ram`` carries ``"npcs_same": true``;
+* same length, some entries changed -> ``"npcs_delta": {"<index>": npc, ...}`` with only the
+  changed entries (list index = object-event slot order, which is stable);
+* anything else (first NPC step, NPC count changed, delta not smaller) -> full ``npcs`` list.
+
+:func:`iter_steps` (and so :func:`replay`) restores ``decision.milestones``, ``npcs`` and
+``executed_action`` on every step and strips the markers. Logs written before these
 optimisations have no markers and pass through unchanged.
 
 Determinism: replaying ``executed_action`` of every step against the same start state
@@ -53,6 +61,24 @@ class RunLogWriter:
         self._map_ref = -1
         self._last_map: Optional[Dict[str, Any]] = None
         self._last_milestones: Optional[List[Dict[str, Any]]] = None
+        self._last_npcs: Optional[List[Dict[str, Any]]] = None
+
+    def _dedupe_npcs(self, summary: Dict[str, Any]) -> None:
+        ram = summary.get("ram") or {}
+        if "npcs" not in ram:
+            return
+        npcs, last = ram["npcs"], self._last_npcs
+        self._last_npcs = json.loads(json.dumps(npcs))
+        if not isinstance(npcs, list) or not isinstance(last, list):
+            return
+        if npcs == last:
+            del ram["npcs"]
+            ram["npcs_same"] = True
+        elif len(npcs) == len(last):
+            delta = {str(i): n for i, (n, o) in enumerate(zip(npcs, last)) if n != o}
+            if len(json.dumps(delta)) < len(json.dumps(npcs)):
+                del ram["npcs"]
+                ram["npcs_delta"] = delta
 
     def _dedupe_map(self, step: int, frame: int, summary: Dict[str, Any]) -> None:
         ram = summary.get("ram") or {}
@@ -90,6 +116,7 @@ class RunLogWriter:
              ts: Optional[float] = None) -> None:
         summary = obs.summary()
         self._dedupe_map(step, obs.frame, summary)
+        self._dedupe_npcs(summary)
         rec = {
             "kind": "step",
             "step": step,
@@ -136,6 +163,7 @@ def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
     ``executed_action`` restored where the writer deduped them. Old logs pass through unchanged."""
     maps: Dict[int, Dict[str, Any]] = {}
     last_ms: Optional[List[Dict[str, Any]]] = None
+    last_npcs: Optional[List[Dict[str, Any]]] = None
     for rec in read_log(path):
         kind = rec.get("kind")
         if kind == "map":
@@ -145,6 +173,18 @@ def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
             ref = obs.pop("map_ref", None)
             if ref is not None:
                 obs["ram"] = {**obs.get("ram", {}), **json.loads(json.dumps(maps[ref]))}
+            ram = obs.get("ram")
+            if isinstance(ram, dict):
+                if ram.pop("npcs_same", False):
+                    ram["npcs"] = json.loads(json.dumps(last_npcs))
+                delta = ram.pop("npcs_delta", None)
+                if delta is not None:
+                    npcs = json.loads(json.dumps(last_npcs))
+                    for i, n in delta.items():
+                        npcs[int(i)] = n
+                    ram["npcs"] = npcs
+                if "npcs" in ram:
+                    last_npcs = json.loads(json.dumps(ram["npcs"]))
             dec = rec.get("decision")
             if rec.pop("milestones_same", False):
                 dec["milestones"] = json.loads(json.dumps(last_ms))
