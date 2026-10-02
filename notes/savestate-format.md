@@ -163,6 +163,11 @@ Sidecar 喺 v1 欄位之外加：
 * 套用：`resume_request {save_id, ai_status_id}` = 載入 `save_id` 嘅遊戲 state，再用 `ai_status` 嘅
   `brain_state`、`milestones_done`、`settings`（蓋過遊戲存檔自己嘅）。`brains`（名同次序）一定要同
   目前個 run 一樣，否則 `ai_status_incompatible`。ROM 唔同都套得（AI 狀態唔含遊戲資料），但回覆會講明。
+* 里程碑預設跟 `ai_status` 走（Mannger 決定，刻意設計）；`resume_request` 可以帶 `milestones: "save"` 改用
+  遊戲存檔 sidecar 嘅 `milestones_done`（喺 `import_state` 之後蓋過 PathBrain `planner`）。`milestones` 只可以同
+  `ai_status_id` 一齊用，否則 `bad_request`。`resumed` 回覆會講明實際用咗邊邊。頁面要喺套用前並排顯示兩邊
+  `milestones_done`、唔同就警告、俾用戶揀（見 [`dashboard-protocol.md`](dashboard-protocol.md)「里程碑：跟 AI 狀態定跟存檔」）。
+* `list_saves` 嘅 `game[]` 同 `ai_status[]` 每項都帶完整 `milestones_done`（照抄檔案入面嘅 list）。
 
 ### 設定（`settings`）
 
@@ -212,3 +217,16 @@ Sidecar 喺 v1 欄位之外加：
 * `list_saves` 回 `has_brain_state: false` 俾 v1 存檔，頁面可以標示「AI 狀態唔完整」。
 * 寫：實作之後一律寫 v2；唔會改寫舊檔。
 * `runlog.replay()` 唔受影響（replay 只用遊戲 state 同 executed actions）。
+
+### Run log header（`resumed_from`，v2）
+
+v2 續玩（CLI `--resume` 同 dashboard `resume_request` 一樣）嘅 run log header `resumed_from` 喺 v1 欄位
+（`sidecar, state, state_sha1, step, frame, adapter_state, sav, milestone`）之外再加：
+
+| 欄位 | 內容 |
+|---|---|
+| `ai_status_id` | 套用咗嘅 AI 狀態 id；冇套用（包括 CLI `--resume`）就係 `null` |
+| `has_brain_state` | `true` = 續玩時真係 `import_state` 咗一份 `brain_state`（嚟自 `ai_status` 或者 v2 存檔）；`false` = 冇（v1 存檔又冇 `ai_status_id`），brains 只係 `reset()` ＋還原里程碑 |
+
+* 舊 log（冇呢兩個欄位）當 `ai_status_id: null`；`has_brain_state` 冇就當唔知道（`null`）。
+* `runlog.replay()` 只用 `state`／`state_sha1`，唔睇呢兩個欄位，所以 replay 唔受影響。

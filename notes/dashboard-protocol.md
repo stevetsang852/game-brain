@@ -114,7 +114,7 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
 | `save_request` | page → server | `{req_id, label?, token?}` | ✅ 要 token（見「安全」） |
 | `ai_status_save_request` | page → server | `{req_id, label?, token?}` | ✅ 要 token |
 | `list_saves` | page → server | `{req_id}` | ❌ 只係睇（pull） |
-| `resume_request` | page → server | `{req_id, save_id, ai_status_id?, token?}` | ✅ 要 token |
+| `resume_request` | page → server | `{req_id, save_id, ai_status_id?, milestones?, token?}` | ✅ 要 token |
 | `saved` | server → page | `{req_id, save_id, kind, step, frame, map, xy, milestone}` | |
 | `saves` | server → page | `{req_id, game: [...], ai_status: [...], truncated}` | |
 | `resumed` | server → page | 見下面 | |
@@ -125,16 +125,21 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
 * `saves`：`live.py` 讀 save dir 入面嘅 sidecar（**唔讀** `.state`），遊戲存檔同 AI 狀態**分開兩個 list**，
   新到舊排，每個 list 最多 200 個（多過就 `truncated: true`）。**唔會傳任何路徑**俾頁面，只有 id。
   * `game[]`：`{save_id, run_id, reason, label, step, frame, map, xy, milestone, in_battle, timestamp,
-    format_version, has_brain_state, rom_match}`（`rom_match` = sidecar `rom_sha1` 同而家個 ROM 一樣）。
-  * `ai_status[]`：`{ai_status_id, label, brains, milestone, step, frame, timestamp, source_save_id}`。
+    format_version, has_brain_state, rom_match, milestones_done}`（`rom_match` = sidecar `rom_sha1` 同而家個 ROM 一樣）。
+  * `ai_status[]`：`{ai_status_id, label, brains, milestone, step, frame, timestamp, source_save_id, milestones_done}`。
+  * `milestones_done` = `[id, ...]`：**完整**嘅已完成里程碑 id list（照 sidecar／ai_status 檔嘅 `milestones_done`，
+    次序同 planner 一樣），唔係淨係最新嗰個。v1 存檔都有呢個欄位（#28 已經寫）。頁面用佢嚟並排比較兩邊進度
+    （見下面「里程碑：跟 AI 狀態定跟存檔」）。
 * `resumed`：`{req_id, save_id, ai_status_id, autosave_id, run_id, step, frame, map, xy, milestone,
-  brain_state: "save" | "ai_status" | "none"}`。`autosave_id` = 切換之前幫目前個 run 自動存嘅檔；`run_id` =
+  brain_state: "save" | "ai_status" | "none", milestones: "save" | "ai_status", milestones_done}`。`autosave_id` = 切換之前幫目前個 run 自動存嘅檔；`run_id` =
   新 run（新 log 目錄）。`brain_state` 講明 AI 狀態由邊度嚟（v1 存檔又冇 `ai_status_id` 就係 `"none"`）。
+  `milestones` 講明**實際用咗**邊邊嘅里程碑（冇 `ai_status_id` 一定係 `"save"`），`milestones_done` 係套用之後
+  嘅完整 list，頁面要用佢更新「目標與里程碑」panel，唔好估。
 * `save_error.reason`（固定字串，頁面可以翻譯）：
 
 | reason | 意思 |
 |---|---|
-| `bad_request` | 欄位缺少／型別錯／`req_id`、`label` 唔合規格 |
+| `bad_request` | 欄位缺少／型別錯／`req_id`、`label` 唔合規格；`milestones` 唔係 `"ai_status"`／`"save"`；有 `milestones` 但冇 `ai_status_id` |
 | `token_required` / `bad_token` | 綁 `0.0.0.0` 時冇 token／token 錯（見「安全」） |
 | `invalid_id` | `save_id`／`ai_status_id` 格式唔啱（有 `/`、`..` 等） |
 | `not_found` | 格式啱但 save dir 入面搵唔到對應 sidecar |
@@ -178,18 +183,47 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
 1. 驗證 `save_id`（同 `ai_status_id`）——有錯就回 `save_error`，**目前個 run 照行，乜都冇改**。
 2. **先幫目前個 run 自動存檔**（`reason: "pre-resume"`），id 放喺回覆嘅 `autosave_id`。
 3. 目前 log 寫 `{"kind": "resume_switch", to_save_id, ai_status_id, autosave_id}` 同 `summary`，然後關閉。
-4. 開新 run（新 `run_id`、新 log 目錄），header 有 `resumed_from`（同 CLI `--resume` 一樣），
+4. 開新 run（新 `run_id`、新 log 目錄），header 有 `resumed_from`（同 CLI `--resume` 一樣，再加
+   `ai_status_id`（冇就 `null`）同 `has_brain_state`，見 [`savestate-format.md`](savestate-format.md)「Run log header」），
    另外加 `ai_status_from`（有 `ai_status_id` 先有）。
 5. `adapter.reset()` → `adapter.load_state(state, frame, adapter_state)`。
 6. AI 狀態：有 `ai_status_id` → 用 `ai_status` 嘅 `brain_state`、里程碑、設定；冇 → 用存檔 sidecar 嘅
    `brain_state`（v2）；v1 存檔 → brains `reset()`，只還原里程碑（同 #28 一樣）。
+   * 里程碑：有 `ai_status_id` 時睇 `milestones`（冇填 = `"ai_status"`）。`"save"` = 先 `import_state`
+     `ai_status` 嘅 `brain_state`，**然後**用遊戲存檔 sidecar 嘅 `milestones_done` 蓋過
+     （`planner.restore(...)`，即係 brain_state 入面 PathBrain 嘅 `planner.milestones_done` 都會被換走）。
+     冇 `ai_status_id` 時一律用存檔嘅里程碑，唔接受 `milestones` 欄位（`bad_request`）。
 7. Arbiter 模式（auto/assist/manual/shadow）**保持唔變**；未處理嘅手動按鍵清空；排隊中嘅其他 request
    喺新 run 照次序處理。
-8. 回 `resumed`；之後嘅 `observation`/`decision`/`status` 係新 run 嘅。
+8. 回 `resumed`（broadcast，見下面「回覆送去邊個 tab」）；之後嘅 `observation`/`decision`/`status` 係新 run 嘅。
 
-套 `ai_status` 落另一個存檔時要留意：里程碑係 sticky，`ai_status` 話做咗嘅里程碑喺新起點都當做咗
-（例如將「已經攞咗包裹」嘅 AI 狀態套落一個未入過商店嘅存檔，PathBrain 會直接行去研究所）。
-呢個係刻意嘅（比較用），頁面應該喺套用之前顯示兩邊嘅 `milestone`。
+### 里程碑：跟 AI 狀態定跟存檔
+
+里程碑係 sticky，**預設跟 AI 狀態走**（Mannger 決定：刻意設計，方便比較「同一個 AI、唔同起點」）。
+例如將「已經攞咗包裹」嘅 AI 狀態套落一個未入過商店嘅存檔，PathBrain 會當包裹已經攞咗，直接行去研究所。
+
+所以頁面喺**套用之前**（撳「續玩」、帶 `ai_status_id` 嗰陣）一定要：
+
+1. 用 `saves` 入面兩邊嘅 `milestones_done`，**並排**顯示「AI 狀態嘅里程碑」同「遊戲存檔嘅里程碑」
+   （同一個 id 對齊；一邊有一邊冇嘅要標出嚟）。
+2. 兩個 list 唔一樣就顯示**警告**（例如「AI 狀態話已完成 `oaks_parcel`，但呢個遊戲存檔未做到」）。
+3. 俾用戶揀：
+   * **「保留 AI 進度」** → `milestones: "ai_status"`（預設選項）；
+   * **「重設為遊戲存檔進度」** → `milestones: "save"`。
+4. 兩邊一樣時唔使警告，照送 `milestones: "ai_status"`（結果一樣）。
+5. 收到 `resumed` 後用回覆嘅 `milestones` 同 `milestones_done` 顯示實際用咗邊邊。
+
+### 回覆送去邊個 tab
+
+* `saved`、`saves`、`save_error`：**只回俾發 request 嗰個 tab**（同一條 WebSocket 連線）。`live.py` 排隊時
+  記住來源連線；嗰條連線已經斷咗就唔送（request 照做，log 照寫）。其他 tab 唔會見到。
+* `resumed`：**broadcast 俾所有 tab**，因為成個 run 換咗。`req_id` 照帶（發 request 嗰個 tab 靠佢配對）；
+  其他 tab 收到都要：
+  * **清空 step table**（舊 run 嘅步數唔再連續）；
+  * **清空戰鬥 panel 狀態**（HP、對手、intent 等，等新 run 嘅 `observation` 再畫）；
+  * 用 `milestones_done` 更新里程碑 panel，事件列表加一行「已切換到 `<save_id>`」。
+* 「新開 tab 先收最新 envelope」只限 `observation`／`decision`／`status`；`saved`／`saves`／`save_error`／`resumed`
+  **唔會**重播俾新 tab（新 tab 要自己 `list_saves`）。
 
 ### 安全
 
@@ -208,4 +242,24 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
     Run log 寫 request 時會刪走 `token` 欄位。
   * 錯 token 回 `bad_token`；冇 token 回 `token_required`。
 * 綁 loopback 時預設唔使 token（同一部機）；`--require-token` 可以強制要。
+
+#### Docker／`start.bat`：token 由 `start.bat` 產生
+
+用 `start.bat`（Docker Desktop）嗰陣，token **由 `start.bat` 自己產生**，唔使用戶睇 container log 抄：
+
+1. `start.bat` 用 PowerShell 產生（例如 `[Security.Cryptography.RandomNumberGenerator]` 32 bytes → base64url，
+   ≥ 32 字元），放入**只喺 `setlocal` 入面**嘅變數 `GAME_BRAIN_CONTROL_TOKEN`。每次啟動都換一個新 token。
+2. `docker compose up -d --build`：`compose.yaml` 用 `environment: [GAME_BRAIN_CONTROL_TOKEN]`（**冇值**，
+   即係由 host 環境變數傳入），所以 token 唔會出現喺 `compose.yaml`、`.env` 或者 image 入面。
+3. 等 dashboard 起好（poll `http://127.0.0.1:8765/`，有 timeout），然後
+   `start "" "http://127.0.0.1:8765/#token=%GAME_BRAIN_CONTROL_TOKEN%"` 開瀏覽器。頁面讀完 hash 就
+   `history.replaceState` 清走（同上面一樣）。
+4. **Token 永遠唔寫入任何檔案或者 log：**
+   * `start.bat` 唔 `echo` token（`@echo off`），唔寫 `.env`／暫存檔，唔用 `docker compose config`。
+   * Server 見到 token 係由 `$GAME_BRAIN_CONTROL_TOKEN` 嚟，就**唔印**佢（`docker logs` 都係 log），只印
+     `control token: (from GAME_BRAIN_CONTROL_TOKEN)`。自己產生 token 嗰陣先照上面印一次到 stderr。
+   * Run log、`status`、sidecar、ai_status 檔、任何回覆都冇 token（同上面）。
+5. 已知限制（唔係我哋寫嘅檔案，記低俾大家知）：`docker inspect` 睇得到 container 環境變數（只限本機
+   Docker 用戶）；瀏覽器開 URL 嗰下可能入咗歷史紀錄（頁面即刻 `replaceState`，而且下次 `start.bat` 就換
+   token，舊 token 即失效）。
 * 原有限制照舊：非本機 `Origin` 403、frame 上限 64 KiB、只收已知 `type`。
