@@ -68,11 +68,11 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
         seed: int = 0, steps: int = 0, step_delay: float = 0.25, screenshot_every: int = 1,
         out_dir: str = "runs", quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
-        resume: Optional[str] = None) -> dict:
+        resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC) -> dict:
     """Adapter / brains (battle, path + FireRed milestones, rule) / saves come from
     :class:`game_brain.setup.Session`, the same setup the CLI uses. ``save_dir`` None = no saves."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
-                   quiet=quiet)
+                   quiet=quiet, keep_periodic=keep_periodic)
     adapter, arbiter = sess.adapter, sess.arbiter
     if not quiet:
         c = sess.config()
@@ -146,7 +146,8 @@ def main(argv=None) -> int:
         try:
             s = run(server, a.adapter, a.mode, a.brains, a.seed, a.steps, a.step_delay,
                     a.screenshot_every, a.out, a.quiet, battle_confidence=a.battle_confidence,
-                    save_dir=save_dir_from_args(a), save_every=a.save_every, resume=a.resume)
+                    save_dir=save_dir_from_args(a), save_every=a.save_every, resume=a.resume,
+                    keep_periodic=a.keep_periodic)
         except (ValueError, FileNotFoundError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2

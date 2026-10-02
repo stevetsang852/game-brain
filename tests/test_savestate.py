@@ -48,7 +48,7 @@ def test_saves_at_milestones_periodic_and_end_with_sidecar(tmp_path):
     assert side["step"] == 120 and side["brains"] == ["path", "rule"] and side["adapter"] == "mock-house"
     assert side["frame"] == s["final_frame"] and (side["x"], side["y"]) == (s["final_ram"]["player_x"],
                                                                              s["final_ram"]["player_y"])
-    assert (saves / "latest").read_text().strip() == s["saves"][-1]
+    assert (saves / "latest").read_text().strip() == Path(s["saves"][-1]).relative_to(saves).as_posix()
     events = [r for r in read_log(s["log"]) if r["kind"] == "save"]
     assert [e["path"] for e in events] == s["saves"]
 

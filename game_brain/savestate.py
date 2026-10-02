@@ -4,7 +4,10 @@
   emulator snapshot), ``.json`` (sidecar) and, if the game has written its battery save, ``.sav``
   (backup only: it is written by the in-game SAVE, never by us). Files are written to a temp name
   and renamed, sidecar last, so a sidecar always points at a complete state even if the process
-  is killed mid-save. ``<save_dir>/latest`` holds the path of the newest sidecar.
+  is killed mid-save. ``<save_dir>/latest`` holds the path of the newest sidecar, relative to
+  ``save_dir`` (so the directory can be moved / mounted elsewhere, e.g. Docker ``/saves``).
+* Retention: only the newest ``keep_periodic`` saves whose sidecar ``reason`` is exactly
+  ``"periodic"`` are kept per run directory; milestone, final and any other saves are never deleted.
 * ``resolve_resume("latest" | path, save_dir)`` -> sidecar dict (with ``_state_path`` etc.).
 * Save dirs must be outside the repo tree (the repo is public): ``check_save_dir`` refuses
   anything inside the checkout or inside the current git work tree.
@@ -23,6 +26,7 @@ from typing import Any, Dict, Iterable, List, Optional
 FORMAT = "game-brain-savestate"
 FORMAT_VERSION = 1
 DEFAULT_SAVE_EVERY = 500
+DEFAULT_KEEP_PERIODIC = 10
 _PKG_ROOT = Path(__file__).resolve().parent.parent      # the checkout (or site-packages) dir
 
 
@@ -101,17 +105,22 @@ def sha1(data: bytes) -> str:
 
 
 class SaveManager:
-    """Writes save states for one run. ``every`` = periodic interval in steps (0 = off)."""
+    """Writes save states for one run. ``every`` = periodic interval in steps (0 = off).
+    ``keep_periodic`` = after each periodic save, keep only the newest N periodic saves of this run
+    (0 = keep all); see :meth:`prune_periodic`."""
 
     def __init__(self, save_dir: "str | Path", adapter, brains: List[str], run_id: str,
                  every: int = DEFAULT_SAVE_EVERY, on_milestone: bool = True,
-                 resumed_from: Optional[str] = None, roots: Optional[Iterable[Path]] = None):
+                 resumed_from: Optional[str] = None, roots: Optional[Iterable[Path]] = None,
+                 keep_periodic: int = DEFAULT_KEEP_PERIODIC):
         self.root = check_save_dir(save_dir, roots)
         self.dir = self.root / run_id
         self.adapter = adapter
         self.brains = list(brains)
         self.run_id = run_id
         self.every = int(every)
+        self.keep_periodic = int(keep_periodic)
+        self.pruned: List[str] = []          # sidecar paths deleted by prune_periodic()
         self.on_milestone = on_milestone
         self.resumed_from = resumed_from
         self.commit = git_commit()
@@ -136,7 +145,41 @@ class SaveManager:
             out.append(self.save(steps_done, milestones, reason="milestone-" + new[-1], new_milestones=new))
         elif self.every and steps_done % self.every == 0:
             out.append(self.save(steps_done, milestones, reason="periodic"))
+            self.prune_periodic()
         return out
+
+    def prune_periodic(self) -> List[str]:
+        """Delete this run's oldest periodic saves beyond ``keep_periodic`` (state + sidecar + .sav).
+
+        Only sidecars that parse as ours and have ``reason == "periodic"`` exactly are candidates:
+        milestone / final / anything else (e.g. future go-explore cells) is never touched, nor is the
+        save ``latest`` points at, nor files outside this run's directory. The sidecar is removed
+        first, so an interrupted prune never leaves a sidecar without its state. Returns the
+        deleted sidecar paths."""
+        if self.keep_periodic <= 0 or not self.dir.is_dir():
+            return []
+        periodic = []
+        for p in self.dir.glob("*.json"):
+            try:
+                side = json.loads(p.read_text())
+            except (OSError, ValueError):
+                continue
+            if isinstance(side, dict) and side.get("format") == FORMAT and side.get("reason") == "periodic":
+                periodic.append((int(side.get("step") or 0), p, side))
+        periodic.sort(key=lambda t: (t[0], t[1].name))
+        latest = _read_latest(self.root)
+        deleted = []
+        for _step, p, side in periodic[:max(0, len(periodic) - self.keep_periodic)]:
+            if latest is not None and latest.resolve() == p.resolve():
+                continue
+            p.unlink(missing_ok=True)
+            for key in ("state_file", "sav_file"):
+                name = side.get(key)
+                if name and Path(name).name == name:         # a bare file name in this directory only
+                    (self.dir / name).unlink(missing_ok=True)
+            deleted.append(str(p))
+        self.pruned.extend(deleted)
+        return deleted
 
     def save(self, steps_done: int, milestones: Optional[List[Dict[str, Any]]], reason: str,
              new_milestones: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -170,7 +213,7 @@ class SaveManager:
         }
         side_path = base.with_suffix(".json")
         _atomic_write(side_path, (json.dumps(side, indent=1) + "\n").encode())
-        _atomic_write(self.root / "latest", (str(side_path) + "\n").encode())
+        _atomic_write(self.root / "latest", (side_path.relative_to(self.root).as_posix() + "\n").encode())
         side["_path"] = str(side_path)
         self.saved.append(side)
         return side
@@ -191,14 +234,50 @@ def load_sidecar(path: "str | Path") -> Dict[str, Any]:
     return side
 
 
+def _read_latest(root: Path) -> Optional[Path]:
+    """The sidecar ``<root>/latest`` points at, or None. The pointer is relative to ``root``
+    (format 1 since keep-periodic); older pointers hold an absolute path, accepted only if it is an
+    existing file inside ``root``. An absolute path from elsewhere (e.g. the container's ``/saves``
+    after the directory was moved) is mapped to ``<root>/<run_id>/<file>`` if that exists."""
+    ptr = root / "latest"
+    try:
+        text = ptr.read_text().strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    p = Path(text)
+    if not p.is_absolute():
+        p = root / p
+        if ".." in Path(text).parts or not _inside(p, root):
+            return None
+        return p if p.is_file() else None
+    if p.is_file() and _inside(p, root):
+        return p
+    if len(p.parts) >= 2:
+        q = root / p.parts[-2] / p.parts[-1]
+        if q.is_file():
+            return q
+    return None
+
+
+def _inside(p: Path, root: Path) -> bool:
+    try:
+        p.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def resolve_resume(spec: str, save_dir: "str | Path") -> Dict[str, Any]:
-    """``spec`` = "latest" (newest save in ``save_dir``) or a sidecar/state path."""
+    """``spec`` = "latest" (newest save in ``save_dir``, via the ``latest`` pointer resolved relative to
+    ``save_dir``) or a sidecar/state path."""
     if spec != "latest":
         return load_sidecar(spec)
     root = Path(save_dir).expanduser()
-    ptr = root / "latest"
-    if ptr.is_file() and Path(ptr.read_text().strip()).is_file():
-        return load_sidecar(ptr.read_text().strip())
+    p = _read_latest(root)
+    if p is not None:
+        return load_sidecar(p)
     sides = sorted(root.glob("*/*.json"), key=lambda p: p.stat().st_mtime)
     if not sides:
         raise FileNotFoundError(f"no saves in {root}")
