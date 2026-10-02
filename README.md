@@ -13,6 +13,10 @@
 
 ## 目前狀態（老實講）
 
+> **最後更新：2026-10-02，main 已 merge 到 PR #17。** 團隊而家**暫停**，唔開新任務，等 YIN 下一個指示。
+>
+> **進度一句講晒**：AI 已經可以喺真 ROM 上由開機自己行到研究所、攞到妙蛙種子（M1 ✅、M2 前半 ✅）。**下一步**係第一場勁敵戰：要先驗證戰鬥 RAM（`ram["battle"]`），再寫 RuleBattleBrain。
+
 | 項目 | 狀態 |
 |---|---|
 | 模擬器 | ✅ 用 mGBA 0.10.5 Python bindings **headless** 行真 FireRed（`--adapter mgba`）；決定性 act + replay 已驗證（見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)） |
@@ -20,11 +24,14 @@
 | PathBrain | ✅ **A\* 尋路**（4 方向）＋目標清單：真 ROM 上由主角房 2F → 1F → 真新鎮 → 北面出口觸發 Oak 劇情 → 研究所 → **攞到妙蛙種子（Bulbasaur，`party_count` 1）**；會避開 NPC、會按 A/B 過劇情。第一場勁敵戰仲係 placeholder（停喺度唔郁） |
 | RandomBrain | ✅ 有 seed、可重現嘅隨機按鍵（baseline / 後備） |
 | LLMBrain | ⛔ **stub**：未接任何 LLM provider、無 API key、唔會打任何 API；呼叫時會回報 unavailable，arbiter 自動 fallback |
-| RAM 位址 | 只有 [`notes/mgba-bridge.md`](notes/mgba-bridge.md) 表入面嗰啲係**喺呢隻 ROM 上驗證過**：`vblank_counter`、`held_keys`、`callback2`/`scene`、`player_x`/`player_y`、`map_bank`/`map_id`、`facing`、`map_w`/`map_h`/`collision`/`warps`（PR #7）；`npcs`、`party_count`（M2，暫放喺 `adapters/gba_mgba/firered_extra.py`，驗證方法見 [`notes/nav.md`](notes/nav.md)，**等 Backend 接手**）。**`in_battle` 未驗證，暫時唔會輸出** |
+| RAM 位址 | 只有 [`notes/mgba-bridge.md`](notes/mgba-bridge.md) 表入面嗰啲係**喺呢隻 ROM 上驗證過**：`vblank_counter`、`held_keys`、`callback2`/`scene`、`player_x`/`player_y`、`map_bank`/`map_id`、`facing`、`map_w`/`map_h`/`collision`/`warps`（PR #7）；`npcs`、`party_count`（M2，暫放喺 `adapters/gba_mgba/firered_extra.py`，驗證方法見 [`notes/nav.md`](notes/nav.md)，**等 Backend 接手**）。`in_battle`（`gMain+0x439` bit1，PR #15，喺勁敵戰驗證：對戰期間 True，完咗返 False；入戰前約 20 步過場仍然係 False）。`npcs` 用碰撞法 8 個只驗到 1 個，當**部分驗證** |
 | ROM | 我哋手上嗰隻 SHA1 係 `e0194282c427689768f8e618a285552f264524a4`，**唔係**乾淨 FireRed US 1.0（`41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`），亦唔係 Rev 1（`dd5945db…`），應該係改過嘅 image。所以 pokefirered 嘅位址全部要自己逐個驗證 |
-| Dashboard | ✅ 本機網頁：即時畫面、計劃、最近步驟（顯示邊個做）、模式切換、Manual/Assist 手動按鍵 |
+| Dashboard | ✅ 本機網頁：即時畫面、計劃、最近步驟（顯示邊個做）、模式切換、Manual/Assist 手動按鍵；目標、里程碑進度條、小地圖（碰撞格、出入口、規劃路徑、紫色 NPC）、隊伍數量 |
+| Docker | ✅ 本機 image（PR #13）：ROM 以唯讀 `-v` 掛入、唔會 COPY 入 image；只開 `127.0.0.1:8765` |
+| Run log | ✅ 去重（PR #9/#11/#14）：每張地圖嘅碰撞格只記一次、`milestones`/`npcs`/`executed_action` 有變先記；1500 步 log 約 1.35 MB，replay 照樣 0 mismatch |
+| 戰鬥大腦 | 📝 只有設計文件 [`notes/battle-brain.md`](notes/battle-brain.md)（PR #17），未寫 code |
 | CI | ⛔ 未有（現有 token 無 `workflow` scope，推唔到 `.github/workflows`） |
-| License | 未揀（private repo，團隊之後決定） |
+| License | 未揀（等 YIN 決定；repo 目前係 public） |
 
 實測（2026-10-02，共用 box）：
 
@@ -262,13 +269,14 @@ tests/          pytest
 
 ## Roadmap（第 0–2 週目標：由真新鎮行到常青市道館門口）
 
-1. **驗證 `in_battle`**：要先去到第一場戰嘅 state，用同 `mgba-bridge.md` 一樣嘅方法驗證，之後先輸出。（`party_count` 已經喺 M2 驗證咗。）
+1. ✅ **驗證 `in_battle`**（PR #15）。**下一步**：驗證 `ram["battle"]`（選單/游標狀態、雙方 HP、等級、招式、PP；清單見 [`notes/battle-brain.md`](notes/battle-brain.md)），同埋補驗 `npcs`、確認輸咗勁敵戰劇情係咪照行。
 2. **行路大腦**：✅ M1 完成（行到真新鎮）；✅ M2 完成（Oak 劇情 → 研究所 → 妙蛙種子）。下一步：
    - 第一場勁敵戰（行去研究所出口就會觸發），需要戰鬥大腦；
    - 單向格（ledge）同方向性阻擋；
    - 跨 map 連接（行出 map 邊界，去 1 號道路）。
-3. **戰鬥大腦**：基本揀招、換隻、逃走；需要 (1) 先完成。
-4. **LLM planner**：揀好 provider、有 API key 之後，先實作 `LLMBrain`（高層計劃，交俾規則 / 尋路大腦執行）。
-5. **CI**：token 有 `workflow` scope 之後先加 GitHub Actions，跑 `pytest`（mock 部分）。
+3. **戰鬥大腦**：設計已 merge（PR #17）。先做 RuleBattleBrain（屬性表＋簡單傷害估算，招式/種族/屬性資料用 PokeAPI，BSD-3，註明來源），`--brains battle,path,rule`；信心門檻預設 0.6。之後 dashboard 顯示 `intent`/`battle` 等欄位。
+4. **LLM planner / Jev**：要 YIN 揀 provider、批預算、喺 1:1 用安全輸入俾 API key 之後先做。
+5. **ML**（M2 有戰鬥數據之後）：Go-Explore 式 savestate 探索 → 人手 log 模仿學習 → PPO（見 [`notes/ml-decision.md`](notes/ml-decision.md)）。
+6. **CI**：token 有 `workflow` scope 之後先加 GitHub Actions，跑 `pytest`（mock 部分）。
 
 參考資料：[`notes/references.md`](notes/references.md)、學習型決策評估 [`notes/ml-decision.md`](notes/ml-decision.md)（Research Manager 整理）。
