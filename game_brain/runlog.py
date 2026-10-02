@@ -38,8 +38,13 @@ with the previous step that had a ``battle`` key (steps outside battle don't res
   top-level keys (``menu``/``cursor``/``player``/``opponent``/``outcome``), when smaller;
 * anything else (first battle step, key set changed, delta not smaller) -> full ``battle``.
 
+Step-line ``observation.ram.party`` dedupe (overworld and battle steps, mGBA adapter), same
+rules as ``npcs``: ``"party_same": true`` when unchanged, ``"party_delta": {"<slot>": mon}``
+when the party size is the same and only some slots changed (in battle: the active mon's
+hp/pp), else the full list.
+
 :func:`iter_steps` (and so :func:`replay`) restores ``decision.milestones``, ``npcs``,
-``battle`` and ``executed_action`` on every step and strips the markers. Logs written before these
+``party``, ``battle`` and ``executed_action`` on every step and strips the markers. Logs written before these
 optimisations have no markers and pass through unchanged.
 
 Determinism: replaying ``executed_action`` of every step against the same start state
@@ -72,6 +77,7 @@ class RunLogWriter:
         self._last_milestones: Optional[List[Dict[str, Any]]] = None
         self._last_npcs: Optional[List[Dict[str, Any]]] = None
         self._last_battle: Optional[Dict[str, Any]] = None
+        self._last_party: Optional[List[Dict[str, Any]]] = None
 
     def _dedupe_battle(self, summary: Dict[str, Any]) -> None:
         ram = summary.get("ram") or {}
@@ -106,6 +112,23 @@ class RunLogWriter:
             if len(json.dumps(delta)) < len(json.dumps(npcs)):
                 del ram["npcs"]
                 ram["npcs_delta"] = delta
+
+    def _dedupe_party(self, summary: Dict[str, Any]) -> None:
+        ram = summary.get("ram") or {}
+        if "party" not in ram:
+            return
+        party, last = ram["party"], self._last_party
+        self._last_party = json.loads(json.dumps(party))
+        if not isinstance(party, list) or not isinstance(last, list):
+            return
+        if party == last:
+            del ram["party"]
+            ram["party_same"] = True
+        elif len(party) == len(last):
+            delta = {str(i): m for i, (m, o) in enumerate(zip(party, last)) if m != o}
+            if len(json.dumps(delta)) < len(json.dumps(party)):
+                del ram["party"]
+                ram["party_delta"] = delta
 
     def _dedupe_map(self, step: int, frame: int, summary: Dict[str, Any]) -> None:
         ram = summary.get("ram") or {}
@@ -144,6 +167,7 @@ class RunLogWriter:
         summary = obs.summary()
         self._dedupe_map(step, obs.frame, summary)
         self._dedupe_npcs(summary)
+        self._dedupe_party(summary)
         self._dedupe_battle(summary)
         rec = {
             "kind": "step",
@@ -187,12 +211,13 @@ def read_log(path: "str | Path") -> Iterator[Dict[str, Any]]:
 
 def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
     """Step records with ``observation.ram`` restored to what the adapter returned
-    (map keys merged back from the matching ``map`` record; ``npcs`` and ``battle`` rebuilt from
+    (map keys merged back from the matching ``map`` record; ``npcs``, ``party`` and ``battle`` rebuilt from
     their markers), ``decision.milestones`` and ``executed_action`` restored where the writer deduped them. Old logs pass through unchanged."""
     maps: Dict[int, Dict[str, Any]] = {}
     last_ms: Optional[List[Dict[str, Any]]] = None
     last_npcs: Optional[List[Dict[str, Any]]] = None
     last_battle: Optional[Dict[str, Any]] = None
+    last_party: Optional[List[Dict[str, Any]]] = None
     for rec in read_log(path):
         kind = rec.get("kind")
         if kind == "map":
@@ -214,6 +239,16 @@ def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
                     ram["npcs"] = npcs
                 if "npcs" in ram:
                     last_npcs = json.loads(json.dumps(ram["npcs"]))
+                if ram.pop("party_same", False):
+                    ram["party"] = json.loads(json.dumps(last_party))
+                pdelta = ram.pop("party_delta", None)
+                if pdelta is not None:
+                    party = json.loads(json.dumps(last_party))
+                    for i, m in pdelta.items():
+                        party[int(i)] = m
+                    ram["party"] = party
+                if "party" in ram:
+                    last_party = json.loads(json.dumps(ram["party"]))
                 if ram.pop("battle_same", False):
                     ram["battle"] = json.loads(json.dumps(last_battle))
                 bdelta = ram.pop("battle_delta", None)

@@ -46,7 +46,8 @@ def test_real_save_resume_mid_route_1_reaches_viridian(tmp_path, monkeypatch):
     assert first["step"] == 2500 and first["frame"] == ref[2500]["frame"] == side["frame"]
     assert first["observation"]["ram"] == ref[2500]["observation"]["ram"]       # identical moment
     hp = first["observation"]["ram"]["battle"]["player"]
-    assert [{"hp": hp["hp"], "max_hp": hp["max_hp"], "source": "battle"}] == side["party_hp"]
+    # party_hp comes from ram["party"] now (the party struct's hp is the live in-battle hp)
+    assert [{"hp": hp["hp"], "max_hp": hp["max_hp"]}] == side["party_hp"]
     assert next(read_log(b["log"]))["resumed_from"]["sidecar"] == side["_path"]
     done = {m["id"]: m["done"] for m in steps[-1]["decision"]["milestones"]}
     assert done["route_1"] and done["viridian_city"]

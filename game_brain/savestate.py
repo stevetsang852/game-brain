@@ -80,7 +80,7 @@ def git_commit() -> Optional[str]:
 
 
 def party_hp(ram: Dict[str, Any]) -> Optional[List[Dict[str, int]]]:
-    """Party HP if the observation has it: ``ram["party"]`` (not read by the adapter yet), else the
+    """Party HP if the observation has it: ``ram["party"]`` (mGBA adapter, overworld and battle), else the
     active battler's HP while in battle (``ram["battle"]["player"]``). None = not available."""
     party = ram.get("party")
     if isinstance(party, list) and party and all(isinstance(p, dict) and "hp" in p for p in party):
