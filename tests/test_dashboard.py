@@ -194,3 +194,33 @@ def test_live_loop_with_mock_end_to_end(server, tmp_path):
     assert any(l["kind"] == "mode_change" and l.get("issued_by") == "dashboard" for l in log_lines)
     assert any(l["kind"] == "step" and l["executed_action"]["source"] == "manual" for l in log_lines)
     c.close()
+
+
+def test_live_assist_preempt_from_page(server, tmp_path):
+    """Assist: brain keeps playing; one press from the page preempts it for one step (actor=human)."""
+    from game_brain.schema import ButtonPress
+    c = Client(server.port)
+    result = {}
+    t = threading.Thread(target=lambda: result.update(
+        run(server, "mock", mode="assist", steps=80, step_delay=0.01, out_dir=str(tmp_path), quiet=True)))
+    t.start()
+    c.recv_until(lambda e: e["type"] == "observation" and "player_x" in e["payload"]["ram"])
+    c.send(to_envelope(Action([ButtonPress("UP", 8)], source="manual"), 0))
+    human = c.recv_until(lambda e: e["type"] == "decision" and e["payload"].get("actor") == "human")
+    assert human["payload"]["mode"] == "assist" and human["payload"]["executed"] is True
+    back = c.recv_until(lambda e: e["type"] == "decision")
+    assert back["payload"]["actor"] == "brain"  # queue drained -> brain resumes
+    t.join(timeout=10)
+    steps = [json.loads(l) for l in open(result["log"]) if '"kind":"step"' in l]
+    actors = [s["decision"]["actor"] for s in steps]
+    assert actors.count("human") == 1 and actors.count("brain") >= 70
+    assert result["mode_final"] == "assist"
+    c.close()
+
+
+def test_page_enables_pad_in_manual_and_assist_and_shows_actor():
+    from pathlib import Path
+    html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
+    assert 'const HUMAN_MODES = ["manual", "assist"]' in html
+    assert 'state.mode !== "manual"' not in html  # no leftover manual-only gate
+    assert 'id="actor"' in html and "d.actor ||" in html

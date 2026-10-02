@@ -24,7 +24,7 @@ in `game_brain/schema/messages.py`). Durations are always frames.
 | type | direction | payload |
 |---|---|---|
 | `observation` | server → page | `Observation`: `frame`, `game`, `ram`, `screenshot_b64` (PNG, when the adapter supports screenshots) |
-| `decision` | server → page | `Decision`: `brain`, `plan`, `reason`, `mode`, `executed` |
+| `decision` | server → page | `Decision`: `brain`, `plan`, `reason`, `mode`, `executed`, `actor` (brain / human / none; missing = brain) |
 | `status` | server → page | dashboard-only, not a schema message: `step`, `mode`, `adapter`, `proposed_action`, `executed_action`, `frames_advanced`, `pending_manual`, `notes` |
 | `error` | server → page | dashboard-only: `reason` for a refused inbound message |
 | `mode_command` | page → server | `ModeCommand`: `mode` ∈ auto / assist / manual / shadow |

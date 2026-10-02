@@ -39,6 +39,9 @@
   table { width:100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   th, td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); vertical-align: top; }
   th { color:var(--dim); font-weight:500; font-size:12px; }
+  .badge.actor-brain { background:#16253a; color:var(--accent); } .badge.actor-human { background:#3a2a10; color:var(--warn); }
+  .badge.actor-none { background:var(--line); color:var(--dim); }
+  tr.actor-row-human td { color:var(--warn); }
   #steps { max-height: 340px; overflow:auto; display:block; }
   #ram td:first-child { color:var(--dim); width: 40%; }
   #events { max-height:120px; overflow:auto; font-size:12px; color:var(--dim); margin:0; padding-left:16px; }
@@ -64,11 +67,11 @@
       <h2>模式</h2>
       <div class="modes" id="modes">
         <button data-mode="auto" title="大腦決定並執行">Auto</button>
-        <button data-mode="assist" title="大腦執行，人手可接手（規則待定）">Assist</button>
+        <button data-mode="assist" title="大腦執行；人手按鍵會插隊先行，之後交回大腦">Assist</button>
         <button data-mode="manual" title="只執行人手按鍵">Manual</button>
         <button data-mode="shadow" title="大腦只提議、不執行">Shadow</button>
       </div>
-      <div class="padrow" style="margin-top:12px">手動操作（只在 Manual 模式可用；鍵盤：方向鍵、Z=A、X=B、Enter=START、Shift=SELECT）</div>
+      <div class="padrow" style="margin-top:12px">手動操作（Manual 和 Assist 模式可用；Assist 下按鍵會插隊，執行完交回大腦；鍵盤：方向鍵、Z=A、X=B、Enter=START、Shift=SELECT）</div>
       <div class="pad" id="pad" style="margin-top:8px">
         <span class="gap"></span><button data-btn="UP">▲</button><span class="gap"></span><span></span>
         <button data-btn="L">L</button><button data-btn="R">R</button><span class="gap"></span>
@@ -90,6 +93,7 @@
       <h2>目前計劃</h2>
       <dl>
         <dt>負責大腦</dt><dd id="brain">–</dd>
+        <dt>出手</dt><dd id="actor">–</dd>
         <dt>計劃</dt><dd id="plan">–</dd>
         <dt>原因</dt><dd id="reason">–</dd>
         <dt>是否執行</dt><dd id="executed">–</dd>
@@ -98,7 +102,7 @@
     <section>
       <h2>最近步驟</h2>
       <table id="steps">
-        <thead><tr><th>step</th><th>frame</th><th>模式</th><th>大腦</th><th>動作</th><th>原因</th></tr></thead>
+        <thead><tr><th>step</th><th>frame</th><th>模式</th><th>出手</th><th>大腦</th><th>動作</th><th>原因</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -112,6 +116,8 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const MAX_STEPS = 60, MAX_EVENTS = 40;
+const HUMAN_MODES = ["manual", "assist"];
+const ACTOR_LABEL = { brain: "大腦", human: "人手", none: "等待" };
 const state = { mode: null, lastDecision: null, lastObs: null, ws: null };
 const canvas = $("screen"), ctx = canvas.getContext("2d");
 const img = new Image();
@@ -171,14 +177,16 @@ function onObservation(env) {
 
 function onDecision(env) {
   const d = env.payload; state.lastDecision = d;
-  $("brain").textContent = d.brain; $("plan").textContent = d.plan || "–"; $("reason").textContent = d.reason || "–";
+  $("brain").textContent = d.brain;
+  const actor = d.actor || "brain";  // logs from before PR #4 have no actor
+  $("actor").innerHTML = `<span class="badge actor-${actor}">${ACTOR_LABEL[actor] ?? actor}</span>`; $("plan").textContent = d.plan || "–"; $("reason").textContent = d.reason || "–";
   $("executed").innerHTML = d.executed ? '<span class="badge yes">執行</span>' : '<span class="badge no">只提議（未執行）</span>';
 }
 
 function setMode(mode) {
   state.mode = mode;
   for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("active", b.dataset.mode === mode);
-  for (const b of document.querySelectorAll("#pad button")) b.disabled = mode !== "manual";
+  for (const b of document.querySelectorAll("#pad button")) b.disabled = !HUMAN_MODES.includes(mode);
 }
 
 function onStatus(env) {
@@ -188,7 +196,9 @@ function onStatus(env) {
   const d = state.lastDecision || {};
   const act = d.executed === false ? s.proposed_action : s.executed_action;
   const tb = $("steps").tBodies[0], tr = tb.insertRow(0);
-  for (const v of [s.step, env.frame, s.mode, d.brain ?? "–", (d.executed === false ? "(提議) " : "") + fmtAction(act), d.reason ?? ""])
+  const actor = d.actor || "brain";
+  tr.className = "actor-row-" + actor;
+  for (const v of [s.step, env.frame, s.mode, ACTOR_LABEL[actor] ?? actor, d.brain ?? "–", (d.executed === false ? "(提議) " : "") + fmtAction(act), d.reason ?? ""])
     tr.insertCell().textContent = v;
   while (tb.rows.length > MAX_STEPS) tb.deleteRow(-1);
   for (const n of s.notes || []) event(n, /REJECTED|error|unavailable/.test(n));
@@ -205,7 +215,7 @@ function sendMode(mode) {
 }
 
 function sendPress(button) {
-  if (state.mode !== "manual") { event("只有 Manual 模式可以手動按鍵", true); return; }
+  if (!HUMAN_MODES.includes(state.mode)) { event("只有 Manual 和 Assist 模式可以手動按鍵", true); return; }
   const frames = Math.min(600, Math.max(1, parseInt($("holdFrames").value, 10) || 8));
   const release = Math.min(600, Math.max(0, parseInt($("releaseFrames").value, 10) || 0));
   send({ type: "action", frame: state.lastObs?.frame ?? 0, ts: Date.now() / 1000,
@@ -217,7 +227,7 @@ document.querySelectorAll("#pad button").forEach(b => b.onclick = () => sendPres
 const KEYS = { ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT",
                z: "A", Z: "A", x: "B", X: "B", Enter: "START", Shift: "SELECT", a: "L", s: "R" };
 document.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT" || state.mode !== "manual" || !KEYS[e.key]) return;
+  if (e.target.tagName === "INPUT" || !HUMAN_MODES.includes(state.mode) || !KEYS[e.key]) return;
   e.preventDefault(); sendPress(KEYS[e.key]);
 });
 

@@ -60,7 +60,7 @@ python -m game_brain.dashboard --adapter mock --mode auto
 ```
 
 Shows the live game view (or a grid from RAM coordinates when the adapter has no
-screenshots), the current plan, recent steps, and a mode switch. In **Manual** mode the
+screenshots), the current plan, recent steps (with who acted), and a mode switch. In **Manual** and **Assist** mode the
 on-screen pad and the keyboard (arrows, Z=A, X=B, Enter=START, Shift=SELECT) send button
 presses. Loopback only. Wire contract: `notes/dashboard-protocol.md`.
 
