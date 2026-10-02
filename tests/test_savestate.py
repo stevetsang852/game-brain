@@ -70,7 +70,8 @@ def test_resume_continues_from_the_save_moment_and_replays(tmp_path):
     # milestone progress restored: already done on the first resumed step, and play goes on
     done0 = {m["id"] for m in steps[0]["decision"]["milestones"] if m["done"]}
     assert set(side["milestones_done"]) <= done0
-    assert (b["final_ram"]["map_bank"], b["final_ram"]["map_id"]) == (3, 1)        # still reaches "viridian"
+    assert (b["final_ram"]["map_bank"], b["final_ram"]["map_id"]) == (4, 3)        # on to the Pokedex
+    assert {m["id"]: m["done"] for m in steps[-1]["decision"]["milestones"]}["deliver_parcel"]
     assert json.loads(Path(b["saves"][-1]).read_text())["resumed_from"] == side["_path"]
     assert replay(b["log"], make_adapter("mock-house")) == []
     # "latest" = the newest save (the resumed run's final one)
@@ -92,3 +93,25 @@ def test_adapter_without_save_states_skips_saving(tmp_path, capsys):
     s = demo.run("mock", steps=5, out_dir=str(tmp_path / "runs"), quiet=True, save_dir=str(tmp_path / "saves"))
     assert s["saves"] == [] and "no save states" in capsys.readouterr().err
     assert not list((tmp_path / "saves").rglob("*.state"))
+
+
+def test_resume_mid_parcel_errand_restores_milestones_and_delivers(tmp_path):
+    """Oak's Parcel: a milestone save in the mart. In the mart the map alone says nothing about
+    Viridian / Route 1 progress, so the restored milestone list is what keeps the errand going."""
+    saves = tmp_path / "saves"
+    a = _run(tmp_path, 230, save_dir=str(saves), save_every=0)
+    names = [Path(p).stem for p in a["saves"]]
+    for mid in ("viridian_city", "viridian_mart", "oaks_parcel"):
+        assert any(n.endswith("milestone-" + mid) for n in names)
+    side = savestate.load_sidecar(next(p for p in a["saves"] if p.endswith("milestone-viridian_mart.json")))
+    assert (side["map_bank"], side["map_id"]) == (5, 3) and side["milestone"] == "oaks_parcel"
+    assert "viridian_mart" in side["milestones_done"] and "oaks_parcel" not in side["milestones_done"]
+    b = _run(tmp_path, 120, save_dir=str(saves), save_every=0, resume=side["_path"])
+    steps = list(iter_steps(b["log"]))
+    first = {m["id"]: m["done"] for m in steps[0]["decision"]["milestones"]}
+    assert first["viridian_city"] and first["viridian_mart"] and not first["oaks_parcel"]
+    last = {m["id"]: m["done"] for m in steps[-1]["decision"]["milestones"]}
+    assert last["oaks_parcel"] and last["back_to_pallet"] and last["deliver_parcel"] and not last["pewter_city"]
+    assert {n["local_id"] for n in b["final_ram"]["npcs"]} == {4, 8}          # Pokedexes handed out
+    assert any(Path(p).stem.endswith("milestone-deliver_parcel") for p in b["saves"])
+    assert replay(b["log"], make_adapter("mock-house")) == []

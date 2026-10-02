@@ -98,6 +98,14 @@ FR_OAKS_LAB = (4, 3)
 # map_bank/map_id on arrival (notes/nav.md, "M3 route").
 FR_ROUTE_1 = (3, 19)
 FR_VIRIDIAN_CITY = (3, 1)
+# Oak's Parcel: the Viridian City Poke Mart is the warp at (36,19) of 3/1; measured on the ROM
+# (entering it starts the clerk's parcel script, notes/nav.md "Oak's Parcel").
+FR_VIRIDIAN_MART = (5, 3)
+#: Oak's lab objects (``npcs`` local_id), measured on the ROM: Oak at (6,3); the two Pokedexes on
+#: the table at (4,1)/(5,1) until Oak hands them out after the parcel
+FR_OAK_LOCAL_ID = 4
+FR_POKEDEX_LOCAL_IDS = (9, 10)
+FR_OAK_DESK_STAND = (6, 4)
 
 # Milestone 2 tiles, all measured on this ROM (notes/nav.md, "M2 route"):
 #: stepping onto either tile of Pallet Town's north exit starts Oak's "wait, don't go out" script
@@ -133,7 +141,8 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
         # The game does not let you leave the lab with the starter before the rival battle, so
         # the starter outside the lab (also at home: a whiteout wakes you up in the house 1F,
         # verified on the ROM, notes/nav.md "Whiteout") means the rival battle is over.
-        return _party(o) >= 1 and m(o) in (FR_PALLET_TOWN, FR_ROUTE_1, FR_VIRIDIAN_CITY, FR_HOUSE_1F, FR_HOUSE_2F)
+        return _party(o) >= 1 and m(o) in (FR_PALLET_TOWN, FR_ROUTE_1, FR_VIRIDIAN_CITY, FR_VIRIDIAN_MART,
+                                       FR_HOUSE_1F, FR_HOUSE_2F)
 
     def to_pallet(o: Observation) -> Optional[Target]:
         """From the lab or the player's house (e.g. after a whiteout) back out to Pallet Town."""
@@ -143,6 +152,23 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
         if here in (FR_HOUSE_1F, FR_OAKS_LAB):
             return Target.warp(*FR_PALLET_TOWN)
         return None
+
+    def got_pokedex(o: Observation) -> bool:
+        if m(o) != FR_OAKS_LAB:
+            return False
+        ids = {n.get("local_id") for n in o.ram.get("npcs") or ()}
+        # npcs only lists objects near the camera (measured: Oak at y=3 appears once the player is
+        # at y<=10, so the table at y=1 needs y<=8): require Oak in the list AND the player close to
+        # the table, so "no Pokedex objects" is not just "out of view"
+        y = o.ram.get("player_y")
+        return (y is not None and y <= FR_OAK_DESK_STAND[1] + 1
+                and FR_OAK_LOCAL_ID in ids and not (set(FR_POKEDEX_LOCAL_IDS) & ids))
+
+    def to_viridian(o: Observation) -> Optional[Target]:
+        here = m(o)
+        if here in (FR_PALLET_TOWN, FR_ROUTE_1):
+            return Target.edge("UP")
+        return to_pallet(o)
 
     return [
         Milestone("intro", "Get through the intro (RuleBrain mashes A)",
@@ -189,9 +215,31 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
         Milestone("viridian_city", "Walk north through Route 1 to Viridian City (wild battles: battle brain)",
                   done=lambda o: m(o) == FR_VIRIDIAN_CITY,
                   target=lambda o: Target.edge("UP") if m(o) in (FR_PALLET_TOWN, FR_ROUTE_1) else to_pallet(o)),
+        # --- Oak's Parcel. Entering the mart starts the clerk's script (you are walked to the
+        # counter, "received OAK'S PARCEL"); you can only walk out once it is over, so being back
+        # in Viridian after the mart means you have the parcel (the bag is not readable yet).
+        Milestone("viridian_mart", "Enter the Viridian City Poke Mart (the clerk calls you over)",
+                  done=lambda o: m(o) == FR_VIRIDIAN_MART,
+                  target=lambda o: Target.warp(*FR_VIRIDIAN_MART) if m(o) == FR_VIRIDIAN_CITY else to_viridian(o)),
+        Milestone("oaks_parcel", "Receive Oak's Parcel from the clerk (scripted, A), then leave the mart",
+                  done=lambda o: m(o) in (FR_VIRIDIAN_CITY, FR_ROUTE_1, FR_PALLET_TOWN, FR_OAKS_LAB),
+                  target=lambda o: Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART else None),
+        Milestone("back_to_pallet", "Walk back south: Viridian City -> Route 1 -> Pallet Town",
+                  done=lambda o: m(o) in (FR_PALLET_TOWN, FR_OAKS_LAB),
+                  target=lambda o: Target.edge("DOWN") if m(o) in (FR_VIRIDIAN_CITY, FR_ROUTE_1)
+                  else Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART else to_pallet(o)),
+        # Delivering: stand below Oak (6,3), face him, A. His script fetches the two Pokedexes
+        # from the table (objects local_id 9/10 at (4,1)/(5,1)) and gives you one, so "Oak in view
+        # and both Pokedex objects gone" is the evidence (no Pokedex flag is read; notes/nav.md).
+        Milestone("deliver_parcel", "Give the parcel to Prof. Oak in his lab and receive the Pokedex",
+                  done=got_pokedex,
+                  target=lambda o: Target.interact(*FR_OAK_DESK_STAND, "UP", "A") if m(o) == FR_OAKS_LAB
+                  else Target.warp(*FR_OAKS_LAB) if m(o) == FR_PALLET_TOWN
+                  else Target.edge("DOWN") if m(o) in (FR_VIRIDIAN_CITY, FR_ROUTE_1)
+                  else Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART else to_pallet(o)),
         # --- next: not implemented.
-        Milestone("oaks_parcel", "Viridian City: get Oak's Parcel at the Poke Mart (not implemented: stop here)",
-                  placeholder=True),
+        Milestone("pewter_city", "North of Viridian City: Route 2, Viridian Forest, Pewter City "
+                  "(not implemented: stop here)", placeholder=True),
     ]
 
 

@@ -93,6 +93,24 @@ def test_warp_push_and_untriggerable_warps_are_skipped():
     assert act.presses[0].button == "DOWN" and "take warp" in dec.reason
 
 
+def test_frozen_on_the_warp_tile_is_not_a_dead_warp():
+    """Viridian Mart: you arrive on the exit warp and the clerk's script starts at once; pressing
+    the warp direction does not even turn you. That is a freeze (wait / A), not a failed warp try."""
+    warps = [{"x": 2, "y": 2, "dest_bank": 3, "dest_map": 1, "behavior": 0x65, "enter": "DOWN"}]
+    pl = GoalPlanner([Milestone("w", "leave", target=lambda o: Target.warp(3, 1))])
+    b = PathBrain(planner=pl, settle_checks=0, max_warp_tries=2)
+    settle(b, obs(2, 2, "UP", warps=warps))
+    buttons = []
+    for _ in range(8):                                  # frozen facing UP: never a dead warp
+        act, dec = b.decide(obs(2, 2, "UP", warps=warps))
+        buttons.append(act.presses[0].button)
+        assert "no usable" not in dec.reason and "dead" not in dec.reason
+    assert buttons[0] == "DOWN" and "A" in buttons and "NONE" in buttons
+    assert buttons.count("DOWN") == 4                   # retried after every wait / A
+    act, dec = b.decide(obs(2, 2, "DOWN", warps=warps))  # script over: free again
+    assert act.presses[0].button == "DOWN" and "take warp" in dec.reason
+
+
 def test_placeholder_milestone_finishes_dialogue_then_idles():
     pl = GoalPlanner([Milestone("later", "not yet", placeholder=True, script_button="B")])
     b = PathBrain(planner=pl, settle_checks=0)
@@ -208,16 +226,17 @@ def test_arbiter_copies_milestones_onto_fallback_decision():
     assert res.decision.goal.startswith("Get through the intro")
 
 
-def test_pathbrain_walks_mock_house_through_m3_and_replays(tmp_path):
-    s = demo.run("mock-house", steps=250, mode="auto", brains="path,rule", out_dir=str(tmp_path), quiet=True)
+def test_pathbrain_walks_mock_house_through_parcel_and_replays(tmp_path):
+    s = demo.run("mock-house", steps=320, mode="auto", brains="path,rule", out_dir=str(tmp_path), quiet=True)
     steps = list(iter_steps(s["log"]))
     maps = [(r["observation"]["ram"].get("map_bank"), r["observation"]["ram"].get("map_id")) for r in steps]
     order = [m for i, m in enumerate(maps) if m[0] is not None and (i == 0 or maps[i - 1] != m)]
     known = [m for m in maps if m[0] is not None]
     visits = [m for i, m in enumerate(known) if i == 0 or known[i - 1] != m]
-    assert visits == [(4, 1), (4, 0), (3, 0), (4, 3), (3, 0), (3, 19), (3, 1)]   # M3: two map connections
+    # M3: two map connections north; Oak's Parcel: the mart, two connections south, the lab door
+    assert visits == [(4, 1), (4, 0), (3, 0), (4, 3), (3, 0), (3, 19), (3, 1), (5, 3), (3, 1), (3, 19), (3, 0), (4, 3)]
     assert order[:4] == [(4, 1), (4, 0), (3, 0), (4, 3)]
-    assert (s["final_ram"]["map_bank"], s["final_ram"]["map_id"]) == (3, 1)
+    assert (s["final_ram"]["map_bank"], s["final_ram"]["map_id"]) == (4, 3)
     assert s["final_ram"]["party_count"] == 1 and s["final_ram"]["scene"] == "overworld"  # no naming screen
     reasons = [r["decision"]["reason"] for r in steps if r["decision"]["brain"] == "path"]
     assert any("treat as blocked" in t for t in reasons)  # 1F: unlisted NPC -> bump, replan (fallback)
@@ -234,8 +253,10 @@ def test_pathbrain_walks_mock_house_through_m3_and_replays(tmp_path):
     assert last["brain"] == "path" and "not implemented yet -> idle" in last["reason"]
     done = {m["id"]: m["done"] for m in last["milestones"]}
     assert done["get_starter"] and done["rival_battle"] and done["rival_battle_over"]
-    assert done["leave_lab"] and done["route_1"] and done["viridian_city"] and not done["oaks_parcel"]
-    assert sum("off the map edge" in t for t in reasons) == 2
+    assert all(v for k, v in done.items() if k != "pewter_city") and not done["pewter_city"]
+    assert sum("off the map edge" in t for t in reasons) == 4
+    assert any("onto the warp (player frozen" in t for t in reasons)   # the mart clerk's script
+    assert {n["local_id"] for n in s["final_ram"]["npcs"]} == {4, 8}      # Pokedexes taken off the table
     # the mock rival stopped us on row 8; the battle (no ram["battle"]) was RuleBrain's A presses
     battle = [r for r in steps if r["observation"]["ram"].get("in_battle") is True]
     assert battle and all(r["decision"]["brain"] == "rule" for r in battle)

@@ -29,7 +29,7 @@
 |---|---|
 | 模擬器 | ✅ 用 mGBA 0.10.5 Python bindings **headless** 行真 FireRed（`--adapter mgba`）；決定性 act + replay 已驗證（見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)） |
 | RuleBrain | ⚠️ 只係**狂按 A 過開場**，入到主角房間之後**行固定圖案亂行**；而家主要做 PathBrain 嘅後備 |
-| PathBrain | ✅ **A\* 尋路**（4 方向）＋目標清單：真 ROM 上由主角房 2F → 1F → 真新鎮 → 北面出口觸發 Oak 劇情 → 研究所 → **攞到妙蛙種子（Bulbasaur，`party_count` 1）**；會避開 NPC、會按 A/B 過劇情。攞完之後行向出口，勁敵喺 (7,8) 截停 → 交俾戰鬥大腦；打完（贏輸都得）返到 (7,8)。**M3**：出研究所 → 行出真新鎮北面邊界（map connection，唔係 warp）→ 1 號道路 3/19（草叢野生戰交俾戰鬥大腦）→ 行出北面邊界 → **常磐市 3/1**。下一個目標（Oak 包裹）係 placeholder，原地等。**輸咗（whiteout）**：喺屋企 1F (8,5) 醒返，媽媽補返血，AI 會自己再行出去、行返去常磐市（真 ROM 驗證，見 `notes/nav.md`「Whiteout」） |
+| PathBrain | ✅ **A\* 尋路**（4 方向）＋目標清單：真 ROM 上由主角房 2F → 1F → 真新鎮 → 北面出口觸發 Oak 劇情 → 研究所 → **攞到妙蛙種子（Bulbasaur，`party_count` 1）**；會避開 NPC、會按 A/B 過劇情。攞完之後行向出口，勁敵喺 (7,8) 截停 → 交俾戰鬥大腦；打完（贏輸都得）返到 (7,8)。**M3**：出研究所 → 行出真新鎮北面邊界（map connection，唔係 warp）→ 1 號道路 3/19（草叢野生戰交俾戰鬥大腦）→ 行出北面邊界 → **常磐市 3/1**。**Oak 包裹**：入常磐市友好商店 5/3（店員劇情自動俾包裹）→ 經 1 號道路行返南面（跳台當牆，A\* 行冇跳台嗰條路）→ 研究所交俾 Oak → **攞到圖鑑**（真 ROM 由開機 step 3944）。下一個目標（往尼比市）係 placeholder，對白完咗原地等。**輸咗（whiteout）**：喺屋企 1F (8,5) 醒返，媽媽補返血，AI 會自己再行出去、行返去常磐市（真 ROM 驗證，見 `notes/nav.md`「Whiteout」） |
 | RandomBrain | ✅ 有 seed、可重現嘅隨機按鍵（baseline / 後備） |
 | LLMBrain | ⛔ **stub**：未接任何 LLM provider、無 API key、唔會打任何 API；呼叫時會回報 unavailable，arbiter 自動 fallback |
 | RAM 位址 | 只有 [`notes/mgba-bridge.md`](notes/mgba-bridge.md) 表入面嗰啲係**喺呢隻 ROM 上驗證過**：`vblank_counter`、`held_keys`、`callback2`/`scene`、`player_x`/`player_y`、`map_bank`/`map_id`、`facing`、`map_w`/`map_h`/`collision`/`warps`（PR #7）；`npcs`、`party_count`（M2，暫放喺 `adapters/gba_mgba/firered_extra.py`，驗證方法見 [`notes/nav.md`](notes/nav.md)，**等 Backend 接手**）。`in_battle`（`gMain+0x439` bit1，PR #15，喺勁敵戰驗證：對戰期間 True，完咗返 False；入戰前約 20 步過場仍然係 False）。`npcs` 用碰撞法 8 個只驗到 1 個，當**部分驗證** |
@@ -271,7 +271,7 @@ python -m game_brain.demo --adapter mgba --brains path,rule --steps 1100  # 真 
 python -m pytest -q
 ```
 
-- 冇 mGBA bindings 或者冇 `GAME_BRAIN_ROM` 嘅時候，真 ROM 測試會 **skip**，其餘照跑。真 ROM 測試包括 `tests/test_mgba_adapter.py` 其中一部分，同 `tests/test_path_brain.py` 嘅「由開機行到攞到妙蛙種子」（1100 步，大約 10 秒），同 `tests/test_battle_brain_real.py` 嘅「由開機打完勁敵戰、行到常磐市」（3300 步＋replay，大約 75 秒），同 `tests/test_whiteout_real.py` 嘅「故意輸一場野生戰（只喺測試入面改 RAM）、屋企醒返再行去常磐市」（大約 70 秒）。
+- 冇 mGBA bindings 或者冇 `GAME_BRAIN_ROM` 嘅時候，真 ROM 測試會 **skip**，其餘照跑。真 ROM 測試包括 `tests/test_mgba_adapter.py` 其中一部分，同 `tests/test_path_brain.py` 嘅「由開機行到攞到妙蛙種子」（1100 步，大約 10 秒），同 `tests/test_battle_brain_real.py` 嘅「由開機打完勁敵戰、行到常磐市、攞 Oak 包裹、返研究所攞圖鑑」，再由包裹嘅里程碑存檔 resume 一次照樣交到包裹（4300＋900 步＋replay，大約 100 秒），同 `tests/test_whiteout_real.py` 嘅「故意輸一場野生戰（只喺測試入面改 RAM）、屋企醒返再行去常磐市」（大約 70 秒）。
 - 兩樣都設定好，就會全部跑。
 
 ## 目錄

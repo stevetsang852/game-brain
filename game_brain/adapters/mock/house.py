@@ -22,6 +22,13 @@ Maps with the same ids as FireRed milestones 1-3 (layouts are made up, not game 
                   stand at (7,8) in the lab, like FireRed after a win or a loss.
 * 3/19 "route 1", 3/1 "viridian city" (M3): reached through map connections (walk UP off
                   (12,0) outside, then off route 1's top row), no warps and no blackout.
+* 5/3 "viridian mart" (Oak's Parcel): a door in viridian city at (2,1). Like FireRed, you
+                  arrive on the exit warp tile and the clerk's script starts at once (3 text boxes,
+                  you cannot even turn); it ends with the parcel and you standing at (2,1) facing
+                  LEFT. Outside has a lab door at (8,4); in the lab Oak (local_id 4) and the two
+                  Pokedex objects on the table (local_id 9/10) are listed in ``ram["npcs"]``. Facing
+                  Oak at (6,4) with the parcel: 3 text boxes, the Pokedex objects disappear, then 4
+                  more text boxes (Oak's speech).
 
 Rules mimic FireRed closely enough for PathBrain: pressing a direction you are not facing
 only turns you (any hold length); when facing it, a 1-16 frame hold moves one tile and 17+
@@ -77,7 +84,8 @@ MAPS: Dict[Tuple[int, int], dict] = {
                  "#............#",
                  "##############"],
         # door tile (5,4) is '#'; walk UP into it from (5,5)
-        "warps": [{"x": 5, "y": 4, "dest": (4, 0), "enter": "UP", "arrive": (4, 6), "door": True}],
+        "warps": [{"x": 5, "y": 4, "dest": (4, 0), "enter": "UP", "arrive": (4, 6), "door": True},
+                  {"x": 8, "y": 4, "dest": (4, 3), "enter": "UP", "arrive": (5, 9), "door": True}],
         "oak_trigger": [(12, 1), (13, 1)],   # same tiles as FireRed's north exit trigger
         # map connection (no warp): walking UP off (12,0) puts you on "route 1" at x + offset
         "connections": {"UP": ((3, 19), -10)},
@@ -92,13 +100,23 @@ MAPS: Dict[Tuple[int, int], dict] = {
         "warps": [],
         "connections": {"DOWN": ((3, 0), 10), "UP": ((3, 1), 0)},
     },
-    (3, 1): {   # "viridian city" (M3)
+    (3, 1): {   # "viridian city" (M3); the mart door at (2,1)
+        "rows": ["######",
+                 "##.#.#",
+                 "#....#",
+                 "##..##"],
+        "warps": [{"x": 2, "y": 1, "dest": (5, 3), "enter": "UP", "arrive": (2, 4), "door": True}],
+        "connections": {"DOWN": ((3, 19), 0)},
+    },
+    (5, 3): {   # "viridian mart": exit warp (2,4), push DOWN
         "rows": ["######",
                  "#....#",
                  "#....#",
-                 "##..##"],
-        "warps": [],
-        "connections": {"DOWN": ((3, 19), 0)},
+                 "#....#",
+                 "#....#",
+                 "######"],
+        "warps": [{"x": 2, "y": 4, "dest": (3, 1), "enter": "DOWN", "arrive": (2, 2)}],
+        "clerk": True,
     },
     (4, 3): {
         "rows": ["#############",
@@ -115,7 +133,8 @@ MAPS: Dict[Tuple[int, int], dict] = {
                  "#############"],
         "warps": [{"x": 5, "y": 10, "dest": (3, 0), "enter": "DOWN", "arrive": (12, 5)}],
         "rival_row": 8,                       # with the starter: the rival stops you here
-        "objects": [(6, 3), (5, 4)],          # Oak, rival: emitted in ram["npcs"]
+        "objects": [(6, 3), (5, 4), (4, 1), (5, 1)],   # Oak, rival, 2 Pokedexes: in ram["npcs"]
+        "object_ids": [4, 8, 9, 10],                  # local_ids as on FireRed
         "balls": {(8, 4): 1, (9, 4): 7, (10, 4): 4},  # species ids (Bulbasaur, Squirtle, Charmander)
     },
 }
@@ -152,6 +171,8 @@ class MockHouseAdapter(Adapter):
         self.rival_done = False
         self.battle_left = 0           # A presses until the mock rival battle ends
         self.battles = 0
+        self.parcel = False            # Oak's Parcel (from the mart clerk's script)
+        self.pokedex = False           # Oak took the Pokedexes off the table
         return self.observe()
 
     @property
@@ -174,12 +195,18 @@ class MockHouseAdapter(Adapter):
     def _m(self) -> dict:
         return MAPS[self.map]
 
+    def _objects(self) -> List[Tuple[int, Tuple[int, int]]]:
+        m = self._m()
+        objs = m.get("objects", [])
+        ids = m.get("object_ids") or list(range(1, len(objs) + 1))
+        return [(i, xy) for i, xy in zip(ids, objs) if not (self.pokedex and i in (9, 10))]
+
     def _free(self, x: int, y: int) -> bool:
         rows = self._m()["rows"]
         if not (0 <= y < len(rows) and 0 <= x < len(rows[0])):
             return False
         return rows[y][x] == "." and (x, y) not in self._m().get("npcs", []) \
-            and (x, y) not in self._m().get("objects", [])
+            and (x, y) not in [xy for _, xy in self._objects()]
 
     # ------------------------------------------------------------------ Adapter API
     def observe(self) -> Observation:
@@ -195,8 +222,8 @@ class MockHouseAdapter(Adapter):
                "player_x": self.x, "player_y": self.y, "facing": self.facing,
                "map_w": len(m["rows"][0]), "map_h": len(m["rows"]), "collision": list(m["rows"]),
                "warps": warps, "party_count": len(self.party),
-               "npcs": [{"x": x, "y": y, "prev_x": x, "prev_y": y, "elevation": 3, "local_id": i + 1, "gfx": 0}
-                        for i, (x, y) in enumerate(m.get("objects", []))]}
+               "npcs": [{"x": x, "y": y, "prev_x": x, "prev_y": y, "elevation": 3, "local_id": i, "gfx": 0}
+                        for i, (x, y) in self._objects()]}
         return Observation(frame=self._frame, game="MOCK-HOUSE", ram=ram)
 
     def act(self, action: Action) -> int:
@@ -215,6 +242,9 @@ class MockHouseAdapter(Adapter):
                 if self.transition == 0 and self.pending:
                     self.map, (self.x, self.y), self.auto_walk = self.pending
                     self.pending = None
+                    if self._m().get("clerk") and not self.parcel:
+                        # the clerk calls you over on arrival: frozen on the exit warp tile
+                        self.script = [("text",)] * 3 + [("parcel",)]
                     if self.auto_walk:  # doors: you appear on the door tile, then walk out
                         dx, dy = _D[self.auto_walk]
                         self.y += dy
@@ -312,7 +342,12 @@ class MockHouseAdapter(Adapter):
     # ------------------------------------------------------------------ milestone 2 scripts
     def _interact(self) -> None:
         dx, dy = _D[self.facing]
-        species = self._m().get("balls", {}).get((self.x + dx, self.y + dy))
+        ahead = (self.x + dx, self.y + dy)
+        if self.parcel and not self.pokedex and self.map == (4, 3) and \
+                ahead in [xy for i, xy in self._objects() if i == 4]:
+            self.script = [("text",)] * 3 + [("pokedex",)] + [("text",)] * 4
+            return
+        species = self._m().get("balls", {}).get(ahead)
         if species and not self.party:
             self.script = [("text",), ("yesno", species)]
 
@@ -327,6 +362,12 @@ class MockHouseAdapter(Adapter):
         elif item[0] == "yesno" and item[1] == "nickname":
             if button == "A":
                 self.naming_screen = True                          # stuck: wrong answer
+        if self.script and self.script[0][0] == "parcel":
+            self.script.pop(0)
+            self.parcel, (self.x, self.y), self.facing = True, (2, 1), "LEFT"   # walked to the counter
+        if self.script and self.script[0][0] == "pokedex":
+            self.script.pop(0)
+            self.pokedex = True
         if self.script and self.script[0][0] == "battle":
             self.script.pop(0)
             self.battle_left, self.battles = self.battle_presses, self.battles + 1
