@@ -39,3 +39,16 @@ When the adapter implements `screenshot()`, a frame is attached every `--screens
 steps (default 1) as base64 PNG in `observation.payload.screenshot_b64`. Frames are written
 to a temp dir outside the repo and are never logged (`Observation.summary()` drops them).
 Without screenshots (e.g. `MockAdapter`) the page draws a grid from `ram.player_x/player_y`.
+
+## Goal / path / milestones (PR #8 optional `Decision` fields)
+
+The page renders these when present and falls back gracefully when absent (old logs, RuleBrain):
+
+- `goal` -> headline of the "目標與里程碑" panel.
+- `milestones` `[{id, label, done}]` -> chips (done = green, first not-done = current) plus a progress bar.
+- `path` `[[x, y], ...]` -> green line on the "地圖與規劃路徑" mini-map; first cell is the player, dot marks the end.
+- The mini-map draws `ram.collision` (`#` wall / `.` walkable) and `ram.warps` (filled = `enter` set, outlined = unverified).
+  Without collision (mock) it draws a plain grid. When the adapter has no screenshot, the main screen shows the same map.
+- The RAM table summarises `collision` and `warps` instead of dumping them.
+
+The live wire still carries collision/warps on every observation; log dedupe (map-change-only) does not affect the page.

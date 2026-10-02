@@ -224,3 +224,82 @@ def test_page_enables_pad_in_manual_and_assist_and_shows_actor():
     assert 'const HUMAN_MODES = ["manual", "assist"]' in html
     assert 'state.mode !== "manual"' not in html  # no leftover manual-only gate
     assert 'id="actor"' in html and "d.actor ||" in html
+
+
+# --------------------------------------------------------------------------- goal / path / milestones
+
+def test_nav_fields_relayed_and_omitted_when_absent(server):
+    from game_brain.schema import Decision
+    c = Client(server.port)
+    assert wait_for(lambda: server.client_count == 1)
+    d = Decision(brain="path", plan="go", goal="出門到真新鎮", path=[[6, 6], [7, 6], [7, 5]],
+                 milestones=[{"id": "M1.1", "label": "下樓", "done": True}, {"id": "M1.2", "label": "出門"}])
+    server.broadcast(to_envelope(d, 1))
+    p = c.recv()["payload"]
+    assert p["goal"] == "出門到真新鎮" and p["path"][0] == [6, 6]
+    assert p["milestones"][1] == {"id": "M1.2", "label": "出門", "done": False}
+    server.broadcast(to_envelope(Decision(brain="rule", plan="x"), 2))
+    p = c.recv()["payload"]
+    assert not {"goal", "path", "milestones"} & p.keys()  # old-style decisions stay small
+    c.close()
+
+
+def _page_js():
+    from pathlib import Path
+    html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
+    return html.split("<script>")[1].split("</script>")[0]
+
+
+NODE_HARNESS = r"""
+const src = require("fs").readFileSync(0, "utf8");
+const grab = name => { const i = src.indexOf("function " + name + "(");
+  let depth = 0, j = src.indexOf("{", i);
+  for (let k = j; k < src.length; k++) { if (src[k] === "{") depth++; else if (src[k] === "}" && --depth === 0) return src.slice(i, k + 1); } };
+const calls = [];
+const ctx = new Proxy({}, { get: (t, k) => k in t ? t[k] : (...a) => calls.push([k, ...a]), set: (t, k, v) => (t[k] = v, true) });
+const cv = { width: 320, height: 240, getContext: () => ctx };
+const els = {};
+const el = () => { const e = { textContent: "", innerHTML: "", style: {}, children: [], appendChild(c) { this.children.push(c); } }; return e; };
+const $ = id => els[id] || (els[id] = el());
+const document = { createElement: () => el() };
+eval(grab("drawMap") + grab("onMilestones") + grab("fmtRam"));
+const out = {};
+out.withRows = drawMap(cv, { player_x: 4, player_y: 5, map_bank: 4, map_id: 1,
+  collision: ["#####", "#...#", "#...#", "#...#", "#...#", "#...#"], warps: [{ x: 3, y: 5, enter: "DOWN" }, { x: 1, y: 5, enter: null }] },
+  [[4, 5], [3, 5]]);
+out.lines = calls.filter(c => c[0] === "lineTo").length;
+out.strokeRects = calls.filter(c => c[0] === "strokeRect").length;  // unverified warp outlined
+out.noPos = drawMap(cv, { scene: "intro" }, null);
+out.mockNoRows = drawMap(cv, { player_x: 2, player_y: 3 }, [[2, 3], [2, 2]]);
+onMilestones({ goal: "g", milestones: [{ id: "a", label: "A", done: true }, { id: "b", label: "B", done: false }, { id: "c", label: "C", done: false }] });
+out.classes = $("milestones").children.map(c => c.className);
+out.bar = $("msBar").style.width; out.count = $("msCount").textContent;
+onMilestones({});
+out.emptyGoal = $("goal").textContent; out.emptyMs = $("milestones").innerHTML;
+out.fmtCollision = fmtRam("collision", ["....", "...."]);
+out.fmtWarps = fmtRam("warps", [{ enter: "UP" }, { enter: null }]);
+console.log(JSON.stringify(out));
+"""
+
+
+def test_page_nav_rendering_logic_in_node():
+    import shutil, subprocess
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", NODE_HARNESS], input=_page_js(), capture_output=True, text=True, timeout=20)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert out["withRows"] is True and out["lines"] == 1 and out["strokeRects"] == 1
+    assert out["noPos"] is False and out["mockNoRows"] is False
+    assert out["classes"] == ["done", "current", ""]
+    assert out["bar"] == "33%" and out["count"] == "完成 1 / 3"
+    assert out["emptyGoal"] == "（大腦沒有提供目標）" and "沒有提供里程碑" in out["emptyMs"]
+    assert out["fmtCollision"].startswith("2 行 × 4 格") and out["fmtWarps"] == "2 個（1 個可用）"
+
+
+def test_page_has_nav_panels():
+    from pathlib import Path
+    html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
+    for needle in ('id="minimap"', 'id="goal"', 'id="milestones"', 'id="msBar"', "onMilestones(d)", "redrawMaps()"):
+        assert needle in html
+    assert "drawGrid" not in html
