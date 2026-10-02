@@ -158,5 +158,8 @@ Checked by Fullstack while doing M3; **Backend, please re-check**.
   `CTRL_CHOOSE_MOVE_WILD`. With that, RuleBattleBrain gets mon data after the first menu and fights.
   In the boot run there were two wild battles (PIDGEY Lv3 and RATTATA Lv3), both won, and replay had
   0 mismatches.
-* Still open for Backend: trainer battles other than the rival, and double battles. Is the
+* Still open for Backend: trainer battles other than the rival, and double battles.
+* `outcome` raw **3** was seen when both mons fainted (METRONOME → SELFDESTRUCT; screenshot). The adapter
+  reports `"unknown"`. In pokefirered, 3 is `B_OUTCOME_DREW`. **Backend:** please confirm it and map it to `"draw"`.
+  It whites out the same as a loss (notes/nav.md "Whiteout"). Is the
   controller address the same for all normal battles?
