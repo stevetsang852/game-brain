@@ -276,7 +276,8 @@ const els = {};
 const el = () => { const e = { textContent: "", innerHTML: "", style: {}, children: [], appendChild(c) { this.children.push(c); } }; return e; };
 const $ = id => els[id] || (els[id] = el());
 const document = { createElement: () => el() };
-eval(grab("drawMap") + grab("onMilestones") + grab("fmtRam"));
+const state = {};
+eval(grab("drawMap") + grab("msName") + grab("escMs") + grab("msExpanded") + grab("onMilestones") + grab("fmtRam"));
 const out = {};
 out.withRows = drawMap(cv, { player_x: 4, player_y: 5, map_bank: 4, map_id: 1,
   collision: ["#####", "#...#", "#...#", "#...#", "#...#", "#...#"], warps: [{ x: 3, y: 5, enter: "DOWN" }, { x: 1, y: 5, enter: null }] },
@@ -287,7 +288,17 @@ out.noPos = drawMap(cv, { scene: "intro" }, null);
 out.mockNoRows = drawMap(cv, { player_x: 2, player_y: 3 }, [[2, 3], [2, 2]]);
 onMilestones({ goal: "g", milestones: [{ id: "a", label: "A", done: true }, { id: "b", label: "B", done: false }, { id: "c", label: "C", done: false }] });
 out.classes = $("milestones").children.map(c => c.className);
-out.bar = $("msBar").style.width; out.count = $("msCount").textContent;
+out.bar = $("msBar").style.width; out.count = $("msCount").textContent; out.goal = $("goal").textContent;
+const long = ids => ids.map((id, i) => ({ id, label: "L-" + id, done: i < 8 }));
+els.milestones = el();
+onMilestones({ goal: "Finish the rival battle", milestones: long(["intro", "leave_bedroom", "leave_house", "pallet_town", "oak_stops_you", "oak_lab", "get_starter", "rival_battle", "rival_battle_over", "leave_lab", "route_1", "viridian_city", "x_new"]) });
+out.longShown = $("milestones").children.filter(c => c.style.display !== "none").map(c => c.className);
+out.longGoal = $("goal").textContent; out.longCount = $("msCount").textContent; out.toggle = $("msToggle").textContent;
+out.unknownName = $("milestones").children[12].innerHTML;
+els.milestones = el();
+onMilestones({ milestones: long(["a", "b", "c", "d"]).map(m => ({ ...m, done: true })) });
+out.allDone = $("goal").textContent;
+out.allDoneShown = $("milestones").children.filter(c => c.style.display !== "none").length;
 onMilestones({});
 out.emptyGoal = $("goal").textContent; out.emptyMs = $("milestones").innerHTML;
 out.fmtCollision = fmtRam("collision", ["....", "...."]);
@@ -306,7 +317,12 @@ def test_page_nav_rendering_logic_in_node():
     assert out["withRows"] is True and out["lines"] == 1 and out["strokeRects"] == 1
     assert out["noPos"] is False and out["mockNoRows"] is False
     assert out["classes"] == ["done", "current", ""]
-    assert out["bar"] == "33%" and out["count"] == "完成 1 / 3"
+    assert out["bar"] == "33%" and out["count"] == "1 / 3" and out["goal"] == "B"
+    # 13 milestones, 8 done: only previous / current / next are shown, with Chinese short names
+    assert out["longShown"] == ["done", "current", ""]
+    assert out["longGoal"] == "打完勁敵戰" and out["longCount"] == "8 / 13" and out["toggle"] == "展開全部（13）"
+    assert out["unknownName"].startswith("L-x_new")  # id without a short name falls back to its label
+    assert out["allDone"] == "全部完成" and out["allDoneShown"] == 3
     assert out["emptyGoal"] == "（大腦沒有提供目標）" and "沒有提供里程碑" in out["emptyMs"]
     assert out["fmtCollision"].startswith("2 行 × 4 格") and out["fmtWarps"] == "2 個（1 個可用）"
 
