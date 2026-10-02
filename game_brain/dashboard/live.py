@@ -1,7 +1,13 @@
 """Live loop: adapter -> arbiter -> adapter, mirrored to the dashboard.
 
-    python -m game_brain.dashboard --adapter mock --mode auto
+    python -m game_brain.dashboard                       # real game if $GAME_BRAIN_ROM is set, else mock
+    python -m game_brain.dashboard --adapter mgba --brains battle,path,rule --save-every 500
+    python -m game_brain.dashboard --adapter mgba --resume latest
     # then open http://127.0.0.1:8765/
+
+Adapter, brains (battle,path,rule + FireRed milestones), --battle-confidence and the save
+settings (--save-dir / --save-every / --no-save / --resume) are the CLI's: both use
+game_brain/setup.py.
 
 Each step: drain dashboard commands (mode switches, manual presses), let the arbiter
 decide, execute, write the JSONL run log, and push ``observation``, ``decision`` and
@@ -18,10 +24,10 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ..adapters import make_adapter
+from .. import savestate
 from ..arbiter import Arbiter
-from ..brain import make_brain
 from ..runlog import RunLogWriter
+from ..setup import FULL_BRAINS, Session, add_run_args, save_dir_from_args
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from .pacing import FrameAck, Pacer, ViewConfig
 from .server import DashboardServer
@@ -58,24 +64,31 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
     return outcomes
 
 
-def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto", brains: str = "rule,random",
+def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto", brains: str = FULL_BRAINS,
         seed: int = 0, steps: int = 0, step_delay: float = 0.25, screenshot_every: int = 1,
-        out_dir: str = "runs", quiet: bool = False) -> dict:
-    adapter = make_adapter(adapter_name)
-    brain_objs = [make_brain(n.strip(), seed=seed) if n.strip() == "random" else make_brain(n.strip())
-                  for n in brains.split(",")]
-    arbiter = Arbiter(brain_objs, mode=mode)
-    arbiter.reset()
-    run_dir = Path(out_dir) / time.strftime("%Y%m%d-%H%M%S")
+        out_dir: str = "runs", quiet: bool = False, battle_confidence: Optional[float] = None,
+        save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
+        resume: Optional[str] = None) -> dict:
+    """Adapter / brains (battle, path + FireRed milestones, rule) / saves come from
+    :class:`game_brain.setup.Session`, the same setup the CLI uses. ``save_dir`` None = no saves."""
+    sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
+                   quiet=quiet)
+    adapter, arbiter = sess.adapter, sess.arbiter
+    if not quiet:
+        c = sess.config()
+        print(f"setup: adapter={c['adapter']} brains={','.join(n for n, _ in c['brains'])} mode={c['mode']} "
+              f"milestones={len(c['milestones'] or [])} saves={c['save_dir'] or 'off'}"
+              + (f" every={c['save_every']}" if c['saving'] else "")
+              + (f" resumed_from={c['resumed_from']}" if c['resumed_from'] else ""))
     tmp = Path(tempfile.mkdtemp(prefix="gb-dash-"))
     pacer = Pacer(step_delay, screenshot_every)
-    step = 0
-    with RunLogWriter(run_dir / "run.jsonl") as log:
-        log.header(adapter=adapter.name, brains=[b.name for b in brain_objs], mode=arbiter.mode.value,
-                   steps=steps, seed=seed, dashboard=server.url)
-        obs = adapter.reset()
+    step = sess.start_step
+    result = None
+    with RunLogWriter(sess.log_path) as log:
+        log.header(**sess.header_info(steps=steps, seed=seed, dashboard=server.url))
+        obs = sess.start(log)
         try:
-            while not steps or step < steps:
+            while not steps or step < sess.start_step + steps:
                 started = pacer.clock()
                 outcomes = apply_commands(server, arbiter, log, step, obs.frame, pacer)
                 obs = adapter.observe()
@@ -84,6 +97,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                 result = arbiter.step(obs)
                 advanced = adapter.act(result.executed) if result.executed else 0
                 log.step(step, obs, result, advanced)
+                sess.after_step(log, step + 1, result)
                 server.broadcast(to_envelope(obs, obs.frame))
                 if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
                     pacer.sent_screenshot(obs.frame)
@@ -104,30 +118,38 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                     time.sleep(delay)
         except KeyboardInterrupt:
             pass
+        sess.finish(log, step, result)     # final save (also on Ctrl-C)
     adapter.close()
-    return {"steps": step, "final_frame": adapter.frame, "mode_final": arbiter.mode.value,
-            "log": str(run_dir / "run.jsonl")}
+    return {"steps": step - sess.start_step, "final_frame": adapter.frame, "mode_final": arbiter.mode.value,
+            "log": str(sess.log_path), "saves": sess.saves,
+            "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None}
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m game_brain.dashboard", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--adapter", default="mock")
-    ap.add_argument("--mode", default="auto", choices=[m.value for m in Mode])
-    ap.add_argument("--brains", default="rule,random")
-    ap.add_argument("--seed", type=int, default=0)
+    # same flags as the CLI (game_brain/setup.py); defaults = the Docker image: the real game, full brains
+    add_run_args(ap, adapter_default="auto", brains_default=FULL_BRAINS)
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--host", default="127.0.0.1", help="loopback only; 0.0.0.0 is accepted only inside the game-brain container")
     ap.add_argument("--steps", type=int, default=0, help="0 = run until Ctrl-C")
     ap.add_argument("--step-delay", type=float, default=0.25, help="seconds between steps (so humans can watch)")
     ap.add_argument("--screenshot-every", type=int, default=1, help="attach a live frame every N steps (0 = never)")
-    ap.add_argument("--out", default="runs")
     ap.add_argument("-q", "--quiet", action="store_true")
-    a = ap.parse_args(argv)
+    return ap
+
+
+def main(argv=None) -> int:
+    a = build_parser().parse_args(argv)
     with DashboardServer(a.host, a.port) as server:
         print(f"dashboard: {server.url}  (Ctrl-C to stop)")
-        s = run(server, a.adapter, a.mode, a.brains, a.seed, a.steps, a.step_delay,
-                a.screenshot_every, a.out, a.quiet)
+        try:
+            s = run(server, a.adapter, a.mode, a.brains, a.seed, a.steps, a.step_delay,
+                    a.screenshot_every, a.out, a.quiet, battle_confidence=a.battle_confidence,
+                    save_dir=save_dir_from_args(a), save_every=a.save_every, resume=a.resume)
+        except (ValueError, FileNotFoundError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     print(s)
     return 0
 
