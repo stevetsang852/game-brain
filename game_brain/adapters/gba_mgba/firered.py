@@ -14,6 +14,8 @@ G_MAIN = 0x030030F0              # struct Main gMain
 MAIN_CALLBACK2 = G_MAIN + 0x04   # u32, current scene callback
 MAIN_VBLANK_COUNTER2 = G_MAIN + 0x24  # u32, +1 per frame
 MAIN_HELD_KEYS = G_MAIN + 0x2C   # u16, KEYINPUT bits of held buttons
+MAIN_FLAGS_439 = G_MAIN + 0x439  # u8 bitfield: bit1 = gMain.inBattle (set by the battle engine)
+IN_BATTLE_BIT = 0x02
 G_SAVEBLOCK1_PTR = 0x03005008    # struct SaveBlock1 *; pos @+0 (s16 x,y), location @+4 (s8 group, s8 num)
 G_PLAYER_AVATAR = 0x02037078     # struct PlayerAvatar; objectEventId @+5
 G_OBJECT_EVENTS = 0x02036E38     # struct ObjectEvent[16], 0x24 bytes each; facingDirection = low nibble @+0x18
@@ -57,6 +59,10 @@ class FireRedRam:
             "callback2": cb2,
             "vblank_counter": self.u32(MAIN_VBLANK_COUNTER2),
             "held_keys": self.u16(MAIN_HELD_KEYS),
+            # True from the battle intro until the battle ends; False during the screen
+            # transition into it (callback2 is already not the overworld then). Verified on the
+            # rival battle in Oak's lab; see notes/mgba-bridge.md "`in_battle`".
+            "in_battle": bool(self.u8(MAIN_FLAGS_439) & IN_BATTLE_BIT),
         }
         if cb2 != CB2_OVERWORLD:
             ram["scene"] = "other"
