@@ -137,7 +137,8 @@ Other things found while checking:
   lab (4/3) at (7,8), the same as after a win: party_count 1, the rival is gone (8 -> 7 NPCs), and
   the player can walk to the exit mat (7,12). Of the 12 runs above, 6 were won and 6 lost.
 * In this ROM both starters only know METRONOME, so the rival battle's result is random.
-* Not verified yet, so not exposed: status, max_pp, battle type, turn, party, bag.
+* Not verified yet, so not exposed in `ram["battle"]`: status, max_pp, battle type, turn, bag. The party
+  (with status and max_pp per move) is now `ram["party"]`, see notes/party-and-icons.md.
 
 ### Wild battles (M3, Route 1)
 

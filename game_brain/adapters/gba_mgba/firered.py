@@ -7,7 +7,7 @@ verified is deliberately left out rather than guessed.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 # --- verified addresses (pokefirered symbol names) ---
 G_MAIN = 0x030030F0              # struct Main gMain
@@ -42,8 +42,16 @@ EWRAM = range(0x02000000, 0x02040000)
 class FireRedRam:
     """Reads FireRed state through ``read(width, addr)`` (width in bytes, signed for s16/s8 via helpers)."""
 
-    def __init__(self, u8: Callable[[int], int], u16: Callable[[int], int], u32: Callable[[int], int]):
+    def __init__(self, u8: Callable[[int], int], u16: Callable[[int], int], u32: Callable[[int], int],
+                 block: Optional[Callable[[int, int], bytes]] = None):
         self.u8, self.u16, self.u32 = u8, u16, u32
+        self._block = block
+
+    def block(self, addr: int, n: int) -> bytes:
+        """``n`` bytes at ``addr`` (one fast copy if the adapter provided a block reader)."""
+        if self._block is not None:
+            return self._block(addr, n)
+        return bytes(self.u8(addr + i) for i in range(n))
 
     def s8(self, addr: int) -> int:
         v = self.u8(addr)

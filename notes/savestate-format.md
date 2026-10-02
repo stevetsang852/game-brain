@@ -82,7 +82,7 @@ sidecar for the half-written state, and `latest` still points at the previous co
 | `milestone` | current (first not-done) milestone id |
 | `milestones_done` | ids of done milestones |
 | `party_count` | `ram["party_count"]` |
-| `party_hp` | `[{hp, max_hp}]` from `ram["party"]` if the adapter has it (it doesn't yet: Backend's party work). Otherwise, in battle, the active battler from `ram["battle"]["player"]` with `"source": "battle"`. Otherwise `null` |
+| `party_hp` | `[{hp, max_hp}]` from `ram["party"]` if the adapter has it (mGBA: overworld and battle steps, notes/party-and-icons.md). Otherwise, in battle, the active battler from `ram["battle"]["player"]` with `"source": "battle"`. Otherwise `null` |
 | `adapter`, `adapter_state` | adapter name, plus adapter-side state that is not in the emulator snapshot. mGBA: `{"battle_ready": bool}` (whether this battle's mon data is trusted yet, see notes/mgba-bridge.md). Without it, resuming mid-battle would hide `ram["battle"]` HP until the next menu |
 | `rom_sha1` | SHA1 of the ROM. Resume refuses a different ROM |
 | `brains`, `git_commit` (`-dirty` if uncommitted changes), `run_id`, `resumed_from` (sidecar this run resumed from), `timestamp` (local ISO 8601 with offset) | provenance |

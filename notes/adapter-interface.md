@@ -39,6 +39,7 @@ Button names: `A B SELECT START RIGHT LEFT UP DOWN R L NONE`
 | `facing` | str | `UP/DOWN/LEFT/RIGHT` |
 | `in_battle` | bool | battle flag |
 | `party_count` | int | optional |
+| `party` | list of dict | optional; mGBA FireRed shape in `game_brain/adapters/gba_mgba/firered_party.py` and notes/party-and-icons.md |
 | anything else | any | free-form, game-specific; logged as-is |
 
 `Observation.screenshot_path` / `screenshot_b64` are optional.
