@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from ..schema import Action, Decision, Observation
 
 
 class BrainUnavailable(RuntimeError):
     """Raised by a brain that cannot decide right now (e.g. LLM not configured).
-    The arbiter catches this and falls back to the next brain."""
+    The arbiter catches this and falls back to the next brain.
+
+    ``context`` optionally carries Decision fields (``goal``, ``milestones``) that the arbiter
+    copies onto the fallback brain's Decision when that one has none, so the dashboard keeps
+    seeing the milestone list on every step."""
+
+    def __init__(self, msg: str = "", context: Optional[Dict[str, Any]] = None):
+        super().__init__(msg)
+        self.context = context or {}
 
 
 class Brain(ABC):

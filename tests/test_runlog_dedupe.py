@@ -107,7 +107,7 @@ def test_new_logs_replay_and_restore_actions(tmp_path):
     for r in iter_steps(s["log"]):
         Action.from_dict(r["executed_action"])
         dec = Decision.from_dict(r["decision"])
-        assert bool(dec.milestones) == (dec.brain == "path")  # rule fallback has none
+        assert dec.milestones  # every step, incl. RuleBrain fallback (arbiter copies PathBrain's)
     assert replay(s["log"], MockHouseAdapter()) == []
 
     sh = demo.run("mock-house", steps=60, mode="shadow", brains="path,rule", out_dir=str(tmp_path / "sh"), quiet=True)
@@ -160,8 +160,8 @@ def test_live_dashboard_envelopes_keep_full_decision_and_actions(tmp_path):
     assert sum(d["brain"] == "path" for d in decisions) > 100
     for d in decisions:
         assert "type" not in d and not ({"milestones_same", "executed_same"} & d.keys())
-        if d["brain"] == "path":  # every PathBrain decision carries the full list, every step
-            assert len(d["milestones"]) == 7 and all({"id", "label", "done"} <= m.keys() for m in d["milestones"])
+        # every decision (PathBrain's, and RuleBrain's fallback via the arbiter) carries the full list
+        assert len(d["milestones"]) == 8 and all({"id", "label", "done"} <= m.keys() for m in d["milestones"])
         Decision.from_dict({**d, "type": "decision"})
     for st in statuses:
         assert {"proposed_action", "executed_action"} <= st.keys()

@@ -4,8 +4,16 @@ Milestones are sticky: once ``done`` is observed true it stays done. A milestone
 ``Target`` for PathBrain:
 
 * ``Target.warp(dest_bank, dest_map)`` -- reach any usable warp leading to that map
-* ``Target.tile(x, y)``                -- reach a tile on the current map
+* ``Target.at(x, y)``                  -- reach a tile on the current map
+* ``Target.interact(x, y, face, btn)`` -- stand on (x, y), face ``face``, press ``btn`` (repeat
+  until the milestone is done: talking to someone / picking up a ball)
+* ``Target.script()``                  -- a scripted event is running (player moved by the game):
+  don't navigate, advance text with the milestone's ``script_button``
 * ``None``                             -- nothing to navigate (e.g. the intro: RuleBrain's job)
+
+``script_button`` is the button PathBrain uses to advance text boxes while the player is frozen
+during this milestone ("A" normally; "B" after receiving the starter, so the nickname prompt is
+answered NO instead of opening the naming screen).
 
 ``placeholder=True`` milestones are listed (so the dashboard can show the road ahead) but are
 not implemented yet; PathBrain reports itself unavailable when one becomes current.
@@ -21,9 +29,11 @@ from ..schema import Observation
 
 @dataclass(frozen=True)
 class Target:
-    kind: str                     # "warp" | "tile"
+    kind: str                     # "warp" | "tile" | "interact" | "script"
     dest: Tuple[int, int] = (0, 0)  # warp: destination (bank, map)
-    tile: Tuple[int, int] = (0, 0)  # tile: (x, y) on the current map
+    tile: Tuple[int, int] = (0, 0)  # tile / interact: (x, y) on the current map
+    face: str = ""                  # interact: direction to face on the tile
+    button: str = "A"               # interact: button to press once facing
 
     @classmethod
     def warp(cls, bank: int, map_id: int) -> "Target":
@@ -33,8 +43,22 @@ class Target:
     def at(cls, x: int, y: int) -> "Target":
         return cls("tile", tile=(x, y))
 
+    @classmethod
+    def interact(cls, x: int, y: int, face: str, button: str = "A") -> "Target":
+        return cls("interact", tile=(x, y), face=face, button=button)
+
+    @classmethod
+    def script(cls) -> "Target":
+        return cls("script")
+
     def describe(self) -> str:
-        return f"warp to map {self.dest[0]}/{self.dest[1]}" if self.kind == "warp" else f"tile {self.tile}"
+        if self.kind == "warp":
+            return f"warp to map {self.dest[0]}/{self.dest[1]}"
+        if self.kind == "interact":
+            return f"stand on {self.tile}, face {self.face}, press {self.button}"
+        if self.kind == "script":
+            return "scripted event (advance text, wait)"
+        return f"tile {self.tile}"
 
 
 @dataclass
@@ -44,6 +68,7 @@ class Milestone:
     done: Callable[[Observation], bool] = lambda obs: False
     target: Callable[[Observation], Optional[Target]] = lambda obs: None
     placeholder: bool = False
+    script_button: str = "A"
 
 
 def _map(obs: Observation) -> Optional[Tuple[int, int]]:
@@ -52,30 +77,68 @@ def _map(obs: Observation) -> Optional[Tuple[int, int]]:
     return None
 
 
-# FireRed (BPRE) map ids used by milestone 1. 4/1 = player's house 2F (verified, notes/mgba-bridge.md);
-# 4/0 = house 1F and 3/0 = Pallet Town are the warp destinations Backend verified on this ROM.
+# FireRed (BPRE) map ids. 4/1 = player's house 2F (verified, notes/mgba-bridge.md); 4/0 = house 1F,
+# 3/0 = Pallet Town and 4/3 = Prof. Oak's lab are warp destinations read from this ROM's map
+# events (PR #7) and confirmed by walking through them (notes/nav.md).
 FR_HOUSE_2F = (4, 1)
 FR_HOUSE_1F = (4, 0)
 FR_PALLET_TOWN = (3, 0)
+FR_OAKS_LAB = (4, 3)
+
+# Milestone 2 tiles, all measured on this ROM (notes/nav.md, "M2 route"):
+#: stepping onto either tile of Pallet Town's north exit starts Oak's "wait, don't go out" script
+FR_OAK_TRIGGER = ((12, 1), (13, 1))
+#: the three starter balls on the lab table; we pick Bulbasaur (left ball) -- see notes/nav.md
+FR_STARTER_BALLS = {"BULBASAUR": (8, 4), "SQUIRTLE": (9, 4), "CHARMANDER": (10, 4)}
+FR_STARTER = "BULBASAUR"
 
 
-def firered_milestones() -> List[Milestone]:
+def _party(obs: Observation) -> int:
+    v = obs.ram.get("party_count")
+    return v if isinstance(v, int) else 0
+
+
+def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
     m = _map
+    bx, by = FR_STARTER_BALLS[starter]
+
+    def at_trigger(o: Observation) -> bool:
+        return m(o) == FR_PALLET_TOWN and tuple(o.position or ()) in FR_OAK_TRIGGER
+
+    def to_lab(o: Observation) -> Optional[Target]:
+        return Target.script() if m(o) == FR_PALLET_TOWN else None
+
+    def to_ball(o: Observation) -> Optional[Target]:
+        if m(o) == FR_OAKS_LAB:
+            return Target.interact(bx, by + 1, "UP", "A")
+        if m(o) == FR_PALLET_TOWN:
+            return Target.warp(*FR_OAKS_LAB)  # e.g. walked out before choosing
+        return None
+
     return [
         Milestone("intro", "Get through the intro (RuleBrain mashes A)",
                   done=lambda o: o.position is not None),
         Milestone("leave_bedroom", "Leave the bedroom (2F stairs -> 1F)",
-                  done=lambda o: m(o) in (FR_HOUSE_1F, FR_PALLET_TOWN),
+                  done=lambda o: m(o) in (FR_HOUSE_1F, FR_PALLET_TOWN, FR_OAKS_LAB) or _party(o) > 0,
                   target=lambda o: Target.warp(*FR_HOUSE_1F)),
         Milestone("leave_house", "Leave the house (1F door mat -> outside)",
-                  done=lambda o: m(o) == FR_PALLET_TOWN,
+                  done=lambda o: m(o) in (FR_PALLET_TOWN, FR_OAKS_LAB) or _party(o) > 0,
                   target=lambda o: Target.warp(*FR_PALLET_TOWN)),
         Milestone("pallet_town", "Stand in Pallet Town",
-                  done=lambda o: m(o) == FR_PALLET_TOWN),
-        # --- milestone 2: placeholders, not implemented yet ---
-        Milestone("oak_lab", "Go to Prof. Oak's lab", placeholder=True),
-        Milestone("get_starter", "Get a starter Pokémon", placeholder=True),
-        Milestone("first_battle", "Win the first (rival) battle", placeholder=True),
+                  done=lambda o: m(o) in (FR_PALLET_TOWN, FR_OAKS_LAB) or _party(o) > 0),
+        # --- milestone 2 ---
+        Milestone("oak_stops_you", "Walk to Pallet Town's north exit (Prof. Oak stops you)",
+                  done=lambda o: at_trigger(o) or m(o) == FR_OAKS_LAB or _party(o) > 0,
+                  target=lambda o: Target.at(*FR_OAK_TRIGGER[0]) if m(o) == FR_PALLET_TOWN else None),
+        Milestone("oak_lab", "Prof. Oak walks you to his lab (scripted; advance text with A)",
+                  done=lambda o: m(o) == FR_OAKS_LAB or _party(o) > 0,
+                  target=to_lab),
+        Milestone("get_starter", f"Choose {starter.title()} (ball at {(bx, by)}): face it, A, YES",
+                  done=lambda o: _party(o) >= 1,
+                  target=to_ball),
+        # --- next: not implemented. B advances the rest of the starter dialogue (nickname -> NO).
+        Milestone("rival_battle", "First rival battle (not implemented: stop here)",
+                  placeholder=True, script_button="B"),
     ]
 
 
