@@ -13,13 +13,18 @@ milestones and ``--battle-confidence``), the arbiter and the save manager (``--s
         ... per step: obs = adapter.observe(); result = arbiter.step(obs); act; log.step(...)
                       sess.after_step(log, steps_done, result)
         sess.finish(log, steps_done, result)
+
+SIGTERM (``docker compose down``) and Ctrl-C are handled the same way (:class:`StopSignals`): the
+current step finishes, then the loop stops and the final save + summary are written.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -68,6 +73,47 @@ def add_run_args(ap: argparse.ArgumentParser, *, adapter_default: str, brains_de
     ap.add_argument("--no-save", action="store_true", help="don't write save states")
     ap.add_argument("--resume", default=None, metavar="PATH|latest",
                     help="continue from a save (sidecar .json or .state path, or 'latest' in --save-dir)")
+
+
+class StopSignals:
+    """``with StopSignals() as stop:`` ... ``while ... and not stop.requested:`` (checked at the top
+    of every iteration).
+
+    SIGTERM and SIGINT (Ctrl-C) handlers only set a flag. The loop sees it before starting the next
+    step, so the step in progress always completes (act + log + step counter) and the final save's
+    step matches the game state: a resume never repeats or skips a step. Repeated signals change
+    nothing. Without this, Python as PID 1 in the container ignores SIGTERM and ``docker compose down``
+    SIGKILLs it after 10 s (no final save, no summary). Handlers are only installed from the main
+    thread (signal module rule); the previous ones are restored on exit."""
+
+    SIGNALS = tuple(getattr(signal, n) for n in ("SIGTERM", "SIGINT") if hasattr(signal, n))
+
+    def __init__(self):
+        self.signum: Optional[int] = None
+        self._old: Dict[int, Any] = {}
+
+    def __enter__(self) -> "StopSignals":
+        if threading.current_thread() is threading.main_thread():
+            for s in self.SIGNALS:
+                self._old[s] = signal.signal(s, self._handle)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        for s, old in self._old.items():
+            signal.signal(s, old)
+        self._old.clear()
+
+    def _handle(self, signum, frame) -> None:
+        if self.signum is None:          # only set a flag; never raise in the middle of a step
+            self.signum = signum
+
+    @property
+    def requested(self) -> bool:
+        return self.signum is not None
+
+    @property
+    def name(self) -> Optional[str]:
+        return signal.Signals(self.signum).name if self.signum is not None else None
 
 
 def save_dir_from_args(a: argparse.Namespace) -> Optional[str]:

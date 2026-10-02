@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from . import savestate
 from .runlog import RunLogWriter
 from .schema import Mode, ModeCommand
-from .setup import Session, add_run_args, save_dir_from_args
+from .setup import Session, StopSignals, add_run_args, save_dir_from_args
 
 
 def _parse_switches(items: List[str]) -> Dict[int, Mode]:
@@ -52,10 +52,14 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
     t0 = time.time()
     result = None
 
-    with RunLogWriter(sess.log_path) as log:
+    steps_done = 0
+    stopped_by = None
+    with RunLogWriter(sess.log_path) as log, StopSignals() as stop:
         log.header(**sess.header_info(steps=steps, seed=seed))
         obs = sess.start(log)
         for step in range(start_step, start_step + steps):
+            if stop.requested:          # checked only here: the previous step completed in full
+                break
             if step in switches:
                 arbiter.apply_mode(ModeCommand(switches[step], issued_by="demo-script"))
                 log.event("mode_change", step=step, frame=obs.frame, mode=arbiter.mode.value)
@@ -65,6 +69,7 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
             by_brain[result.decision.brain] += 1
             executed_count += int(result.decision.executed)
             log.step(step, obs, result, advanced)
+            steps_done += 1
             sess.after_step(log, step + 1, result)
             if screenshot_every and step % screenshot_every == 0:
                 p = adapter.screenshot(str(sess.run_dir / f"step{step:05d}.png"))
@@ -73,14 +78,21 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
             if not quiet and (step - start_step < 3 or step % max(1, steps // 10) == 0):
                 print(f"step {step:4d} frame {obs.frame:6d} [{result.mode.value:6s}] "
                       f"{result.decision.brain:6s}: {result.decision.reason}")
-        sess.finish(log, start_step + steps, result)
+        stopped_by = stop.name
+        if stopped_by:
+            log.event("stopped", signal=stopped_by, step=start_step + steps_done)
+            # stderr, even with -q: say why the run ended early
+            print(f"{stopped_by}: stopping after step {start_step + steps_done} (final save + summary)",
+                  file=sys.stderr)
+        sess.finish(log, start_step + steps_done, result)
         final = adapter.observe()
         summary = {
-            "steps": steps, "final_frame": final.frame, "final_ram": final.ram,
+            "steps": steps_done, "final_frame": final.frame, "final_ram": final.ram,
             "decisions_by_brain": dict(by_brain), "executed_brain_or_manual_actions": executed_count,
             "mode_final": arbiter.mode.value, "log": str(sess.log_path), "log_lines": log.lines + 1,
             "screenshots": shots, "wall_seconds": round(time.time() - t0, 3),
             "saves": sess.saves, "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None,
+            "stopped_by": stopped_by,
         }
         log.event("summary", **summary)
     adapter.close()

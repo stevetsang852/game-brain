@@ -27,7 +27,7 @@ from typing import Optional
 from .. import savestate
 from ..arbiter import Arbiter
 from ..runlog import RunLogWriter
-from ..setup import FULL_BRAINS, Session, add_run_args, save_dir_from_args
+from ..setup import FULL_BRAINS, Session, StopSignals, add_run_args, save_dir_from_args
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from .pacing import FrameAck, Pacer, ViewConfig
 from .server import DashboardServer
@@ -84,45 +84,51 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
     pacer = Pacer(step_delay, screenshot_every)
     step = sess.start_step
     result = None
-    with RunLogWriter(sess.log_path) as log:
+    t0 = time.time()
+    with RunLogWriter(sess.log_path) as log, StopSignals() as stop:
         log.header(**sess.header_info(steps=steps, seed=seed, dashboard=server.url))
         obs = sess.start(log)
-        try:
-            while not steps or step < sess.start_step + steps:
-                started = pacer.clock()
-                outcomes = apply_commands(server, arbiter, log, step, obs.frame, pacer)
-                obs = adapter.observe()
-                if pacer.want_screenshot(step, getattr(server, "client_count", 1) > 0):
-                    obs.screenshot_b64 = _screenshot_b64(adapter, tmp)
-                result = arbiter.step(obs)
-                advanced = adapter.act(result.executed) if result.executed else 0
-                log.step(step, obs, result, advanced)
-                sess.after_step(log, step + 1, result)
-                server.broadcast(to_envelope(obs, obs.frame))
-                if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
-                    pacer.sent_screenshot(obs.frame)
-                server.broadcast(to_envelope(result.decision, obs.frame))
-                server.broadcast({"type": "status", "frame": obs.frame, "ts": time.time(), "payload": {
-                    "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,
-                    "proposed_action": result.proposed.to_dict() if result.proposed else None,
-                    "executed_action": result.executed.to_dict() if result.executed else None,
-                    "frames_advanced": advanced, "pending_manual": arbiter.pending_manual,
-                    "notes": list(result.notes) + outcomes, "display": pacer.status(),
-                }})
-                if not quiet and outcomes:
-                    print(f"step {step} frame {obs.frame}: " + "; ".join(outcomes))
-                step += 1
-                pacer.stepped()
-                delay = pacer.sleep_after(started)
-                if delay:
-                    time.sleep(delay)
-        except KeyboardInterrupt:
-            pass
-        sess.finish(log, step, result)     # final save (also on Ctrl-C)
+        # the stop flag (SIGTERM / Ctrl-C) is checked only here, after a step completed in full
+        while (not steps or step < sess.start_step + steps) and not stop.requested:
+            started = pacer.clock()
+            outcomes = apply_commands(server, arbiter, log, step, obs.frame, pacer)
+            obs = adapter.observe()
+            if pacer.want_screenshot(step, getattr(server, "client_count", 1) > 0):
+                obs.screenshot_b64 = _screenshot_b64(adapter, tmp)
+            result = arbiter.step(obs)
+            advanced = adapter.act(result.executed) if result.executed else 0
+            log.step(step, obs, result, advanced)
+            sess.after_step(log, step + 1, result)
+            server.broadcast(to_envelope(obs, obs.frame))
+            if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
+                pacer.sent_screenshot(obs.frame)
+            server.broadcast(to_envelope(result.decision, obs.frame))
+            server.broadcast({"type": "status", "frame": obs.frame, "ts": time.time(), "payload": {
+                "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,
+                "proposed_action": result.proposed.to_dict() if result.proposed else None,
+                "executed_action": result.executed.to_dict() if result.executed else None,
+                "frames_advanced": advanced, "pending_manual": arbiter.pending_manual,
+                "notes": list(result.notes) + outcomes, "display": pacer.status(),
+            }})
+            if not quiet and outcomes:
+                print(f"step {step} frame {obs.frame}: " + "; ".join(outcomes))
+            step += 1
+            pacer.stepped()
+            delay = pacer.sleep_after(started)
+            if delay:
+                time.sleep(delay)
+        if stop.name:
+            log.event("stopped", signal=stop.name, step=step)
+            # stderr, even with -q: say why the run ended early
+            print(f"{stop.name}: stopping after step {step} (final save + summary)", file=sys.stderr)
+        sess.finish(log, step, result)     # final save (also on Ctrl-C / SIGTERM)
+        summary = {"steps": step - sess.start_step, "final_frame": adapter.frame, "mode_final": arbiter.mode.value,
+                   "log": str(sess.log_path), "saves": sess.saves,
+                   "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None,
+                   "wall_seconds": round(time.time() - t0, 3), "stopped_by": stop.name}
+        log.event("summary", **summary)
     adapter.close()
-    return {"steps": step - sess.start_step, "final_frame": adapter.frame, "mode_final": arbiter.mode.value,
-            "log": str(sess.log_path), "saves": sess.saves,
-            "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None}
+    return summary
 
 
 def build_parser() -> argparse.ArgumentParser:
