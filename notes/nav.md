@@ -109,6 +109,24 @@ Once a milestone is done it stays done.
 * **Next** (placeholder): `oaks_parcel`. PathBrain idles (`idle_on_placeholder=False` makes it
   report unavailable instead).
 
+### Whiteout (verified on the ROM)
+
+How it was checked: `tests/test_whiteout_real.py`.
+* The harness boots with `battle,path,rule` up to the first wild battle's action menu on Route 1.
+* Then a **test-only RAM write** sets `gBattleMons[0].hp` to 1, and the harness saves a state to a tmp dir (never committed).
+* The run under test starts from that state, so replay from the same state needs no write.
+
+Results, starting from that state:
+
+* **Loss:** PIDGEY Lv3 knocks out BULBASAUR; `outcome` is `"lose"`.
+  * You wake up in the **player's house 1F (4/0) at (8,5)**. Mom talks ("MOM: AAA …"), and PathBrain's frozen handling presses through it (about 240 steps).
+  * `party_count` stays 1. **HP is restored:** the next battle starts at 25/25.
+* **Draw:** in the same run, a second, *natural* whiteout happened. METRONOME called SELFDESTRUCT and both mons fainted (screenshots).
+  * Raw `gBattleOutcome` is **3** there, so the adapter reports `"unknown"`. In pokefirered, 3 is `B_OUTCOME_DREW`; Backend should add a `"draw"` label.
+  * A draw also whites you out to 4/0 (8,5).
+* **Recovery:** the `viridian_city` targets lead out of the house (1F warp → Pallet → north edge → Route 1). The run reached **Viridian City 3/1 (25,39) at step 2103** after both whiteouts. Replay had 0 mismatches.
+* **Planner fix:** the starter outside the lab, *including at home*, now implies the rival battle is over. Before, a run resumed mid-battle woke up at home stuck on `rival_battle` (no target), and RuleBrain wandered.
+
 ### Map connections (M3)
 
 * There is no warp between Pallet Town and Route 1, or between Route 1 and Viridian City; they are

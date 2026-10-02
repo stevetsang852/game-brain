@@ -130,8 +130,10 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
         return None
 
     def left_lab(o: Observation) -> bool:
-        # the game does not let you leave the lab with the starter before the rival battle
-        return _party(o) >= 1 and m(o) in (FR_PALLET_TOWN, FR_ROUTE_1, FR_VIRIDIAN_CITY)
+        # The game does not let you leave the lab with the starter before the rival battle, so
+        # the starter outside the lab (also at home: a whiteout wakes you up in the house 1F,
+        # verified on the ROM, notes/nav.md "Whiteout") means the rival battle is over.
+        return _party(o) >= 1 and m(o) in (FR_PALLET_TOWN, FR_ROUTE_1, FR_VIRIDIAN_CITY, FR_HOUSE_1F, FR_HOUSE_2F)
 
     def to_pallet(o: Observation) -> Optional[Target]:
         """From the lab or the player's house (e.g. after a whiteout) back out to Pallet Town."""

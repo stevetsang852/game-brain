@@ -158,6 +158,13 @@ def test_goal_planner_resumed_after_the_rival_battle():
     pl = GoalPlanner()
     o = Observation(frame=0, ram={"player_x": 12, "player_y": 3, "map_bank": 3, "map_id": 0, "party_count": 1})
     assert pl.update(o).id == "route_1"
+    # whiteout while resumed from a state taken mid-battle: you wake up at home with the starter
+    pl = GoalPlanner()
+    home = Observation(frame=0, ram={"player_x": 8, "player_y": 5, "map_bank": 4, "map_id": 0, "party_count": 1})
+    m = pl.update(home)
+    assert m.id == "leave_lab" and m.target(home) == Target.warp(3, 0)
+    done = {x["id"]: x["done"] for x in pl.summary()}
+    assert done["rival_battle"] and done["rival_battle_over"]
     with pytest.raises(ValueError):
         Target.edge("NORTH")
     assert Target.edge("UP").describe() == "walk off the map edge (UP)"
