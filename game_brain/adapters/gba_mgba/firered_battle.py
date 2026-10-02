@@ -13,8 +13,9 @@ Shape::
      "outcome": None | "win" | "lose" | "unknown"}
 
 ``species`` and move ``id`` are the game's internal numbers. Empty move slots (id 0) are
-dropped, so ``moves[i]`` is move-menu slot ``i``. ``player``/``opponent`` are None for the
-first few observations of a battle, before the game fills them in.
+dropped, so ``moves[i]`` is move-menu slot ``i``. The adapter sets ``player``, ``opponent``
+and ``outcome`` to None until the current battle's first action/move menu, because the game
+keeps the previous battle's values for the first few observations.
 """
 
 from __future__ import annotations
