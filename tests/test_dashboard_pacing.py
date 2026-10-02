@@ -7,6 +7,7 @@ import time
 import pytest
 
 from game_brain.dashboard import DashboardServer
+from game_brain.dashboard import live
 from game_brain.dashboard.live import run
 from game_brain.dashboard.pacing import FPS_MAX, FrameAck, Pacer, PacingError, ViewConfig
 from game_brain.runlog import iter_steps
@@ -111,7 +112,8 @@ def test_live_fps_change_takes_effect_and_log_is_unchanged(tmp_path):
         assert wait_for(lambda: server.client_count == 1)
         result = {}
         t = threading.Thread(target=lambda: result.update(
-            run(server, "mock", "auto", steps=40, step_delay=0, out_dir=str(tmp_path / "b"), quiet=True)))
+            # 0.05 s CLI delay: slow enough that the run cannot finish before view_config arrives
+            run(server, "mock", "auto", steps=40, step_delay=0.05, out_dir=str(tmp_path / "b"), quiet=True)))
         t.start()
         c.recv_until(lambda e: e["type"] == "status" and e["payload"]["step"] >= 2)
         c.send({"type": "view_config", "frame": -1, "ts": 0, "payload": {"mode": "manual", "fps": 20}})
@@ -133,3 +135,30 @@ def test_page_has_fps_controls():
     html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
     for needle in ('id="fpsMode"', 'id="fpsSlider"', 'id="fpsNum"', '"view_config"', '"frame_ack"', 'max="60"'):
         assert needle in html
+
+
+class _Server:
+    url, client_count = "test://capture", 1
+
+    def __init__(self):
+        self.sent = []
+
+    def broadcast(self, env):
+        self.sent.append(env["type"])
+
+    def poll(self):
+        return [ViewConfig("auto", 60)] if not self.sent else []
+
+
+def test_page_latency_clock_starts_after_the_frame_is_broadcast(tmp_path, monkeypatch):
+    srv, seen = _Server(), []
+    monkeypatch.setattr(live, "_screenshot_b64", lambda adapter, tmp: "iVBORw0KGgo=")
+    orig = Pacer.sent_screenshot
+
+    def spy(self, frame):
+        seen.append(list(srv.sent))
+        orig(self, frame)
+    monkeypatch.setattr(Pacer, "sent_screenshot", spy)
+    live.run(srv, "mock", "auto", steps=3, step_delay=0, out_dir=str(tmp_path), quiet=True)
+    assert seen, "auto mode with a viewer should send a screenshot"
+    assert all(s and s[-1] == "observation" for s in seen), seen

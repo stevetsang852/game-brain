@@ -81,12 +81,12 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                 obs = adapter.observe()
                 if pacer.want_screenshot(step, getattr(server, "client_count", 1) > 0):
                     obs.screenshot_b64 = _screenshot_b64(adapter, tmp)
-                    if obs.screenshot_b64:
-                        pacer.sent_screenshot(obs.frame)
                 result = arbiter.step(obs)
                 advanced = adapter.act(result.executed) if result.executed else 0
                 log.step(step, obs, result, advanced)
                 server.broadcast(to_envelope(obs, obs.frame))
+                if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
+                    pacer.sent_screenshot(obs.frame)
                 server.broadcast(to_envelope(result.decision, obs.frame))
                 server.broadcast({"type": "status", "frame": obs.frame, "ts": time.time(), "payload": {
                     "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,
