@@ -13,3 +13,6 @@ include = ["game_brain*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+"game_brain.dashboard" = ["static/*.html"]
