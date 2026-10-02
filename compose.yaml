@@ -14,4 +14,4 @@ services:
         read_only: true
       - ./runs:/app/runs             # run logs land on the host in ./runs (gitignored)
     command: ["python3", "-m", "game_brain.dashboard", "--adapter", "mgba",
-              "--brains", "path,rule", "--host", "0.0.0.0", "--port", "8765"]
+              "--brains", "battle,path,rule", "--host", "0.0.0.0", "--port", "8765"]

@@ -153,7 +153,7 @@ Image 入面會由 source build mGBA 0.10.5（開 Python bindings 同 `USE_FFMPE
 ```bash
 docker build -t game-brain:local .        # 第一次大約幾分鐘（要 build mGBA）
 
-# Dashboard：host 嗰邊只開 127.0.0.1，開 http://127.0.0.1:8765/
+# Dashboard（預設 `--brains battle,path,rule`）：host 嗰邊只開 127.0.0.1，開 http://127.0.0.1:8765/
 docker run --rm -p 127.0.0.1:8765:8765 \
   -v /abs/path/firered.gba:/data/rom.gba:ro \
   -v "$PWD/runs":/app/runs \
@@ -161,7 +161,7 @@ docker run --rm -p 127.0.0.1:8765:8765 \
 
 # Headless demo / 測試
 docker run --rm -v /abs/path/firered.gba:/data/rom.gba:ro -v "$PWD/runs":/app/runs \
-  game-brain:local python3 -m game_brain.demo --adapter mgba --brains path,rule --steps 700
+  game-brain:local python3 -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 2600
 docker run --rm -v /abs/path/firered.gba:/data/rom.gba:ro game-brain:local python3 -m pytest -q
 
 # 或者用 compose（設定好 ROM 路徑先）
