@@ -83,14 +83,21 @@ class Arbiter:
 
     # ------------------------------------------------------------------ step
     def _ask_brains(self, obs: Observation, notes: List[str]):
+        context: dict = {}
         for brain in self.brains:
             try:
                 action, decision = brain.decide(obs)
+                for k, v in context.items():  # e.g. PathBrain's milestones while RuleBrain acts
+                    if getattr(decision, k, None) is None:
+                        setattr(decision, k, v)
                 return brain, action, decision
             except BrainUnavailable as exc:
                 notes.append(f"{brain.name} unavailable: {exc}")
+                for k, v in getattr(exc, "context", {}).items():
+                    context.setdefault(k, v)
             except Exception as exc:  # a buggy brain must not kill the run
                 notes.append(f"{brain.name} error: {type(exc).__name__}: {exc}")
+        self._unavailable_context = context
         return None, None, None
 
     def step(self, obs: Observation) -> StepResult:
@@ -121,6 +128,8 @@ class Arbiter:
             act = Action.wait(self.idle_frames)
             dec = Decision(brain="none", plan="idle", reason="; ".join(notes) or "no brain available",
                            mode=mode.value, executed=True, actor="none")
+            for k, v in getattr(self, "_unavailable_context", {}).items():
+                setattr(dec, k, v)
             return StepResult(mode, dec, None, act, notes)
 
         dec.mode = mode.value

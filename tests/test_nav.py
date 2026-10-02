@@ -110,12 +110,31 @@ def test_goal_planner_is_sticky_and_ordered():
     m = pl.update(on_2f)
     assert m.id == "leave_bedroom" and m.target(on_2f) == Target.warp(4, 0)
     outside = Observation(frame=2, ram={"player_x": 6, "player_y": 8, "map_bank": 3, "map_id": 0})
-    assert pl.update(outside).id == "oak_lab" and pl.current.placeholder
+    m = pl.update(outside)
+    assert m.id == "oak_stops_you" and m.target(outside) == Target.at(12, 1)
     # back indoors: done milestones stay done
-    assert pl.update(on_2f).id == "oak_lab"
+    assert pl.update(on_2f).id == "oak_stops_you"
+    trigger = Observation(frame=3, ram={"player_x": 12, "player_y": 1, "map_bank": 3, "map_id": 0})
+    m = pl.update(trigger)
+    assert m.id == "oak_lab" and m.target(trigger) == Target.script()
+    lab = Observation(frame=4, ram={"player_x": 6, "player_y": 4, "map_bank": 4, "map_id": 3, "party_count": 0})
+    m = pl.update(lab)
+    assert m.id == "get_starter" and m.target(lab) == Target.interact(8, 5, "UP", "A")
+    got = Observation(frame=5, ram={"player_x": 8, "player_y": 5, "map_bank": 4, "map_id": 3, "party_count": 1})
+    m = pl.update(got)
+    assert m.id == "rival_battle" and m.placeholder and m.script_button == "B"
     done = {m["id"]: m["done"] for m in pl.summary()}
     assert done == {"intro": True, "leave_bedroom": True, "leave_house": True, "pallet_town": True,
-                    "oak_lab": False, "get_starter": False, "first_battle": False}
+                    "oak_stops_you": True, "oak_lab": True, "get_starter": True, "rival_battle": False}
+
+
+def test_goal_planner_skips_ahead_on_later_evidence():
+    # e.g. a run resumed from a save state in the lab: earlier milestones are implied
+    pl = GoalPlanner()
+    lab = Observation(frame=0, ram={"player_x": 6, "player_y": 4, "map_bank": 4, "map_id": 3, "party_count": 0})
+    assert pl.update(lab).id == "get_starter"
+    other = firered_milestones("CHARMANDER")
+    assert other[6].target(lab) == Target.interact(10, 5, "UP", "A")
 
 
 def test_custom_milestones():
@@ -123,4 +142,37 @@ def test_custom_milestones():
                                 target=lambda o: Target.at(2, 2))])
     assert pl.update(Observation(frame=0, ram={"player_x": 1, "player_y": 1})).id == "a"
     assert pl.update(Observation(frame=0, ram={"player_x": 2, "player_y": 2})) is None
-    assert len(firered_milestones()) == 7
+    assert len(firered_milestones()) == 8
+
+
+def test_firered_extra_reads_npcs_and_party_count():
+    from game_brain.adapters.gba_mgba import firered as fr
+    from game_brain.adapters.gba_mgba.firered_extra import G_PLAYER_PARTY_COUNT, read_extra
+
+    mem = {}
+
+    def put(addr, value, width):
+        for i, byte in enumerate(int(value).to_bytes(width, "little", signed=value < 0)):
+            mem[addr + i] = byte
+
+    def rd(width):
+        return lambda a: int.from_bytes(bytes(mem.get(a + i, 0) for i in range(width)), "little")
+
+    ram = fr.FireRedRam(rd(1), rd(2), rd(4))
+    put(fr.G_PLAYER_AVATAR + 5, 0, 1)            # player is object 0
+    for i, (x, y, px, py, grp, num) in enumerate([(6, 4, 6, 4, 4, 3),     # player (skipped)
+                                                  (5, 4, 5, 4, 4, 3),     # rival
+                                                  (2, 10, 2, 11, 4, 3),   # walking aide
+                                                  (9, 9, 9, 9, 3, 0)]):   # other map (skipped)
+        b = fr.G_OBJECT_EVENTS + 0x24 * i
+        put(b, 1, 1); put(b + 5, 70 + i, 1); put(b + 8, i, 1); put(b + 9, num, 1); put(b + 0xA, grp, 1)
+        put(b + 0xB, 3, 1)
+        put(b + 0x10, x + 7, 2); put(b + 0x12, y + 7, 2); put(b + 0x14, px + 7, 2); put(b + 0x16, py + 7, 2)
+    b = fr.G_OBJECT_EVENTS + 0x24 * 4                   # inactive object (bit0 clear)
+    put(b, 0, 1); put(b + 9, 3, 1); put(b + 0xA, 4, 1)
+    put(G_PLAYER_PARTY_COUNT, 1, 1)
+    extra = read_extra(ram, {"player_x": 6, "player_y": 4, "map_bank": 4, "map_id": 3})
+    assert extra["party_count"] == 1
+    assert [(n["x"], n["y"], n["prev_x"], n["prev_y"], n["local_id"]) for n in extra["npcs"]] == \
+        [(5, 4, 5, 4, 1), (2, 10, 2, 11, 2)]
+    assert read_extra(ram, {"scene": "other"}) == {}
