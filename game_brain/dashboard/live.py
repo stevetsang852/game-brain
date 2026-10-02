@@ -103,7 +103,7 @@ def main(argv=None) -> int:
     ap.add_argument("--brains", default="rule,random")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--host", default="127.0.0.1", help="loopback only; anything else is refused")
+    ap.add_argument("--host", default="127.0.0.1", help="loopback only; 0.0.0.0 is accepted only inside the game-brain container")
     ap.add_argument("--steps", type=int, default=0, help="0 = run until Ctrl-C")
     ap.add_argument("--step-delay", type=float, default=0.25, help="seconds between steps (so humans can watch)")
     ap.add_argument("--screenshot-every", type=int, default=1, help="attach a live frame every N steps (0 = never)")
