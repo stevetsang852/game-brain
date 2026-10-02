@@ -2,12 +2,21 @@
 # ROMs and save states are NEVER copied in: mount them read-only at run time (-v ...:ro).
 # This image is for local use only; do not push it to a registry.
 
+# ---------- shared runtime dependencies ----------
+FROM debian:trixie-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-cffi python3-cached-property python3-pytest \
+        libpng16-16t64 zlib1g \
+        libavcodec61 libavfilter10 libavformat61 libavutil59 libswscale8 libswresample5 \
+    && rm -rf /var/lib/apt/lists/*
+
 # ---------- stage 1: build mGBA from source ----------
-FROM debian:trixie-slim AS mgba-build
+FROM runtime AS mgba-build
 ARG MGBA_VERSION=0.10.5
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates git cmake g++ make pkg-config \
-        libpng-dev zlib1g-dev python3-dev python3-cffi python3-setuptools python3-pytest-runner libffi-dev \
+        python3-dev python3-setuptools python3-pytest-runner libffi-dev \
+        libpng-dev zlib1g-dev \
         libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
     && rm -rf /var/lib/apt/lists/*
 # A git checkout (not a release tarball): the Python bindings' setup.py asks
@@ -29,20 +38,14 @@ RUN mkdir build && cd build && cmake .. \
     && cp -a python/lib.linux-*/mgba /opt/mgba-dist/python/
 
 # ---------- stage 2: runtime ----------
-FROM debian:trixie-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-cffi python3-cached-property python3-pytest \
-        libpng16-16t64 zlib1g \
-        libavcodec61 libavfilter10 libavformat61 libavutil59 libswscale8 libswresample5 \
-    && rm -rf /var/lib/apt/lists/*
+FROM runtime
 COPY --from=mgba-build /opt/mgba-dist/lib/ /opt/mgba/lib/
 COPY --from=mgba-build /opt/mgba-dist/python/ /opt/mgba/python/
 WORKDIR /app
 COPY game_brain/ game_brain/
 COPY tests/ tests/
 COPY examples/ examples/
-COPY notes/ notes/
-COPY pyproject.toml requirements.txt README.md ./
+COPY pyproject.toml ./
 RUN useradd --create-home --uid 1000 brain && mkdir -p /app/runs && chown brain /app/runs
 USER brain
 # GAME_BRAIN_IN_CONTAINER=1 lets the dashboard bind 0.0.0.0 *inside* the container

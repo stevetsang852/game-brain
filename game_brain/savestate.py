@@ -50,8 +50,9 @@ def repo_roots() -> List[Path]:
         top = _git_toplevel(p)
         if top and top not in roots:
             roots.append(top)
-    if (_PKG_ROOT / ".git").exists() and _PKG_ROOT not in roots:
-        roots.append(_PKG_ROOT)
+    if (_PKG_ROOT / ".git").exists() or (_PKG_ROOT / "pyproject.toml").is_file():
+        if _PKG_ROOT not in roots:
+            roots.append(_PKG_ROOT)
     return roots
 
 

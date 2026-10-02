@@ -22,6 +22,15 @@ def test_save_dir_inside_the_repo_is_refused(tmp_path):
     assert not (REPO / "saves").exists()
 
 
+def test_source_root_without_git_metadata_is_still_protected(tmp_path, monkeypatch):
+    (tmp_path / "pyproject.toml").touch()
+    monkeypatch.setattr(savestate, "_PKG_ROOT", tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="inside the repo"):
+        savestate.check_save_dir(tmp_path / "saves")
+
+
 def test_default_save_dir_is_outside_the_repo(monkeypatch):
     monkeypatch.delenv("GAME_BRAIN_SAVE_DIR", raising=False)
     d = savestate.default_save_dir()
