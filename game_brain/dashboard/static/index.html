@@ -3,155 +3,746 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>game-brain dashboard</title>
+<title>game-brain · GBA Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0f1115; --panel:#181b22; --line:#2a2f3a; --fg:#e6e8ee; --dim:#8b93a7;
-          --accent:#5aa9ff; --ok:#3ecf8e; --warn:#f5a524; --bad:#ff5d5d; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
-         background:var(--bg); color:var(--fg); }
-  header { display:flex; align-items:center; gap:16px; padding:10px 16px; border-bottom:1px solid var(--line); }
-  header h1 { font-size:16px; margin:0; font-weight:600; }
-  .pill { padding:2px 10px; border-radius:999px; font-size:12px; background:var(--line); color:var(--dim); }
-  .pill.on { background:#123a2a; color:var(--ok); } .pill.off { background:#3a1616; color:var(--bad); }
-  .meta { color:var(--dim); font-variant-numeric: tabular-nums; margin-left:auto; }
-  main { display:grid; grid-template-columns: minmax(300px, 520px) 1fr; gap:14px; padding:14px; }
-  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; }
-  section h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 8px; }
-  .col { display:flex; flex-direction:column; gap:14px; min-width:0; }
-  #screen { width:100%; aspect-ratio: 3 / 2; background:#000; border-radius:6px; display:block;
-            image-rendering: pixelated; }
-  #screenNote { color:var(--dim); font-size:12px; margin-top:6px; }
-  .modes { display:flex; gap:6px; flex-wrap:wrap; }
-  .modes button, .pad button { background:#222733; color:var(--fg); border:1px solid var(--line);
-            border-radius:8px; padding:7px 12px; cursor:pointer; font:inherit; }
-  .modes button.active { background:var(--accent); border-color:var(--accent); color:#06121f; font-weight:600; }
-  .modes button:hover, .pad button:hover:not(:disabled) { border-color:var(--accent); }
-  .pad { display:grid; grid-template-columns: repeat(3, 44px) 24px repeat(3, 56px); gap:6px; align-items:center; }
-  .pad button { padding:8px 0; } .pad button:disabled { opacity:.35; cursor:not-allowed; }
-  .pad .gap { visibility:hidden; }
-  .padrow { display:flex; align-items:center; gap:10px; margin-top:10px; color:var(--dim); font-size:12px; }
-  .fpsrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:13px; }
-  .fpsrow select, .fpsrow input[type=number] { background:#11141a; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 6px; }
-  .fpsrow input[type=number] { width:56px; } .fpsrow input[type=range] { flex:1; min-width:120px; }
-  #fpsStat { color:var(--dim); font-size:12px; width:100%; }
-  .padrow input { width:64px; background:#11141a; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 6px; }
-  dl { display:grid; grid-template-columns: 90px 1fr; gap:4px 10px; margin:0; }
-  dt { color:var(--dim); } dd { margin:0; word-break: break-word; }
-  .badge { font-size:11px; padding:1px 8px; border-radius:999px; }
-  .badge.yes { background:#123a2a; color:var(--ok); } .badge.no { background:#3a2a10; color:var(--warn); }
-  table { width:100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); vertical-align: top; }
-  th { color:var(--dim); font-weight:500; font-size:12px; }
-  .badge.actor-brain { background:#16253a; color:var(--accent); } .badge.actor-human { background:#3a2a10; color:var(--warn); }
-  .badge.actor-none { background:var(--line); color:var(--dim); }
-  tr.actor-row-human td { color:var(--warn); }
-  #minimap { width:100%; background:#0b0d11; border-radius:6px; display:block; image-rendering: pixelated; }
-  #mapNote { color:var(--dim); font-size:12px; margin-top:6px; }
-  .legend { display:flex; gap:12px; flex-wrap:wrap; color:var(--dim); font-size:12px; margin-top:4px; }
-  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
-  #goal { font-size:15px; font-weight:600; margin-bottom:8px; }
-  .ms { display:flex; gap:6px; flex-wrap:wrap; }
-  .ms span { padding:3px 10px; border-radius:999px; font-size:12px; background:var(--line); color:var(--dim); }
-  .ms span.done { background:#123a2a; color:var(--ok); }
-  .ms span.current { background:#16253a; color:var(--accent); outline:1px solid var(--accent); }
-  .bar { height:6px; background:var(--line); border-radius:999px; margin:10px 0 2px; overflow:hidden; }
-  .bar div { height:100%; width:0; background:var(--ok); transition: width .3s; }
-  #steps { max-height: 340px; overflow:auto; display:block; }
-  #ram td:first-child { color:var(--dim); width: 40%; }
-  #events { max-height:120px; overflow:auto; font-size:12px; color:var(--dim); margin:0; padding-left:16px; }
-  #events li.bad { color:var(--bad); }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+:root {
+  --bg-0:#0a0618; --bg-1:#120b2a;
+  --panel: rgba(26, 18, 53, 0.72);
+  --panel-solid:#1a1235;
+  --line: rgba(167, 139, 250, 0.18);
+  --line-strong: rgba(167, 139, 250, 0.45);
+
+  --fg:#ede9fe; --fg-dim:#9d94c4; --fg-mute:#6c6690;
+
+  --gba-purple:#7c5cff;
+  --gba-violet:#a78bfa;
+  --gba-cyan:#22d3ee;
+  --gba-amber:#fbbf24;
+  --gba-green:#34d399;
+  --gba-red:#fb7185;
+  --gba-pink:#f472b6;
+
+  --radius:14px;
+  --radius-sm:10px;
+}
+* { box-sizing: border-box; }
+
+body {
+  margin:0;
+  font: 14px/1.5 Rubik, system-ui, -apple-system, "Noto Sans TC", sans-serif;
+  color: var(--fg);
+  background: var(--bg-0);
+  background-image:
+    radial-gradient(ellipse 900px 600px at 10% 0%, rgba(124, 92, 255, 0.20), transparent 60%),
+    radial-gradient(ellipse 800px 600px at 100% 100%, rgba(244, 114, 182, 0.14), transparent 55%),
+    radial-gradient(ellipse 700px 500px at 90% 0%, rgba(34, 211, 238, 0.10), transparent 55%),
+    linear-gradient(180deg, var(--bg-0), var(--bg-1));
+  background-attachment: fixed;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ======================= HEADER ======================= */
+.gb-header {
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  padding: 14px 22px;
+  background: linear-gradient(180deg, rgba(26,18,53,0.92), rgba(18,11,42,0.85));
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  position: sticky; top:0; z-index:100;
+}
+.gb-header h1 {
+  font-family:"Press Start 2P", monospace;
+  font-size: 12px; letter-spacing: 1.5px;
+  margin: 0 8px 0 0;
+  background: linear-gradient(90deg, var(--gba-violet), var(--gba-cyan));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 12px rgba(167,139,250,0.5));
+}
+.pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 500;
+  background: rgba(255,255,255,0.05);
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: all .3s;
+}
+.pill.on {
+  background: rgba(52,211,153,0.15);
+  color: var(--gba-green);
+  border-color: rgba(52,211,153,0.45);
+  animation: pulse-on 2.2s ease-in-out infinite;
+}
+.pill.off {
+  background: rgba(251,113,133,0.14);
+  color: var(--gba-red);
+  border-color: rgba(251,113,133,0.4);
+}
+@keyframes pulse-on {
+  0%,100% { box-shadow: 0 0 10px rgba(52,211,153,0.35); }
+  50%     { box-shadow: 0 0 20px rgba(52,211,153,0.75); }
+}
+.meta {
+  color: var(--fg-mute); font-size: 12px; margin-left: auto;
+  font-variant-numeric: tabular-nums; letter-spacing: .5px;
+}
+.meta b {
+  color: var(--gba-violet);
+  font-family:"Press Start 2P", monospace;
+  font-size: 10px;
+  margin-left: 4px;
+  text-shadow: 0 0 10px rgba(167,139,250,0.6);
+}
+
+/* ======================= LAYOUT ======================= */
+.gb-main {
+  display:grid;
+  grid-template-columns: minmax(320px, 500px) 1fr;
+  gap:16px;
+  padding:16px;
+  max-width: 1600px;
+  margin: 0 auto;
+  align-items: start;
+}
+.gb-col { display:flex; flex-direction:column; gap:16px; min-width:0; }
+
+/* ======================= CARD ======================= */
+.gb-card {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 16px 18px;
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  box-shadow:
+    0 8px 30px rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.gb-card::before {
+  content:"";
+  position: absolute; top:0; left:14%; right:14%; height:1px;
+  background: linear-gradient(90deg, transparent, rgba(167,139,250,0.55), transparent);
+}
+.gb-card > h2 {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1.6px; text-transform: uppercase;
+  color: var(--gba-violet);
+  margin: 0 0 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.gb-card > h2::before {
+  content:"";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--gba-violet);
+  box-shadow: 0 0 10px var(--gba-violet), 0 0 4px var(--gba-violet);
+}
+
+/* ======================= SCREEN (GBA style) ======================= */
+.screen-wrap {
+  position: relative;
+  padding: 12px;
+  background: linear-gradient(145deg, #2a1f4d 0%, #150e2e 100%);
+  border-radius: 16px;
+  border: 2px solid rgba(167,139,250,0.28);
+  box-shadow:
+    inset 0 2px 10px rgba(0,0,0,0.7),
+    inset 0 -2px 6px rgba(124,92,255,0.15),
+    0 0 30px rgba(124,92,255,0.18);
+}
+#screen {
+  width:100%;
+  aspect-ratio: 3 / 2;
+  background:#000;
+  border-radius: 8px;
+  display:block;
+  image-rendering: pixelated;
+  box-shadow: inset 0 0 50px rgba(124,92,255,0.18);
+}
+.screen-wrap::after {
+  content:"";
+  position: absolute; inset: 12px;
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0, transparent 2px,
+    rgba(0,0,0,0.14) 2px, rgba(0,0,0,0.14) 3px
+  );
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  opacity: .55;
+}
+#screenNote { color: var(--fg-mute); font-size: 12px; margin-top: 10px; }
+
+/* ======================= MODES ======================= */
+.modes {
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 8px;
+}
+.modes button {
+  padding: 10px 6px;
+  border-radius: 10px;
+  font: inherit; font-size: 12px; font-weight: 600;
+  letter-spacing: .4px;
+  background: rgba(255,255,255,0.04);
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: all .18s ease;
+}
+.modes button:hover {
+  background: rgba(167,139,250,0.10);
+  border-color: var(--line-strong);
+  color: var(--fg);
+  transform: translateY(-1px);
+}
+.modes button.active {
+  background: linear-gradient(135deg, var(--gba-purple), #9d7bff);
+  color: #fff;
+  border-color: transparent;
+  box-shadow:
+    0 0 20px rgba(124,92,255,0.55),
+    inset 0 1px 0 rgba(255,255,255,0.35);
+  transform: translateY(-1px);
+}
+
+/* ======================= FPS ROW ======================= */
+.fpsrow {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin-top:14px; font-size:12px; color: var(--fg-dim);
+}
+.fpsrow select, .fpsrow input[type=number] {
+  background: rgba(0,0,0,0.35);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font: inherit; font-size: 12px;
+  outline: none;
+  transition: border-color .15s;
+}
+.fpsrow select:focus, .fpsrow input[type=number]:focus {
+  border-color: var(--gba-violet);
+  box-shadow: 0 0 0 3px rgba(124,92,255,0.18);
+}
+.fpsrow input[type=number] { width: 60px; }
+.fpsrow input[type=range] {
+  -webkit-appearance: none; appearance: none;
+  flex:1; min-width: 120px; height: 20px;
+  background: transparent; cursor: pointer;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 999px;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid var(--line);
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance:none; appearance:none;
+  width: 18px; height: 18px; margin-top: -7px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--gba-violet), var(--gba-purple));
+  box-shadow:
+    0 0 14px rgba(124,92,255,0.7),
+    inset 0 1px 0 rgba(255,255,255,0.4);
+  cursor: grab;
+}
+input[type=range]::-webkit-slider-thumb:active { cursor: grabbing; }
+input[type=range]::-moz-range-track {
+  height: 6px; border-radius: 999px;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid var(--line);
+}
+input[type=range]::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: linear-gradient(180deg, var(--gba-violet), var(--gba-purple));
+  border: none;
+  box-shadow: 0 0 14px rgba(124,92,255,0.7);
+}
+#fpsStat { color: var(--fg-mute); font-size: 11px; width: 100%; margin-top: 2px; }
+#fpsUnit { color: var(--fg-mute); font-size: 11px; }
+
+/* ======================= GAMEPAD ======================= */
+.pad-note {
+  color: var(--fg-mute); font-size: 11px; line-height: 1.6;
+  margin: 14px 0 10px;
+}
+.pad-note kbd {
+  display: inline-block;
+  padding: 1px 5px; border-radius: 4px;
+  background: rgba(124,92,255,0.18);
+  border: 1px solid rgba(167,139,250,0.3);
+  color: var(--gba-violet);
+  font-size: 10px; font-family: inherit;
+}
+
+.pad {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-areas:
+    "shoulders shoulders"
+    "dpad      face"
+    "system    system";
+  gap: 14px 26px;
+  padding: 16px 20px;
+  background:
+    radial-gradient(ellipse at top, rgba(124,92,255,0.10), transparent 60%),
+    rgba(0,0,0,0.28);
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  justify-content: center;
+  align-items: center;
+}
+
+/* D-Pad */
+.dpad {
+  grid-area: dpad;
+  display: grid;
+  grid-template-columns: repeat(3, 38px);
+  grid-template-rows: repeat(3, 38px);
+  gap: 2px;
+}
+.dpad-btn {
+  background: linear-gradient(180deg, #3a2d68, #251b4a);
+  border: 1px solid rgba(167,139,250,0.28);
+  border-radius: 5px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .1s;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  font-family: inherit;
+}
+.dpad-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #453a80, #2e2358);
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+.dpad-btn:active:not(:disabled) { transform: translateY(1px); }
+.dpad-btn:disabled { opacity: .3; cursor: not-allowed; }
+.dpad-up    { grid-area: 1 / 2 / 2 / 3; }
+.dpad-left  { grid-area: 2 / 1 / 3 / 2; }
+.dpad-right { grid-area: 2 / 3 / 3 / 4; }
+.dpad-down  { grid-area: 3 / 2 / 4 / 3; }
+
+/* Face buttons */
+.face {
+  grid-area: face;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  transform: rotate(-18deg);
+  padding: 6px 10px;
+}
+.face-btn {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  font: inherit; font-size: 16px; font-weight: 700;
+  border: none; cursor: pointer;
+  transition: all .1s;
+  box-shadow:
+    0 4px 0 rgba(0,0,0,0.35),
+    0 0 18px rgba(124,92,255,0.15),
+    inset 0 2px 0 rgba(255,255,255,0.28),
+    inset 0 -3px 6px rgba(0,0,0,0.25);
+}
+.face-btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 rgba(0,0,0,0.35),
+    inset 0 2px 6px rgba(0,0,0,0.35);
+}
+.face-btn:disabled { opacity: .35; cursor: not-allowed; }
+.face-b {
+  background: linear-gradient(180deg, #fcd34d, #f59e0b);
+  color: #3b2405;
+  align-self: end;
+}
+.face-a {
+  background: linear-gradient(180deg, #fb7185, #e11d48);
+  color: #fff;
+  align-self: start;
+}
+
+/* Shoulders */
+.shoulders {
+  grid-area: shoulders;
+  display: flex; gap: 10px; width: 100%;
+}
+.shoulder-btn {
+  flex: 1;
+  padding: 7px;
+  border-radius: 8px;
+  font: inherit; font-size: 11px; font-weight: 700;
+  letter-spacing: 2px;
+  background: linear-gradient(180deg, #2d2352, #1f1840);
+  color: var(--fg-mute);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: all .15s;
+}
+.shoulder-btn:hover:not(:disabled) {
+  color: var(--gba-violet);
+  border-color: var(--line-strong);
+  box-shadow: 0 0 14px rgba(124,92,255,0.3);
+}
+.shoulder-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+/* System buttons */
+.system {
+  grid-area: system;
+  display: flex; gap: 10px; justify-content: center;
+}
+.system-btn {
+  padding: 6px 18px;
+  border-radius: 999px;
+  font: inherit; font-size: 10px; font-weight: 700;
+  letter-spacing: 1.5px;
+  background: linear-gradient(180deg, #2d2352, #1f1840);
+  color: var(--fg-mute);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: all .15s;
+}
+.system-btn:hover:not(:disabled) {
+  color: var(--gba-violet);
+  border-color: var(--line-strong);
+  box-shadow: 0 0 14px rgba(124,92,255,0.3);
+}
+.system-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.padrow {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin-top:12px; color: var(--fg-mute); font-size: 12px;
+}
+.padrow input {
+  width: 64px;
+  background: rgba(0,0,0,0.35);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font: inherit; font-size: 12px;
+  outline: none;
+}
+.padrow input:focus {
+  border-color: var(--gba-violet);
+  box-shadow: 0 0 0 3px rgba(124,92,255,0.18);
+}
+
+/* ======================= TABLES ======================= */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+th, td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+th {
+  color: var(--fg-mute);
+  font-weight: 600; font-size: 10px;
+  text-transform: uppercase; letter-spacing: .8px;
+}
+tbody tr:hover { background: rgba(167,139,250,0.05); }
+#steps { max-height: 340px; overflow: auto; display: block; }
+#steps thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: #1a1235;
+}
+#ram td:first-child { color: var(--fg-mute); width: 40%; }
+
+/* ======================= MISC LISTS ======================= */
+dl { display:grid; grid-template-columns: 90px 1fr; gap: 6px 12px; margin: 0; }
+dt { color: var(--fg-mute); font-size: 12px; }
+dd { margin: 0; word-break: break-word; }
+
+/* ======================= BADGES ======================= */
+.badge {
+  font-size: 10px; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px;
+  letter-spacing: .3px;
+}
+.badge.yes         { background: rgba(52,211,153,0.15); color: var(--gba-green); }
+.badge.no          { background: rgba(251,191,36,0.14); color: var(--gba-amber); }
+.badge.actor-brain { background: rgba(124,92,255,0.18); color: var(--gba-violet); }
+.badge.actor-human { background: rgba(251,191,36,0.14); color: var(--gba-amber); }
+.badge.actor-none  { background: rgba(255,255,255,0.05); color: var(--fg-mute); }
+tr.actor-row-human td { color: var(--gba-amber); }
+
+/* ======================= MINIMAP ======================= */
+#minimap {
+  width: 100%;
+  background: #0b0d11;
+  border-radius: 10px;
+  display: block;
+  image-rendering: pixelated;
+  border: 1px solid var(--line);
+  box-shadow: inset 0 0 30px rgba(124,92,255,0.12);
+}
+#mapNote { color: var(--fg-mute); font-size: 12px; margin-top: 8px; }
+.legend {
+  display: flex; gap: 10px 16px; flex-wrap: wrap;
+  color: var(--fg-mute); font-size: 11px; margin-top: 10px;
+}
+.legend i {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+/* ======================= GOAL / MILESTONES ======================= */
+#goal {
+  font-size: 15px; font-weight: 600;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, var(--fg), var(--gba-violet));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.ms { display: flex; gap: 8px; flex-wrap: wrap; }
+.ms span {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(255,255,255,0.04);
+  color: var(--fg-mute);
+  border: 1px solid var(--line);
+  transition: all .25s;
+}
+.ms span.done {
+  background: rgba(52,211,153,0.14);
+  color: var(--gba-green);
+  border-color: rgba(52,211,153,0.4);
+}
+.ms span.current {
+  background: rgba(124,92,255,0.22);
+  color: var(--gba-violet);
+  border-color: var(--line-strong);
+  animation: pulse-current 2.4s ease-in-out infinite;
+}
+@keyframes pulse-current {
+  0%,100% { box-shadow: 0 0 14px rgba(124,92,255,0.35); }
+  50%     { box-shadow: 0 0 26px rgba(124,92,255,0.65); }
+}
+.bar {
+  height: 8px;
+  background: rgba(0,0,0,0.45);
+  border-radius: 999px;
+  margin: 14px 0 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.bar div {
+  height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--gba-purple), var(--gba-cyan));
+  border-radius: 999px;
+  transition: width .45s cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 0 14px rgba(124,92,255,0.7);
+}
+#msCount { color: var(--fg-mute); font-size: 11px; }
+
+/* ======================= EVENTS ======================= */
+#events {
+  max-height: 150px; overflow: auto;
+  font-size: 12px;
+  color: var(--fg-dim);
+  margin: 0; padding: 0; list-style: none;
+}
+#events li {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+#events li:last-child { border-bottom: none; }
+#events li.bad {
+  color: var(--gba-red);
+  background: rgba(251,113,133,0.08);
+}
+
+/* ======================= SCROLLBARS ======================= */
+#steps::-webkit-scrollbar, #events::-webkit-scrollbar,
+.gb-card::-webkit-scrollbar { width: 8px; height: 8px; }
+#steps::-webkit-scrollbar-track, #events::-webkit-scrollbar-track { background: transparent; }
+#steps::-webkit-scrollbar-thumb, #events::-webkit-scrollbar-thumb {
+  background: rgba(124,92,255,0.35);
+  border-radius: 4px;
+}
+#steps::-webkit-scrollbar-thumb:hover, #events::-webkit-scrollbar-thumb:hover {
+  background: rgba(124,92,255,0.6);
+}
+
+/* ======================= RESPONSIVE ======================= */
+@media (max-width: 980px) {
+  .gb-main { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .gb-header { padding: 12px 14px; }
+  .gb-main { padding: 12px; gap: 12px; }
+  .pad { gap: 12px 18px; padding: 14px; }
+  .dpad { grid-template-columns: repeat(3, 34px); grid-template-rows: repeat(3, 34px); }
+  .face-btn { width: 46px; height: 46px; font-size: 14px; }
+}
 </style>
 </head>
 <body>
-<header>
+
+<header class="gb-header">
   <h1>game-brain</h1>
   <span id="conn" class="pill off">未連線</span>
   <span id="adapter" class="pill">adapter: –</span>
   <span id="party" class="pill" title="ram.party_count">隊伍：–</span>
   <span class="meta">step <b id="step">–</b> · frame <b id="frame">–</b></span>
 </header>
-<main>
-  <div class="col">
-    <section>
+
+<main class="gb-main">
+
+  <!-- ================= LEFT ================= -->
+  <div class="gb-col">
+
+    <section class="gb-card">
       <h2>遊戲畫面</h2>
-      <canvas id="screen" width="240" height="160"></canvas>
+      <div class="screen-wrap">
+        <canvas id="screen" width="240" height="160"></canvas>
+      </div>
       <div id="screenNote">等待第一個 observation…</div>
     </section>
-    <section>
+
+    <section class="gb-card">
       <h2>模式</h2>
       <div class="modes" id="modes">
-        <button data-mode="auto" title="大腦決定並執行">Auto</button>
+        <button data-mode="auto"   title="大腦決定並執行">Auto</button>
         <button data-mode="assist" title="大腦執行；人手按鍵會插隊先行，之後交回大腦">Assist</button>
         <button data-mode="manual" title="只執行人手按鍵">Manual</button>
         <button data-mode="shadow" title="大腦只提議、不執行">Shadow</button>
       </div>
+
       <div class="fpsrow" title="只改畫面更新速度（步與步之間的等待和截圖頻率），不影響遊戲本身和 run log">
-        畫面速度 <select id="fpsMode"><option value="manual">手動</option><option value="auto">Auto</option></select>
+        <span>畫面速度</span>
+        <select id="fpsMode">
+          <option value="manual">手動</option>
+          <option value="auto">Auto</option>
+        </select>
         <input id="fpsSlider" type="range" min="1" max="60" step="1" value="4">
-        <input id="fpsNum" type="number" min="1" max="60" step="1" value="4"> <span id="fpsUnit">fps</span>
+        <input id="fpsNum" type="number" min="1" max="60" step="1" value="4">
+        <span id="fpsUnit">fps</span>
         <div id="fpsStat">–</div>
       </div>
-      <div class="padrow" style="margin-top:12px">手動操作（Manual 和 Assist 模式可用；Assist 下按鍵會插隊，執行完交回大腦；鍵盤：方向鍵、Z=A、X=B、Enter=START、Shift=SELECT）</div>
-      <div class="pad" id="pad" style="margin-top:8px">
-        <span class="gap"></span><button data-btn="UP">▲</button><span class="gap"></span><span></span>
-        <button data-btn="L">L</button><button data-btn="R">R</button><span class="gap"></span>
-        <button data-btn="LEFT">◀</button><span class="gap"></span><button data-btn="RIGHT">▶</button><span></span>
-        <button data-btn="B">B</button><button data-btn="A">A</button><span class="gap"></span>
-        <span class="gap"></span><button data-btn="DOWN">▼</button><span class="gap"></span><span></span>
-        <button data-btn="SELECT">SEL</button><button data-btn="START">START</button><span class="gap"></span>
+
+      <div class="pad-note">
+        手動操作（<b>Manual</b> 和 <b>Assist</b> 模式可用；Assist 下按鍵會插隊，執行完交回大腦）<br>
+        鍵盤：<kbd>方向鍵</kbd> <kbd>Z</kbd>=A <kbd>X</kbd>=B <kbd>Enter</kbd>=START <kbd>Shift</kbd>=SELECT
       </div>
-      <div class="padrow">按住 <input id="holdFrames" type="number" min="1" max="600" value="8"> frames，
-        放開 <input id="releaseFrames" type="number" min="0" max="600" value="4"> frames</div>
+
+      <div class="pad" id="pad">
+        <div class="shoulders">
+          <button data-btn="L" class="shoulder-btn">L</button>
+          <button data-btn="R" class="shoulder-btn">R</button>
+        </div>
+
+        <div class="dpad">
+          <button data-btn="UP"    class="dpad-btn dpad-up">▲</button>
+          <button data-btn="LEFT"  class="dpad-btn dpad-left">◀</button>
+          <button data-btn="RIGHT" class="dpad-btn dpad-right">▶</button>
+          <button data-btn="DOWN"  class="dpad-btn dpad-down">▼</button>
+        </div>
+
+        <div class="face">
+          <button data-btn="B" class="face-btn face-b">B</button>
+          <button data-btn="A" class="face-btn face-a">A</button>
+        </div>
+
+        <div class="system">
+          <button data-btn="SELECT" class="system-btn">SELECT</button>
+          <button data-btn="START"  class="system-btn">START</button>
+        </div>
+      </div>
+
+      <div class="padrow">
+        按住 <input id="holdFrames" type="number" min="1" max="600" value="8"> frames，
+        放開 <input id="releaseFrames" type="number" min="0" max="600" value="4"> frames
+      </div>
     </section>
-    <section>
+
+    <section class="gb-card">
       <h2>RAM 摘要</h2>
       <table id="ram"><tbody><tr><td colspan="2">–</td></tr></tbody></table>
     </section>
+
   </div>
-  <div class="col">
-    <section id="navSection">
+
+  <!-- ================= RIGHT ================= -->
+  <div class="gb-col">
+
+    <section id="navSection" class="gb-card">
       <h2>目標與里程碑</h2>
       <div id="goal">–</div>
       <div class="ms" id="milestones"><span>（大腦沒有提供里程碑）</span></div>
       <div class="bar"><div id="msBar"></div></div>
-      <div id="msCount" style="color:var(--dim); font-size:12px"></div>
+      <div id="msCount"></div>
     </section>
-    <section>
+
+    <section class="gb-card">
       <h2>地圖與規劃路徑</h2>
       <canvas id="minimap" width="320" height="240"></canvas>
       <div class="legend">
-        <span><i style="background:#2b3240"></i>可走</span><span><i style="background:#151922; outline:1px solid #2a2f3a"></i>牆／障礙</span><span><i style="outline:1px solid #6b5a2a"></i>未驗證出入口</span>
-        <span><i style="background:#f5a524"></i>可用出入口</span><span><i style="background:#3ecf8e"></i>規劃路徑</span>
+        <span><i style="background:#2b3240"></i>可走</span>
+        <span><i style="background:#151922; outline:1px solid #2a2f3a"></i>牆／障礙</span>
+        <span><i style="outline:1px solid #6b5a2a"></i>未驗證出入口</span>
+        <span><i style="background:#f5a524"></i>可用出入口</span>
+        <span><i style="background:#3ecf8e"></i>規劃路徑</span>
         <span><i style="background:#b07cff"></i>NPC</span>
         <span><i style="background:#5aa9ff"></i>主角</span>
       </div>
       <div id="mapNote">等待地圖資料…</div>
     </section>
-    <section>
+
+    <section class="gb-card">
       <h2>目前計劃</h2>
       <dl>
         <dt>負責大腦</dt><dd id="brain">–</dd>
-        <dt>出手</dt><dd id="actor">–</dd>
-        <dt>計劃</dt><dd id="plan">–</dd>
-        <dt>原因</dt><dd id="reason">–</dd>
+        <dt>出手</dt>    <dd id="actor">–</dd>
+        <dt>計劃</dt>    <dd id="plan">–</dd>
+        <dt>原因</dt>    <dd id="reason">–</dd>
         <dt>是否執行</dt><dd id="executed">–</dd>
       </dl>
     </section>
-    <section>
+
+    <section class="gb-card">
       <h2>最近步驟</h2>
       <table id="steps">
-        <thead><tr><th>step</th><th>frame</th><th>模式</th><th>出手</th><th>大腦</th><th>動作</th><th>原因</th></tr></thead>
+        <thead>
+          <tr>
+            <th>step</th><th>frame</th><th>模式</th><th>出手</th>
+            <th>大腦</th><th>動作</th><th>原因</th>
+          </tr>
+        </thead>
         <tbody></tbody>
       </table>
     </section>
-    <section>
+
+    <section class="gb-card">
       <h2>事件</h2>
       <ul id="events"></ul>
     </section>
+
   </div>
+
 </main>
+
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -163,8 +754,8 @@ const canvas = $("screen"), ctx = canvas.getContext("2d");
 const img = new Image();
 img.onload = () => {
   canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0);
-  // Auto display mode: tell the server this frame is on screen so it may send the next one.
-  if (state.displayMode === "auto" && state.imgFrame !== undefined) send({ type: "frame_ack", frame: state.imgFrame, ts: Date.now() / 1000, payload: {} });
+  if (state.displayMode === "auto" && state.imgFrame !== undefined)
+    send({ type: "frame_ack", frame: state.imgFrame, ts: Date.now() / 1000, payload: {} });
 };
 
 function event(text, bad) {
@@ -177,12 +768,11 @@ function event(text, bad) {
 
 function fmtAction(a) {
   if (!a || !a.presses || !a.presses.length) return "–";
-  return a.presses.map(p => p.button === "NONE" ? `wait ${p.frames}f` : `${p.button} ${p.frames}f`).join(", ");
+  return a.presses.map(p => p.button === "NONE" ? `wait ${p.frames}f`
+                                                : `${p.button} ${p.frames}f`).join(", ");
 }
 
 function drawMap(cv, ram, path) {
-  // Grid view from RAM: collision rows ("#" wall, "." walkable) when the adapter gives them,
-  // otherwise a plain grid sized to the player position (mock). Path = [[x,y],...] from Decision.
   const c = cv.getContext("2d"), W = cv.width, H = cv.height, top = 14;
   c.fillStyle = "#0b0d11"; c.fillRect(0, 0, W, H);
   c.fillStyle = "#8b93a7"; c.font = "10px system-ui"; c.textBaseline = "top";
@@ -221,7 +811,7 @@ function drawMap(cv, ram, path) {
   return !!rows;
 }
 
-function npcAt(cv, px, py) {  // canvas-pixel hit test for the NPC tooltip
+function npcAt(cv, px, py) {
   const L = cv._layout; if (!L) return null;
   const x = Math.floor((px - L.ox) / L.cell), y = Math.floor((py - L.oy) / L.cell);
   return L.npcs.find(n => n.x === x && n.y === y) || null;
@@ -243,7 +833,7 @@ $("minimap").addEventListener("mousemove", e => {
   cv.title = n ? `NPC local_id ${n.local_id} · (${n.x},${n.y}) · elevation ${n.elevation ?? "?"} · gfx ${n.gfx ?? "?"}` : "";
 });
 
-function fmtRam(k, v) {  // keep the RAM table readable: big map structures are summarised
+function fmtRam(k, v) {
   if (k === "collision" && Array.isArray(v)) return `${v.length} 行 × ${v[0]?.length ?? 0} 格（見地圖）`;
   if (k === "npcs" && Array.isArray(v)) return `${v.length} 個（見地圖，滑鼠移上去看 local_id）`;
   if (k === "warps" && Array.isArray(v)) return `${v.length} 個（${v.filter(w => w.enter).length} 個可用）`;
@@ -292,11 +882,14 @@ function onObservation(env) {
 function onDecision(env) {
   const d = env.payload; state.lastDecision = d;
   $("brain").textContent = d.brain;
-  const actor = d.actor || "brain";  // logs from before PR #4 have no actor
-  $("actor").innerHTML = `<span class="badge actor-${actor}">${ACTOR_LABEL[actor] ?? actor}</span>`; $("plan").textContent = d.plan || "–"; $("reason").textContent = d.reason || "–";
+  const actor = d.actor || "brain";
+  $("actor").innerHTML = `<span class="badge actor-${actor}">${ACTOR_LABEL[actor] ?? actor}</span>`;
+  $("plan").textContent = d.plan || "–";
+  $("reason").textContent = d.reason || "–";
   onMilestones(d);
   redrawMaps();
-  $("executed").innerHTML = d.executed ? '<span class="badge yes">執行</span>' : '<span class="badge no">只提議（未執行）</span>';
+  $("executed").innerHTML = d.executed ? '<span class="badge yes">執行</span>'
+                                       : '<span class="badge no">只提議（未執行）</span>';
 }
 
 function setMode(mode) {
@@ -314,14 +907,15 @@ function onStatus(env) {
   const tb = $("steps").tBodies[0], tr = tb.insertRow(0);
   const actor = d.actor || "brain";
   tr.className = "actor-row-" + actor;
-  for (const v of [s.step, env.frame, s.mode, ACTOR_LABEL[actor] ?? actor, d.brain ?? "–", (d.executed === false ? "(提議) " : "") + fmtAction(act), d.reason ?? ""])
+  for (const v of [s.step, env.frame, s.mode, ACTOR_LABEL[actor] ?? actor, d.brain ?? "–",
+                   (d.executed === false ? "(提議) " : "") + fmtAction(act), d.reason ?? ""])
     tr.insertCell().textContent = v;
   while (tb.rows.length > MAX_STEPS) tb.deleteRow(-1);
   for (const n of s.notes || []) event(n, /REJECTED|error|unavailable/.test(n));
   if (s.display) onDisplay(s.display);
 }
 
-// ------------------------------------------------------------------ display speed (FPS)
+// ---------- display speed ----------
 const FPS_MIN = 1, FPS_MAX = 60;
 const clampFps = v => Math.min(FPS_MAX, Math.max(FPS_MIN, Math.round(Number(v) || FPS_MIN)));
 let fpsTimer = null, fpsEditingUntil = 0;
@@ -330,7 +924,7 @@ function onDisplay(d) {
   if (!editing && d.mode !== "cli") {
     state.displayMode = d.mode; $("fpsMode").value = d.mode;
     $("fpsSlider").value = $("fpsNum").value = clampFps(d.fps);
-  } else if (!editing && d.target_fps) {  // CLI pacing until the page changes it
+  } else if (!editing && d.target_fps) {
     $("fpsSlider").value = $("fpsNum").value = clampFps(d.target_fps);
   }
   $("fpsUnit").textContent = $("fpsMode").value === "auto" ? "fps 上限" : "fps";
