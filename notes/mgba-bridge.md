@@ -137,4 +137,26 @@ Other things found while checking:
   lab (4/3) at (7,8), the same as after a win: party_count 1, the rival is gone (8 -> 7 NPCs), and
   the player can walk to the exit mat (7,12). Of the 12 runs above, 6 were won and 6 lost.
 * In this ROM both starters only know METRONOME, so the rival battle's result is random.
-* Not verified yet, so not exposed: status, max_pp, battle type, turn, party, bag, wild battles.
+* Not verified yet, so not exposed: status, max_pp, battle type, turn, party, bag.
+
+### Wild battles (M3, Route 1)
+
+Checked by Fullstack while doing M3; **Backend, please re-check**.
+
+* In the first wild battle on Route 1 (PIDGEY Lv2/3), `menu` stayed `"other"` the whole time, so the adapter
+  never marked the battle ready, and `player`/`opponent` stayed None. The reason:
+  `gBattlerControllerFuncs[0]` (`0x03004FE0`) holds **different code addresses** than in the rival battle.
+  * Action menu `0x0802E439`: the screen shows "What will BULBASAUR do?" with FIGHT/BAG/POKéMON/RUN.
+  * Move menu `0x0802EA11`: shown after A on FIGHT ("METRONOME", PP 40/40, TYPE/NORMAL). B goes back
+    to `0x0802E439`.
+  * The two values in the rival battle (`0x080E763D`/`0x080E7989`) are probably FireRed's Oak/old-man
+    tutorial controller, which the first battle uses. That is a guess from the address range; it is
+    not checked against a symbol file.
+* `gActionSelectionCursor[0]` `0x02023FF8` in the wild action menu: start 0; RIGHT 1, DOWN 3, LEFT 2,
+  UP 0. That matches the 2×2 layout. `gMoveSelectionCursor[0]` was 0 with one move.
+* `firered_battle.py` now maps both pairs: `MENU_BY_CTRL`, with `CTRL_CHOOSE_ACTION_WILD` and
+  `CTRL_CHOOSE_MOVE_WILD`. With that, RuleBattleBrain gets mon data after the first menu and fights.
+  In the boot run there were two wild battles (PIDGEY Lv3 and RATTATA Lv3), both won, and replay had
+  0 mismatches.
+* Still open for Backend: trainer battles other than the rival, and double battles. Is the
+  controller address the same for all normal battles?

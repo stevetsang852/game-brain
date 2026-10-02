@@ -102,8 +102,36 @@ Once a milestone is done it stays done.
   naming screen never opens), then walks to the exit; the rival stops you at (7,8). The battle
   brain (or RuleBrain without one) plays the battle; PathBrain still sees every observation via
   `observe()` from the arbiter. Win or lose you are back at (7,8).
-* **Next** (placeholder): `route_1`. PathBrain idles (`idle_on_placeholder=False` makes it report
-  unavailable instead).
+* **M3:** `leave_lab` (exit warp to 3/0) → `route_1` (`Target.edge("UP")` on Pallet Town) →
+  `viridian_city` (`Target.edge("UP")` on Route 1). Wild battles in Route 1's grass are fought by
+  the battle brain. If the starter faints (whiteout) you wake up at home, and the targets lead back
+  out: 2F → 1F → Pallet → north. This was not seen in the runs so far; every battle was won.
+* **Next** (placeholder): `oaks_parcel`. PathBrain idles (`idle_on_placeholder=False` makes it
+  report unavailable instead).
+
+### Map connections (M3)
+
+* There is no warp between Pallet Town and Route 1, or between Route 1 and Viridian City; they are
+  map connections. The adapter does **not** read the connection list (`gMapHeader.connections`),
+  so PathBrain does not know where an edge leads.
+* What *is* verified and is enough: walking off the map edge changes `map_bank`/`map_id`
+  straight away. There is no blackout, and position is never None. The new position is in the new
+  map's coordinates.
+  * Pallet Town (13,0) UP → 3/19 (13,39).
+  * Route 1, top row, UP → 3/1 (25,39). Viridian City is 48×40; the screenshot shows the
+    town.
+* `Target.edge(direction)`:
+  * A\* goes to the nearest walkable tile on that edge, then PathBrain faces out and steps off.
+  * If the map does not change after 3 presses (`max_warp_tries`), that edge tile is dropped.
+    With none left, PathBrain reports unavailable.
+* Which edge to take is game knowledge in the milestone ("Route 1 is north of Pallet"), checked by
+  the map id on arrival. No RAM address is guessed.
+* **For Backend (later):** reading `gMapHeader.connections` (direction, offset, dest map) would
+  let PathBrain plan across maps without hard-coding directions. Not needed for M3.
+* Route 1 ledges show as `#` in `collision`, which is right for walking north (you can't climb a
+  ledge). Walking south would need one-way handling.
+* Pallet Town after the rival: a girl NPC at (12,2) next to the exit talks to you ("Look, look!
+  ... TRAINER TIPS"). PathBrain's frozen handling (A every other decision) gets through it.
 
 Done-detection uses only verified signals:
 
@@ -219,7 +247,8 @@ detected by behaviour instead ("a turn didn't take"), so no RAM is needed for th
   so PathBrain just bumps and replans. Details went to Backend.
 * Water / surf tiles that show as `.`. In Pallet Town the south water has collision 0, but you
   can't walk on it.
-* Map connections (walking off the edge of an outdoor map into the next one).
+* Map connections are only handled as "walk off this edge" (see "Map connections (M3)"); there
+  is no cross-map route planning.
 * Battles: PathBrain does not wait through the ~20-step pre-battle transition (no position, `in_battle`
   still False); RuleBrain presses A there.
 * Scripts are handled by "press A/B while frozen". A script that needs a menu answer other than

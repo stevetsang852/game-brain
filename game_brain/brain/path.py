@@ -91,6 +91,8 @@ class PathBrain(Brain):
         self._blocked: Dict[Tuple[Tile, Tile], int] = {}  # ((map), tile) -> expiry decision index
         self._warp_tries: Dict[Tuple[Tile, Warp], int] = {}
         self._dead_warps: Set[Tuple[Tile, Warp]] = set()
+        self._edge_tries: Dict[Tuple[Tile, Tile], int] = {}  # (map, edge tile) -> presses that didn't leave
+        self._dead_edges: Set[Tuple[Tile, Tile]] = set()
         self._fails: Dict[Tile, int] = {}   # failed moves towards a tile since we last moved
         self._turn_fails = 0
         self._transition_waits = 0
@@ -114,6 +116,13 @@ class PathBrain(Brain):
         return Decision(brain=self.name, plan=plan, reason=reason, goal=goal,
                         path=[list(p) for p in path] if path else None,
                         milestones=self.planner.summary())
+
+    @staticmethod
+    def _edge_tiles(grid, direction: str) -> Set[Tile]:
+        w, h = grid.width, grid.height
+        line = {"UP": [(x, 0) for x in range(w)], "DOWN": [(x, h - 1) for x in range(w)],
+                "LEFT": [(0, y) for y in range(h)], "RIGHT": [(w - 1, y) for y in range(h)]}[direction]
+        return {t for t in line if grid.is_walkable(*t)}
 
     def _blocked_tiles(self) -> Set[Tile]:
         self._blocked = {k: v for k, v in self._blocked.items() if v > self._t}
@@ -290,6 +299,13 @@ class PathBrain(Brain):
                 return self._act(sb, 2, 8), self._dec(goal_txt, why, goal=goal_txt, path=[pos])
             if pos != prev_pos:
                 self._fails.clear()
+            if kind == "edge" and detail[0] == grid.key and pos == detail[1]:
+                # pressed off the edge but still on the same map: a text box, an NPC, or no
+                # connection there. After max_warp_tries, stop using that edge tile.
+                key = (detail[0], detail[1])
+                self._edge_tries[key] = self._edge_tries.get(key, 0) + 1
+                if self._edge_tries[key] >= self.max_warp_tries:
+                    self._dead_edges.add(key)
             if kind == "warp":
                 key = detail
                 self._warp_tries[key] = self._warp_tries.get(key, 0) + 1
@@ -307,6 +323,11 @@ class PathBrain(Brain):
             if not stands:
                 raise self._unavailable(f"no usable warp to {target.dest} on map {grid.key}", milestone)
             goals = set(stands)
+        elif target.kind == "edge":
+            stands = {}
+            goals = {t for t in self._edge_tiles(grid, target.face) if (grid.key, t) not in self._dead_edges}
+            if not goals:
+                raise self._unavailable(f"no walkable tile on the {target.face} edge of map {grid.key}", milestone)
         else:
             stands, goals = {}, {target.tile}
 
@@ -316,6 +337,16 @@ class PathBrain(Brain):
             return self._act(w.enter, self.step_frames, self.warp_release), self._dec(
                 goal_txt, f"at {pos}: press {w.enter} to take warp ({w.x},{w.y}) -> {w.dest}",
                 goal=goal_txt, path=[pos])
+        if target.kind == "edge" and pos in goals:   # 5d. on the edge: face out, step off the map
+            d = target.face
+            if obs.ram.get("facing") != d:
+                self.stats["turns"] += 1
+                self._last = ("turn", (pos, d))
+                return self._act(d, self.turn_frames, self.turn_release), self._dec(
+                    goal_txt, f"at {pos} on the {d} edge: turn {d}", goal=goal_txt, path=[pos])
+            self._last = ("edge", (grid.key, pos, d))
+            return self._act(d, self.step_frames, self.step_release), self._dec(
+                goal_txt, f"at {pos}: step {d} off the map edge (map connection)", goal=goal_txt, path=[pos])
         if target.kind == "tile" and pos == target.tile:
             raise self._unavailable(f"target tile {target.tile} reached", milestone)
         if target.kind == "interact" and pos == target.tile:   # 5c. face it, press the button

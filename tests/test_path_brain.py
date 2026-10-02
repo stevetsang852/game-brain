@@ -208,13 +208,16 @@ def test_arbiter_copies_milestones_onto_fallback_decision():
     assert res.decision.goal.startswith("Get through the intro")
 
 
-def test_pathbrain_walks_mock_house_through_m2_and_replays(tmp_path):
+def test_pathbrain_walks_mock_house_through_m3_and_replays(tmp_path):
     s = demo.run("mock-house", steps=250, mode="auto", brains="path,rule", out_dir=str(tmp_path), quiet=True)
     steps = list(iter_steps(s["log"]))
     maps = [(r["observation"]["ram"].get("map_bank"), r["observation"]["ram"].get("map_id")) for r in steps]
     order = [m for i, m in enumerate(maps) if m[0] is not None and (i == 0 or maps[i - 1] != m)]
+    known = [m for m in maps if m[0] is not None]
+    visits = [m for i, m in enumerate(known) if i == 0 or known[i - 1] != m]
+    assert visits == [(4, 1), (4, 0), (3, 0), (4, 3), (3, 0), (3, 19), (3, 1)]   # M3: two map connections
     assert order[:4] == [(4, 1), (4, 0), (3, 0), (4, 3)]
-    assert s["final_ram"]["map_bank"] == 4 and s["final_ram"]["map_id"] == 3
+    assert (s["final_ram"]["map_bank"], s["final_ram"]["map_id"]) == (3, 1)
     assert s["final_ram"]["party_count"] == 1 and s["final_ram"]["scene"] == "overworld"  # no naming screen
     reasons = [r["decision"]["reason"] for r in steps if r["decision"]["brain"] == "path"]
     assert any("treat as blocked" in t for t in reasons)  # 1F: unlisted NPC -> bump, replan (fallback)
@@ -230,7 +233,9 @@ def test_pathbrain_walks_mock_house_through_m2_and_replays(tmp_path):
     last = steps[-1]["decision"]
     assert last["brain"] == "path" and "not implemented yet -> idle" in last["reason"]
     done = {m["id"]: m["done"] for m in last["milestones"]}
-    assert done["get_starter"] and done["rival_battle"] and done["rival_battle_over"] and not done["route_1"]
+    assert done["get_starter"] and done["rival_battle"] and done["rival_battle_over"]
+    assert done["leave_lab"] and done["route_1"] and done["viridian_city"] and not done["oaks_parcel"]
+    assert sum("off the map edge" in t for t in reasons) == 2
     # the mock rival stopped us on row 8; the battle (no ram["battle"]) was RuleBrain's A presses
     battle = [r for r in steps if r["observation"]["ram"].get("in_battle") is True]
     assert battle and all(r["decision"]["brain"] == "rule" for r in battle)
@@ -238,6 +243,36 @@ def test_pathbrain_walks_mock_house_through_m2_and_replays(tmp_path):
     assert (after["map_bank"], after["map_id"], after["player_x"], after["player_y"]) == (4, 3, 7, 8)
     assert any(r["decision"].get("path") for r in steps)
     assert replay(s["log"], MockHouseAdapter()) == []
+
+
+def _edge_obs(x, y, facing, map_id=19):
+    rows = ["##..##", "#....#", "#....#"]
+    return Observation(frame=0, ram={"scene": "overworld", "in_battle": False, "map_bank": 3, "map_id": map_id,
+                                     "player_x": x, "player_y": y, "facing": facing, "map_w": 6, "map_h": 3,
+                                     "collision": rows, "warps": [], "party_count": 1})
+
+
+def test_pathbrain_edge_target_turns_steps_off_and_gives_up_on_a_dead_edge():
+    pl = GoalPlanner([Milestone("north", "walk off the top", target=lambda o: Target.edge("UP"))])
+    pb = PathBrain(planner=pl, settle_checks=1)
+    o = _edge_obs(3, 2, "UP")
+    while "settle" in pb.decide(o)[1].reason or "stable" in pb.decide(o)[1].reason:
+        pass
+    a, d = pb.decide(_edge_obs(3, 1, "UP"))
+    assert a.presses[0].button == "UP" and "step UP to (3, 0)" in d.reason
+    a, d = pb.decide(_edge_obs(3, 0, "LEFT"))           # on the edge, facing the wrong way
+    assert a.presses[0].button == "UP" and "turn UP" in d.reason
+    for _ in range(3):                                   # pressing off the edge, map never changes
+        a, d = pb.decide(_edge_obs(3, 0, "UP"))
+        assert a.presses[0].button == "UP" and "off the map edge" in d.reason
+    a, d = pb.decide(_edge_obs(3, 0, "UP"))              # (3,0) is dead now -> go to (2,0)
+    assert a.presses[0].button == "LEFT" and "(2, 0)" in d.reason
+    for x in (2,):
+        pb.decide(_edge_obs(x, 0, "LEFT"))               # turn
+        for _ in range(3):
+            pb.decide(_edge_obs(x, 0, "UP"))
+    with pytest.raises(BrainUnavailable, match="no walkable tile on the UP edge"):
+        pb.decide(_edge_obs(2, 0, "UP"))
 
 
 def test_existing_mock_adapter_still_has_no_map_so_path_falls_back(tmp_path):

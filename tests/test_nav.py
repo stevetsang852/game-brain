@@ -130,11 +130,37 @@ def test_goal_planner_is_sticky_and_ordered():
     after = Observation(frame=8, ram={"player_x": 7, "player_y": 8, "map_bank": 4, "map_id": 3,
                                       "party_count": 1, "in_battle": False})
     m = pl.update(after)
-    assert m.id == "route_1" and m.placeholder
+    assert m.id == "leave_lab" and m.target(after) == Target.warp(3, 0)
+    # M3: Pallet Town -> (north edge) Route 1 3/19 -> (north edge) Viridian City 3/1
+    pallet = Observation(frame=9, ram={"player_x": 16, "player_y": 14, "map_bank": 3, "map_id": 0, "party_count": 1})
+    m = pl.update(pallet)
+    assert m.id == "route_1" and m.target(pallet) == Target.edge("UP")
+    route = Observation(frame=10, ram={"player_x": 13, "player_y": 39, "map_bank": 3, "map_id": 19, "party_count": 1})
+    m = pl.update(route)
+    assert m.id == "viridian_city" and m.target(route) == Target.edge("UP")
+    # whiteout: you wake up at home; the targets lead back out (2F -> 1F -> Pallet -> north)
+    for bank_map, t in (((4, 1), Target.warp(4, 0)), ((4, 0), Target.warp(3, 0)), ((3, 0), Target.edge("UP"))):
+        o = Observation(frame=11, ram={"player_x": 3, "player_y": 3, "map_bank": bank_map[0],
+                                       "map_id": bank_map[1], "party_count": 1})
+        assert pl.update(o).id == "viridian_city" and pl.update(o).target(o) == t
+    viridian = Observation(frame=12, ram={"player_x": 25, "player_y": 39, "map_bank": 3, "map_id": 1, "party_count": 1})
+    m = pl.update(viridian)
+    assert m.id == "oaks_parcel" and m.placeholder
     done = {m["id"]: m["done"] for m in pl.summary()}
-    assert done == {"intro": True, "leave_bedroom": True, "leave_house": True, "pallet_town": True,
-                    "oak_stops_you": True, "oak_lab": True, "get_starter": True, "rival_battle": True,
-                    "rival_battle_over": True, "route_1": False}
+    assert all(v for k, v in done.items() if k != "oaks_parcel") and not done["oaks_parcel"]
+    assert list(done) == ["intro", "leave_bedroom", "leave_house", "pallet_town", "oak_stops_you", "oak_lab",
+                          "get_starter", "rival_battle", "rival_battle_over", "leave_lab", "route_1",
+                          "viridian_city", "oaks_parcel"]
+
+
+def test_goal_planner_resumed_after_the_rival_battle():
+    # a save state outside the lab with the starter: the rival battle is implied
+    pl = GoalPlanner()
+    o = Observation(frame=0, ram={"player_x": 12, "player_y": 3, "map_bank": 3, "map_id": 0, "party_count": 1})
+    assert pl.update(o).id == "route_1"
+    with pytest.raises(ValueError):
+        Target.edge("NORTH")
+    assert Target.edge("UP").describe() == "walk off the map edge (UP)"
 
 
 def test_goal_planner_skips_ahead_on_later_evidence():
@@ -151,7 +177,7 @@ def test_custom_milestones():
                                 target=lambda o: Target.at(2, 2))])
     assert pl.update(Observation(frame=0, ram={"player_x": 1, "player_y": 1})).id == "a"
     assert pl.update(Observation(frame=0, ram={"player_x": 2, "player_y": 2})) is None
-    assert len(firered_milestones()) == 10
+    assert len(firered_milestones()) == 13
 
 
 def test_firered_extra_reads_npcs_and_party_count():
