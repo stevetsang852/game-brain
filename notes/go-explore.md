@@ -51,7 +51,7 @@ progress = (party_count, milestones_done_count)
 檔案配置：
 
 ```
-<save_dir>/go-explore/<run_id>/
+~/.game-brain/go-explore/<run_id>/   # 獨立目錄（或 $GAME_BRAIN_GOEXPLORE_DIR），不要和 ~/.game-brain/saves 共用：--resume latest 找不到指標時會挑該目錄最新的 .json
   archive.json          # 全部 cell 的索引和計數（每 N 個 iteration 原子寫入：先寫 .tmp，再 fsync、rename）
   cells/<key>.state     # #28 v1
   cells/<key>.json      # #28 v1 sidecar，另加 "go_explore": {cell, parent, steps_from_boot, score}
@@ -136,10 +136,10 @@ for it in range(max_iters):
 |---|---|
 | 開場的對白和劇情（大木攔路、媽媽）位置不動，cell 不變 | 動作表裡 A 佔 0.2；`K_stuck` 結束該段，但不懲罰該 cell，只靠 `chosen_since_new` 慢慢降權 |
 | 真新鎮北面出口在拿到御三家前會被大木劇情攔住 | `progress` 把拿到寶可夢前後分開，研究所裡 `party_count=1` 的 cell 會自然成為新前線 |
-| 磁碟：一個 `.state` 大約幾百 KB | 預估到常青市時有數百到一千多個 cell，即幾百 MB。加上 `--max-cells`（預設 5000），以及取代時刪除舊檔。Backend 量到實際大小後再調 |
+| 磁碟：一個 `.state` 是 397,312 bytes（Backend 實測），sidecar 約 0.8 KB | 1,000 個 cell 約 390 MB，1 萬個約 3.9 GB。`--max-cells` 預設 3000（約 1.2 GB），超過時淘汰權重最低、且不是任何前線 cell 祖先的 cell；被取代時刪除舊檔 |
 | `ram["npcs"]` 只是部分驗證 | Go-Explore 不使用 NPC 資料，不受影響 |
 | 戰鬥殘留舊值 | 已由 #21 和 brain 端的保護處理。cell 只在 overworld 建立，不會用到戰鬥值 |
-| 每秒步數未知 | 等 Backend 在 gym PR 裡量出數字後，再定 `budget` 和 `wall_time` |
+| 吞吐量：單一 process 約 69 步/秒（Backend 實測，24 frames/步） | 預設 `budget` 2,000,000 步，單 process 約 8 小時，與 `wall_time` 一致。可用 `--workers N` 平行跑探索段（每個 worker 一個 env，archive 只由主程序寫），4 個 worker 約 2 小時 |
 
 ## 8. 之後（不在這次範圍）
 
