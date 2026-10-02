@@ -8,7 +8,8 @@ import pytest
 
 from game_brain import demo, setup
 from game_brain.dashboard import live
-from game_brain.runlog import read_log
+from game_brain.adapters import make_adapter
+from game_brain.runlog import iter_steps, read_log, replay
 
 SPECIES = {"bulbasaur": 1, "squirtle": 7, "charmander": 4}      # mock-house ball species ids
 
@@ -140,3 +141,73 @@ def test_milestone_label_names_the_planned_ball(tmp_path):
     path = next(b for b in sess.brains if b.name == "path")
     label = next(m.label for m in path.planner.milestones if m.id == "get_starter")
     assert "Charmander" in label and "(10, 4)" in label
+
+
+# ---------------------------------------------------------------- auto seed (no --seed with random)
+def _main(mod, argv, tmp_path, out):
+    return mod.main(["--adapter", "mock-house", "--brains", "random,path,rule", "-q", "--out", str(tmp_path / out),
+                     "--save-dir", str(tmp_path / "saves"), "--save-every", "50", *argv])
+
+
+def _log(tmp_path, out):
+    return next((tmp_path / out).glob("*/run.jsonl"))
+
+
+def test_random_without_seed_draws_and_records_a_real_seed(tmp_path, monkeypatch):
+    monkeypatch.delenv("GAME_BRAIN_STARTER", raising=False)
+    draws = iter([123456789, 987654321])
+    monkeypatch.setattr(setup.secrets, "randbits", lambda n: next(draws))
+    assert _main(demo, ["--steps", "120"], tmp_path, "a") == 0
+    recs = list(read_log(str(_log(tmp_path, "a"))))
+    h = recs[0]
+    assert h["seed"] == 123456789 and h["seed_source"] == "auto"
+    assert h["starter"] == {"requested": "random", "picked": None, "seed": 123456789}
+    plan = setup.resolve_starter("random", 123456789)
+    summ = recs[-1]
+    assert summ["seed"] == 123456789 and summ["starter"]["seed"] == 123456789
+    assert summ["starter"]["picked"] in (None, plan)
+    side = json.loads(Path(next(p for p in summ["saves"] if p.endswith("0000050_periodic.json"))).read_text())
+    assert side["seed"] == 123456789 and side["starter"]["seed"] == 123456789
+    # a second run without --seed draws another seed
+    assert _main(demo, ["--steps", "5"], tmp_path, "b") == 0
+    assert next(read_log(str(_log(tmp_path, "b"))))["seed"] == 987654321
+
+
+def test_auto_seed_run_is_reproduced_by_resume_and_by_the_recorded_seed(tmp_path, monkeypatch):
+    """The random brain (and the starter) only depend on the recorded seed: rerunning with
+    --seed <recorded> gives the same steps, and --resume (no --seed) continues with that seed."""
+    monkeypatch.delenv("GAME_BRAIN_STARTER", raising=False)
+    monkeypatch.setattr(setup.secrets, "randbits", lambda n: 424242)
+    assert _main(demo, ["--steps", "300"], tmp_path, "auto") == 0
+    auto = list(iter_steps(str(_log(tmp_path, "auto"))))
+    monkeypatch.setattr(setup.secrets, "randbits", lambda n: pytest.fail("must not draw"))
+    assert _main(demo, ["--steps", "300", "--seed", "424242"], tmp_path, "explicit") == 0
+    explicit = list(iter_steps(str(_log(tmp_path, "explicit"))))
+    key = lambda r: (r["step"], r["frame"], r["observation"]["ram"], r.get("executed_action"), r["decision"]["brain"])
+    assert [key(r) for r in auto] == [key(r) for r in explicit]
+    side = next((tmp_path / "saves").glob("*/0000150_periodic.json"))
+    assert _main(demo, ["--steps", "150", "--resume", str(side)], tmp_path, "resumed") == 0
+    recs = list(read_log(str(_log(tmp_path, "resumed"))))
+    assert recs[0]["seed"] == 424242 and recs[0]["seed_source"] == "resume"
+    assert recs[0]["starter"]["seed"] == 424242
+    resumed = list(iter_steps(str(_log(tmp_path, "resumed"))))
+    assert resumed[0]["observation"]["ram"] == auto[150]["observation"]["ram"]
+    # (the random brain restarts its RNG from the recorded seed: RNG *state* is brain_state, v2)
+    assert replay(str(_log(tmp_path, "auto")), make_adapter("mock-house")) == []
+
+
+def test_fixed_starter_without_seed_keeps_seed_0(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup.secrets, "randbits", lambda n: pytest.fail("must not draw"))
+    assert _main(demo, ["--steps", "5", "--starter", "squirtle"], tmp_path, "a") == 0
+    h = next(read_log(str(_log(tmp_path, "a"))))
+    assert h["seed"] == 0 and h["seed_source"] == "default" and h["starter"]["seed"] == 0
+
+
+def test_dashboard_status_shows_the_drawn_seed(tmp_path, monkeypatch):
+    monkeypatch.delenv("GAME_BRAIN_STARTER", raising=False)
+    monkeypatch.setattr(setup.secrets, "randbits", lambda n: 31337)
+    a = live.build_parser().parse_args(["--adapter", "mock-house", "--no-save", "--out", str(tmp_path)])
+    srv = _Capture()
+    s = live.run(srv, a.adapter, a.mode, a.brains, a.seed, steps=5, step_delay=0, screenshot_every=0,
+                 out_dir=str(tmp_path), quiet=True)
+    assert all(st["starter"]["seed"] == 31337 for st in srv.status) and s["seed"] == 31337

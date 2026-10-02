@@ -86,6 +86,7 @@ sidecar for the half-written state, and `latest` still points at the previous co
 | `adapter`, `adapter_state` | adapter name, plus adapter-side state that is not in the emulator snapshot. mGBA: `{"battle_ready": bool}` (whether this battle's mon data is trusted yet, see notes/mgba-bridge.md). Without it, resuming mid-battle would hide `ram["battle"]` HP until the next menu |
 | `rom_sha1` | SHA1 of the ROM. Resume refuses a different ROM |
 | `starter` | `{"requested": "random"\|"bulbasaur"\|"charmander"\|"squirtle", "picked": <name> or null, "seed": int}`. `picked` is null until the ball is taken in Oak's lab (the `get_starter` milestone save already has it). `--resume` keeps it: the ball is `picked`, or (not picked yet) `requested` resolved with the recorded `seed`, so it is never re-rolled; an explicit different `--starter` is ignored with a warning. Missing (saves from before `--starter`) = `{"requested": "bulbasaur", "picked": "bulbasaur" if get_starter is done else null}` |
+| `seed` | the run's seed (`--seed`, or the one drawn at random when `--starter random` is used without `--seed`). `--resume` without `--seed` reuses it (and the starter keeps its own `starter.seed`) |
 | `brains`, `git_commit` (`-dirty` if uncommitted changes), `run_id`, `resumed_from` (sidecar this run resumed from), `timestamp` (local ISO 8601 with offset) | provenance |
 
 ## Resume

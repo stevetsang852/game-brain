@@ -65,7 +65,7 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
 
 
 def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto", brains: str = FULL_BRAINS,
-        seed: int = 0, steps: int = 0, step_delay: float = 0.25, screenshot_every: int = 1,
+        seed: Optional[int] = 0, steps: int = 0, step_delay: float = 0.25, screenshot_every: int = 1,
         out_dir: str = "runs", quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
         resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
@@ -88,7 +88,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
     result = None
     t0 = time.time()
     with RunLogWriter(sess.log_path) as log, StopSignals() as stop:
-        log.header(**sess.header_info(steps=steps, seed=seed, dashboard=server.url))
+        log.header(**sess.header_info(steps=steps, dashboard=server.url))
         obs = sess.start(log)
         # the stop flag (SIGTERM / Ctrl-C) is checked only here, after a step completed in full
         while (not steps or step < sess.start_step + steps) and not stop.requested:
@@ -129,7 +129,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                    "log": str(sess.log_path), "saves": sess.saves,
                    "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None,
                    "wall_seconds": round(time.time() - t0, 3), "stopped_by": stop.name,
-                   "starter": dict(sess.starter_info)}
+                   "starter": dict(sess.starter_info), "seed": sess.seed}
         log.event("summary", **summary)
     adapter.close()
     return summary
