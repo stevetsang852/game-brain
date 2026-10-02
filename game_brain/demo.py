@@ -86,7 +86,7 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m game_brain.demo", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--adapter", default="mock", help="adapter name (only 'mock' ships here)")
+    ap.add_argument("--adapter", default="mock", help="adapter name: mock | mgba (mgba needs $GAME_BRAIN_ROM)")
     ap.add_argument("--steps", type=int, default=60)
     ap.add_argument("--mode", default="auto", choices=[m.value for m in Mode])
     ap.add_argument("--brains", default="rule,random", help="priority list, e.g. llm,rule,random")
