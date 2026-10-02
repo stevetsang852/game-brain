@@ -7,6 +7,8 @@ Milestones are sticky: once ``done`` is observed true it stays done. A milestone
 * ``Target.at(x, y)``                  -- reach a tile on the current map
 * ``Target.interact(x, y, face, btn)`` -- stand on (x, y), face ``face``, press ``btn`` (repeat
   until the milestone is done: talking to someone / picking up a ball)
+* ``Target.edge(direction)``          -- walk off that edge of the current map (a map connection,
+  e.g. Pallet Town's north edge -> Route 1): reach a walkable tile on the edge, face out, press
 * ``Target.script()``                  -- a scripted event is running (player moved by the game):
   don't navigate, advance text with the milestone's ``script_button``
 * ``None``                             -- nothing to navigate (e.g. the intro: RuleBrain's job)
@@ -29,7 +31,7 @@ from ..schema import Observation
 
 @dataclass(frozen=True)
 class Target:
-    kind: str                     # "warp" | "tile" | "interact" | "script"
+    kind: str                     # "warp" | "tile" | "interact" | "script" | "edge"
     dest: Tuple[int, int] = (0, 0)  # warp: destination (bank, map)
     tile: Tuple[int, int] = (0, 0)  # tile / interact: (x, y) on the current map
     face: str = ""                  # interact: direction to face on the tile
@@ -48,6 +50,12 @@ class Target:
         return cls("interact", tile=(x, y), face=face, button=button)
 
     @classmethod
+    def edge(cls, direction: str) -> "Target":
+        if direction not in ("UP", "DOWN", "LEFT", "RIGHT"):
+            raise ValueError(f"bad edge direction {direction!r}")
+        return cls("edge", face=direction)
+
+    @classmethod
     def script(cls) -> "Target":
         return cls("script")
 
@@ -58,6 +66,8 @@ class Target:
             return f"stand on {self.tile}, face {self.face}, press {self.button}"
         if self.kind == "script":
             return "scripted event (advance text, wait)"
+        if self.kind == "edge":
+            return f"walk off the map edge ({self.face})"
         return f"tile {self.tile}"
 
 
@@ -84,6 +94,10 @@ FR_HOUSE_2F = (4, 1)
 FR_HOUSE_1F = (4, 0)
 FR_PALLET_TOWN = (3, 0)
 FR_OAKS_LAB = (4, 3)
+# Milestone 3: reached by walking off a map edge (a map connection, not a warp) and read back from
+# map_bank/map_id on arrival (notes/nav.md, "M3 route").
+FR_ROUTE_1 = (3, 19)
+FR_VIRIDIAN_CITY = (3, 1)
 
 # Milestone 2 tiles, all measured on this ROM (notes/nav.md, "M2 route"):
 #: stepping onto either tile of Pallet Town's north exit starts Oak's "wait, don't go out" script
@@ -115,6 +129,19 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
             return Target.warp(*FR_OAKS_LAB)  # e.g. walked out before choosing
         return None
 
+    def left_lab(o: Observation) -> bool:
+        # the game does not let you leave the lab with the starter before the rival battle
+        return _party(o) >= 1 and m(o) in (FR_PALLET_TOWN, FR_ROUTE_1, FR_VIRIDIAN_CITY)
+
+    def to_pallet(o: Observation) -> Optional[Target]:
+        """From the lab or the player's house (e.g. after a whiteout) back out to Pallet Town."""
+        here = m(o)
+        if here == FR_HOUSE_2F:
+            return Target.warp(*FR_HOUSE_1F)
+        if here in (FR_HOUSE_1F, FR_OAKS_LAB):
+            return Target.warp(*FR_PALLET_TOWN)
+        return None
+
     return [
         Milestone("intro", "Get through the intro (RuleBrain mashes A)",
                   done=lambda o: o.position is not None),
@@ -142,13 +169,26 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
         # arbiter still shows it every observation via ``observe``). Win or lose the story goes on:
         # you are back at (7,8) in the lab.
         Milestone("rival_battle", "Walk to the lab exit; the rival stops you and the battle starts",
-                  done=lambda o: o.ram.get("in_battle") is True,
+                  done=lambda o: o.ram.get("in_battle") is True or left_lab(o),
                   target=lambda o: Target.warp(*FR_PALLET_TOWN) if m(o) == FR_OAKS_LAB else None,
                   script_button="B"),
         Milestone("rival_battle_over", "Finish the rival battle (win or lose, the story goes on)",
-                  done=lambda o: o.position is not None and o.ram.get("in_battle") is False),
+                  done=lambda o: (o.position is not None and o.ram.get("in_battle") is False) or left_lab(o)),
+        # --- milestone 3: Pallet Town -> Route 1 -> Viridian City. Pallet's north edge connects to
+        # Route 1 and Route 1's north edge to Viridian City (map connections: walk off the edge).
+        # Wild battles in Route 1's grass are fought by the battle brain. If the starter faints you
+        # wake up at home (whiteout): the targets lead back out of the house.
+        Milestone("leave_lab", "Leave Oak's lab (exit mat -> Pallet Town)",
+                  done=lambda o: m(o) in (FR_PALLET_TOWN, FR_ROUTE_1, FR_VIRIDIAN_CITY),
+                  target=to_pallet),
+        Milestone("route_1", "Walk off Pallet Town's north edge onto Route 1",
+                  done=lambda o: m(o) in (FR_ROUTE_1, FR_VIRIDIAN_CITY),
+                  target=lambda o: Target.edge("UP") if m(o) == FR_PALLET_TOWN else to_pallet(o)),
+        Milestone("viridian_city", "Walk north through Route 1 to Viridian City (wild battles: battle brain)",
+                  done=lambda o: m(o) == FR_VIRIDIAN_CITY,
+                  target=lambda o: Target.edge("UP") if m(o) in (FR_PALLET_TOWN, FR_ROUTE_1) else to_pallet(o)),
         # --- next: not implemented.
-        Milestone("route_1", "Leave the lab, head north to Route 1 (not implemented: stop here)",
+        Milestone("oaks_parcel", "Viridian City: get Oak's Parcel at the Poke Mart (not implemented: stop here)",
                   placeholder=True),
     ]
 

@@ -36,9 +36,15 @@ G_BATTLE_OUTCOME = 0x02023E8A           # u8: 0 ongoing, 1 won, 2 lost (not clea
 G_BATTLER_CONTROLLER_FUNCS = 0x03004FE0  # void (*[4])(void); battler 0 = player controller
 
 # Player controller function while it waits for input. These are code addresses in the
-# supplied ROM (measured, not taken from a symbol file).
-CTRL_CHOOSE_ACTION = 0x080E763D
-CTRL_CHOOSE_MOVE = 0x080E7989
+# supplied ROM (measured, not taken from a symbol file). The first rival battle (Oak's lab)
+# uses a different player controller than later battles (probably FireRed's Oak/old-man
+# tutorial controller), so each menu has two values.
+CTRL_CHOOSE_ACTION = 0x080E763D      # rival battle in Oak's lab
+CTRL_CHOOSE_MOVE = 0x080E7989        # rival battle in Oak's lab
+CTRL_CHOOSE_ACTION_WILD = 0x0802E439  # wild battle, Route 1 (M3; notes/mgba-bridge.md)
+CTRL_CHOOSE_MOVE_WILD = 0x0802EA11    # wild battle, Route 1 (M3; notes/mgba-bridge.md)
+MENU_BY_CTRL = {CTRL_CHOOSE_ACTION: "action", CTRL_CHOOSE_MOVE: "move",
+                CTRL_CHOOSE_ACTION_WILD: "action", CTRL_CHOOSE_MOVE_WILD: "move"}
 
 OUTCOMES = {0: None, 1: "win", 2: "lose"}
 
@@ -56,7 +62,7 @@ def _mon(ram: FireRedRam, battler: int) -> Dict[str, Any]:
 
 def read_battle(ram: FireRedRam) -> Dict[str, Any]:
     ctrl = ram.u32(G_BATTLER_CONTROLLER_FUNCS)
-    menu = {CTRL_CHOOSE_ACTION: "action", CTRL_CHOOSE_MOVE: "move"}.get(ctrl, "other")
+    menu = MENU_BY_CTRL.get(ctrl, "other")
     cursor: Optional[int] = None
     if menu == "action":
         cursor = ram.u8(G_ACTION_SELECTION_CURSOR)

@@ -1,6 +1,6 @@
 """MockHouseAdapter: a small synthetic, FireRed-shaped world for navigation tests (no ROM).
 
-Three maps with the same ids as FireRed milestone 1 (layouts are made up, not game data):
+Maps with the same ids as FireRed milestones 1-3 (layouts are made up, not game data):
 
 * 4/1 "bedroom":  stairs warp you stand on and push LEFT -> 4/0
 * 4/0 "1F":       an NPC ("mom") standing on a tile the collision grid shows as free
@@ -20,6 +20,8 @@ Three maps with the same ids as FireRed milestone 1 (layouts are made up, not ga
                   the rival: 2 text boxes, then a "battle" (``in_battle`` True, scene "other", no
                   ``ram["battle"]``) that ends after ``battle_presses`` A presses; afterwards you
                   stand at (7,8) in the lab, like FireRed after a win or a loss.
+* 3/19 "route 1", 3/1 "viridian city" (M3): reached through map connections (walk UP off
+                  (12,0) outside, then off route 1's top row), no warps and no blackout.
 
 Rules mimic FireRed closely enough for PathBrain: pressing a direction you are not facing
 only turns you (any hold length); when facing it, a 1-16 frame hold moves one tile and 17+
@@ -65,7 +67,7 @@ MAPS: Dict[Tuple[int, int], dict] = {
         "dialogue_row": (6, 3),    # first time the player enters row 6: locked until 3 A presses
     },
     (3, 0): {
-        "rows": ["##############",
+        "rows": ["############.#",
                  "#............#",
                  "#..#######...#",
                  "#..#######...#",
@@ -76,6 +78,26 @@ MAPS: Dict[Tuple[int, int], dict] = {
         # door tile (5,4) is '#'; walk UP into it from (5,5)
         "warps": [{"x": 5, "y": 4, "dest": (4, 0), "enter": "UP", "arrive": (4, 6), "door": True}],
         "oak_trigger": [(12, 1), (13, 1)],   # same tiles as FireRed's north exit trigger
+        # map connection (no warp): walking UP off (12,0) puts you on "route 1" at x + offset
+        "connections": {"UP": ((3, 19), -10)},
+    },
+    (3, 19): {  # "route 1" (M3): connections both ways, no warps
+        "rows": ["##..##",
+                 "#....#",
+                 "#.##.#",
+                 "#....#",
+                 "#....#",
+                 "##..##"],
+        "warps": [],
+        "connections": {"DOWN": ((3, 0), 10), "UP": ((3, 1), 0)},
+    },
+    (3, 1): {   # "viridian city" (M3)
+        "rows": ["######",
+                 "#....#",
+                 "#....#",
+                 "##..##"],
+        "warps": [],
+        "connections": {"DOWN": ((3, 19), 0)},
     },
     (4, 3): {
         "rows": ["#############",
@@ -239,6 +261,20 @@ class MockHouseAdapter(Adapter):
                          and (w["x"], w["y"]) == (nx, ny)), None)
             if door:
                 self._warp_to(door)
+                return
+            conn = m.get("connections", {}).get(button)
+            rows = m["rows"]
+            if conn and not (0 <= nx < len(rows[0]) and 0 <= ny < len(rows)):
+                # map connection: like FireRed, no blackout; position is in the new map's coordinates
+                dest, off = conn
+                drows = MAPS[dest]["rows"]
+                if button in ("UP", "DOWN"):
+                    tx, ty = nx + off, (len(drows) - 1 if button == "UP" else 0)
+                else:
+                    tx, ty = (len(drows[0]) - 1 if button == "LEFT" else 0), ny + off
+                if 0 <= ty < len(drows) and 0 <= tx < len(drows[0]) and drows[ty][tx] == ".":
+                    self.warps_taken.append((self.map, dest))
+                    self.map, self.x, self.y = dest, tx, ty
                 return
             if not self._free(nx, ny):
                 return

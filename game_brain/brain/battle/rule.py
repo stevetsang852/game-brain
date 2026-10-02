@@ -54,7 +54,7 @@ class RuleBattleBrain(Brain):
     name = "battle"
 
     def __init__(self, confidence_threshold: float = 0.6, handoff_steps: int = 20, allow_run: bool = False,
-                 temperature: float = 0.1, wait_frames: int = 8, max_wait_unready: int = 60):
+                 temperature: float = 0.1, wait_frames: int = 8, max_wait_unready: int = 6):
         if not 0.0 <= confidence_threshold <= 1.0:
             raise ValueError("confidence_threshold must be in [0, 1]")
         self.confidence_threshold = confidence_threshold
@@ -135,10 +135,11 @@ class RuleBattleBrain(Brain):
                     "to advance text")
             bs = BattleState(bs.menu, bs.cursor, None, None, bs.outcome) if not self._consistent(bs) else bs
         if not bs.ready:   # first observations of a battle: gBattleMons not filled in yet
+            # The adapter hides mon data until the battle's first menu, so "not ready" is the
+            # intro text ("Wild X appeared!", "Go! ..."): after a few waits, press B every other step.
             self._unready += 1
-            if self._unready <= self.max_wait_unready:
+            if self._unready <= self.max_wait_unready or (self._unready - self.max_wait_unready) % 2 == 0:
                 return self._wait(), self._dec(bs, "battle starting", "player/opponent not known yet -> wait")
-            self._unready = 0
             return self._tap("B"), self._dec(bs, "battle starting",
                                              "still no battle data after waiting -> B (advance text)")
         self._unready = 0

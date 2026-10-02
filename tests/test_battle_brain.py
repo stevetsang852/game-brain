@@ -340,3 +340,18 @@ def test_arbiter_routes_battle_path_rule():
     arb.brains[0].set_mode(Mode.AUTO)
     r = arb.step(close_call())
     assert r.decision.brain == "battle" and r.decision.handoff is True   # arbiter passed ASSIST
+
+
+def test_firered_battle_menu_detects_rival_and_wild_controllers():
+    """Rival battle (Oak's lab) and wild battles use different player controllers (M3)."""
+    from game_brain.adapters.gba_mgba import firered_battle as fb
+    from game_brain.adapters.gba_mgba.firered import FireRedRam
+
+    for ctrl, menu in ((fb.CTRL_CHOOSE_ACTION, "action"), (fb.CTRL_CHOOSE_MOVE, "move"),
+                       (fb.CTRL_CHOOSE_ACTION_WILD, "action"), (fb.CTRL_CHOOSE_MOVE_WILD, "move"),
+                       (0x0802E311, "other")):
+        mem = {fb.G_BATTLER_CONTROLLER_FUNCS: ctrl, fb.G_ACTION_SELECTION_CURSOR: 3, fb.G_MOVE_SELECTION_CURSOR: 1}
+        ram = FireRedRam(lambda a: mem.get(a, 0) & 0xFF, lambda a: mem.get(a, 0) & 0xFFFF, lambda a: mem.get(a, 0))
+        b = fb.read_battle(ram)
+        assert b["menu"] == menu
+        assert b["cursor"] == {"action": 3, "move": 1, "other": None}[menu]
