@@ -37,12 +37,12 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
         seed: int = 0, out_dir: str = "runs", switches: Optional[Dict[int, Mode]] = None,
         screenshot_every: int = 0, quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
-        resume: Optional[str] = None) -> dict:
+        resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC) -> dict:
     """``save_dir``: write save states there (None = no saves). ``resume``: "latest" (in
     ``save_dir``, default ~/.game-brain/saves) or a sidecar/state path; the run continues from it.
     Adapter / brains / saves are built by :class:`game_brain.setup.Session` (shared with the dashboard)."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
-                   quiet=quiet)
+                   quiet=quiet, keep_periodic=keep_periodic)
     adapter, arbiter = sess.adapter, sess.arbiter
     switches = switches or {}
     start_step = sess.start_step
@@ -118,7 +118,7 @@ def main(argv=None) -> int:
         s = run(a.adapter, a.steps, a.mode, a.brains, a.seed, a.out, _parse_switches(a.switch),
                 a.screenshot_every, a.quiet, battle_confidence=a.battle_confidence,
                 save_dir=save_dir, save_every=a.save_every,
-                resume=a.resume)
+                resume=a.resume, keep_periodic=a.keep_periodic)
     except (ValueError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

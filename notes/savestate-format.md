@@ -20,7 +20,14 @@ use it yet; that is Frontend's.
     model files.
 * Layout: `<save_dir>/<run_id>/<step:07d>_<reason>.{state,json[,sav]}` plus `<save_dir>/latest`.
   * `<run_id>` is the run's timestamp, the same as the `runs/<run_id>/` log dir.
-  * `latest` is a text file holding the absolute path of the newest sidecar.
+  * `latest` is a text file holding the path of the newest sidecar **relative to `<save_dir>`**
+    (`<run_id>/<step:07d>_<reason>.json`), so the save dir can be moved or mounted elsewhere
+    (Docker writes `/saves`, the host sees `~/.game-brain/saves`).
+  * Older pointers hold an absolute path. On `--resume latest` it is still accepted if it is an
+    existing file inside `<save_dir>`; an absolute path from elsewhere (e.g. `/saves/<run_id>/<file>`
+    from inside the container) is mapped to `<save_dir>/<run_id>/<file>` if that exists. A
+    relative pointer that escapes `<save_dir>` (`..`) is ignored. If the pointer can't be used,
+    the newest sidecar by mtime is used, as before.
 
 ## When a save is written
 
@@ -29,6 +36,14 @@ use it yet; that is Frontend's.
 | `milestone-<id>` | after the step on which milestone `<id>` became done (the last one, if several). Milestones already done on the first step of a run don't count |
 | `periodic` | every `--save-every N` steps (default 500; `0` turns it off). Skipped when a milestone save happens on the same step |
 | `final` | at the normal end of the run |
+
+**Retention (`--keep-periodic N`, default 10):** after each periodic save, only the newest N
+periodic saves of the current run directory are kept. Older ones are deleted with their `.state`
+and `.sav` (sidecar first, so an interrupted prune never leaves a sidecar without its state). Only
+sidecars whose `reason` is exactly `"periodic"` are candidates: milestone saves, the final save
+and any other reason (`manual`, `pre-resume`, Go-Explore cells, …) are **never** deleted, nor is
+the save `latest` points at, nor anything in other runs' directories. `0` keeps everything.
+Deletions are logged as `{"kind": "save_pruned", step, path}` events.
 
 `--no-save` turns saving off. The `demo.run()` API saves only when `save_dir` is given, so tests
 never write to `~`. Adapters without save states (`mock`, `mock-battle`) skip saving with a warning.

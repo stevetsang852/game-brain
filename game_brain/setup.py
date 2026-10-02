@@ -70,6 +70,9 @@ def add_run_args(ap: argparse.ArgumentParser, *, adapter_default: str, brains_de
     ap.add_argument("--save-every", type=int, default=savestate.DEFAULT_SAVE_EVERY, metavar="N",
                     help=f"periodic save every N steps (default {savestate.DEFAULT_SAVE_EVERY}; 0 = only "
                          "milestones + end)")
+    ap.add_argument("--keep-periodic", type=int, default=savestate.DEFAULT_KEEP_PERIODIC, metavar="N",
+                    help=f"keep only the newest N periodic saves per run (default {savestate.DEFAULT_KEEP_PERIODIC}; "
+                         "0 = keep all). Milestone and final saves are never deleted")
     ap.add_argument("--no-save", action="store_true", help="don't write save states")
     ap.add_argument("--resume", default=None, metavar="PATH|latest",
                     help="continue from a save (sidecar .json or .state path, or 'latest' in --save-dir)")
@@ -126,7 +129,8 @@ class Session:
     def __init__(self, adapter_name: str = "mock", brains: str = "rule,random", mode: str = "auto",
                  seed: int = 0, battle_confidence: Optional[float] = None, out_dir: str = "runs",
                  save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
-                 resume: Optional[str] = None, quiet: bool = False):
+                 resume: Optional[str] = None, quiet: bool = False,
+                 keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC):
         self.quiet = quiet
         self.seed = seed
         self.battle_confidence = battle_confidence
@@ -166,7 +170,8 @@ class Session:
         self.saver: Optional[savestate.SaveManager] = None
         if save_dir:
             self.saver = savestate.SaveManager(save_dir, self.adapter, [b.name for b in self.brains], self.run_id,
-                                               every=save_every, resumed_from=side["_path"] if side else None)
+                                               every=save_every, resumed_from=side["_path"] if side else None,
+                                               keep_periodic=keep_periodic)
             if not self.saver.enabled:
                 print(f"warning: adapter {self.adapter.name} has no save states; --save-dir ignored",
                       file=sys.stderr)
@@ -175,7 +180,8 @@ class Session:
     @classmethod
     def from_args(cls, a: argparse.Namespace, quiet: Optional[bool] = None) -> "Session":
         return cls(a.adapter, a.brains, a.mode, a.seed, a.battle_confidence, a.out, save_dir_from_args(a),
-                   a.save_every, a.resume, quiet=a.quiet if quiet is None else quiet)
+                   a.save_every, a.resume, quiet=a.quiet if quiet is None else quiet,
+                   keep_periodic=a.keep_periodic)
 
     # ------------------------------------------------------------------ run-loop hooks
     def header_info(self, **extra: Any) -> Dict[str, Any]:
@@ -206,9 +212,12 @@ class Session:
         """Call after log.step(): milestone / periodic saves (logged as ``save`` events)."""
         if not self.saving:
             return
+        n_pruned = len(self.saver.pruned)
         for sv in self.saver.after_step(steps_done, result.decision.milestones):
             self.saves.append(sv["_path"])
             log.event("save", step=steps_done, frame=sv["frame"], reason=sv["reason"], path=sv["_path"])
+        for p in self.saver.pruned[n_pruned:]:          # --keep-periodic retention
+            log.event("save_pruned", step=steps_done, path=p)
 
     def finish(self, log, steps_done: int, result) -> None:
         """End of run: the ``final`` save."""
@@ -225,6 +234,7 @@ class Session:
                "seed": self.seed, "battle_confidence": None, "milestones": None,
                "save_dir": str(self.saver.root) if self.saver else None,
                "save_every": self.saver.every if self.saver else None, "saving": self.saving,
+               "keep_periodic": self.saver.keep_periodic if self.saver else None,
                "resumed_from": self.resumed_from["sidecar"] if self.resumed_from else None}
         for b in self.brains:
             if hasattr(b, "confidence_threshold"):

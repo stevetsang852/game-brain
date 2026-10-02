@@ -133,7 +133,7 @@ python -m game_brain.demo --adapter mgba --steps 700 --mode auto   # headless，
 python -m game_brain.dashboard --adapter mgba                      # 開 http://127.0.0.1:8765/
 ```
 
-- **Dashboard 同 CLI 共用同一套 setup**（[`game_brain/setup.py`](game_brain/setup.py)）：adapter（連 collision / NPC / 隊伍 RAM）、大腦清單、里程碑、戰鬥信心門檻、自動存檔 / 續玩都喺度砌，`demo.py` 同 `dashboard/live.py` 都用佢，旗標一樣（`--adapter --mode --brains --battle-confidence --seed --out --save-dir --save-every --no-save --resume`）。
+- **Dashboard 同 CLI 共用同一套 setup**（[`game_brain/setup.py`](game_brain/setup.py)）：adapter（連 collision / NPC / 隊伍 RAM）、大腦清單、里程碑、戰鬥信心門檻、自動存檔 / 續玩都喺度砌，`demo.py` 同 `dashboard/live.py` 都用佢，旗標一樣（`--adapter --mode --brains --battle-confidence --seed --out --save-dir --save-every --keep-periodic --no-save --resume`）。
 - Dashboard 預設：`--adapter auto`（有 `$GAME_BRAIN_ROM` 檔就用 mgba，冇就用 mock 兼喺 stderr 警告）、`--brains battle,path,rule`（同 Dockerfile CMD 一樣）。CLI 預設維持 `mock` / `rule,random`。
 
 - 喺自己部機，將上面兩個路徑換成你 build 出嚟嘅位置（`<build>/python/lib.linux-x86_64-cpython-3XX` 同 `<build>`）。
@@ -235,6 +235,9 @@ python -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 3000 
 # 由最新嗰個存檔繼續（或者俾 .json / .state 路徑）
 python -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 1000 --resume latest
 ```
+
+- 定期存檔（`--save-every`）每個 run 只留最新 `--keep-periodic N` 個（預設 10；`0` = 全部留）；舊嘅連 `.state`、`.sav` 一齊刪。**只會刪 sidecar `reason` 係 `"periodic"` 嘅**，里程碑、`final` 同其他存檔永遠唔刪。
+- `<save_dir>/latest` 記住最新存檔**相對 save dir 嘅路徑**，所以將存檔目錄搬走 / 喺 Docker（`/saves`）同 host（`~/.game-brain/saves`）之間用都可以 `--resume latest`；舊嘅絕對路徑 pointer 照讀。
 
 - 每個存檔：`.state`（mGBA save state，主要）＋`.json` sidecar（step、frame、地圖、座標、里程碑、HP（有先有）、ROM SHA1、brains、git commit、時間）＋`.sav`（遊戲入面自己 SAVE 過先有，只係備份）。
 - **存檔目錄唔可以喺 repo 入面**（repo 係 public）：會直接拒絕。`--no-save` 唔存。

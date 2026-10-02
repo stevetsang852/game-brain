@@ -23,7 +23,7 @@ class _CaptureServer:
         return []
 
 
-SHARED = {"--adapter", "--mode", "--brains", "--battle-confidence", "--seed", "--out", "--save-dir",
+SHARED = {"--adapter", "--mode", "--brains", "--battle-confidence", "--seed", "--out", "--save-dir", "--keep-periodic",
           "--save-every", "--no-save", "--resume"}
 
 
