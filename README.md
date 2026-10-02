@@ -27,7 +27,7 @@ flowchart LR
     end
     ARB["arbiter/<br/>Auto · Assist · Manual · Shadow"]
     LOG[("runs/TIMESTAMP/run.jsonl")]
-    DASH["dashboard (Frontend)"]
+    DASH["dashboard/"]
 
     Adapter -- Observation --> ARB
     ARB -- Observation --> Brains
@@ -51,6 +51,18 @@ Messages (`game_brain/schema`), all plain JSON with a `type` and schema version 
 Dashboard transport: `to_envelope(msg, frame)` → `{type, frame, ts, payload}` (and `from_envelope`).
 Dashboard actions are only accepted in **Manual** mode.
 
+## Dashboard
+
+```
+python -m game_brain.dashboard --adapter mock --mode auto
+# open http://127.0.0.1:8765/
+```
+
+Shows the live game view (or a grid from RAM coordinates when the adapter has no
+screenshots), the current plan, recent steps, and a mode switch. In **Manual** mode the
+on-screen pad and the keyboard (arrows, Z=A, X=B, Enter=START, Shift=SELECT) send button
+presses. Loopback only. Wire contract: `notes/dashboard-protocol.md`.
+
 ## Layout
 
 ```
@@ -58,6 +70,7 @@ game_brain/
   schema/       messages + JSON / envelope (de)serialisation
   brain/        Brain interface, RuleBrain, RandomBrain, LLMBrain stub
   arbiter/      mode handling + brain fallback
+  dashboard/    local web dashboard (HTTP + WebSocket, stdlib only) + live loop
   adapters/     Adapter interface, MockAdapter  (mGBA bridge: Backend)
   runlog.py     JSONL writer / reader / replay
   demo.py       end-to-end loop CLI
