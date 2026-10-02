@@ -1,6 +1,9 @@
 # Local only. Usage:
 #   GAME_BRAIN_ROM_FILE=/abs/path/to/firered.gba docker compose up --build
 # then open http://127.0.0.1:8765/ on this machine.
+# Save states go to GAME_BRAIN_SAVE_DIR_HOST (default <home>/.game-brain/saves, outside the repo).
+# Linux: create that directory first (mkdir -p ~/.game-brain/saves) so it is owned by you, not root;
+# the container runs as uid 1000 ("brain") and must be able to write to it.
 services:
   dashboard:
     build: .
@@ -13,5 +16,7 @@ services:
         target: /data/rom.gba
         read_only: true
       - ./runs:/app/runs             # run logs land on the host in ./runs (gitignored)
+      - ${GAME_BRAIN_SAVE_DIR_HOST:-${USERPROFILE:-${HOME}}/.game-brain/saves}:/saves   # save states, outside the repo
     command: ["python3", "-m", "game_brain.dashboard", "--adapter", "mgba",
-              "--brains", "battle,path,rule", "--host", "0.0.0.0", "--port", "8765"]
+              "--brains", "battle,path,rule", "--save-dir", "/saves",
+              "--host", "0.0.0.0", "--port", "8765"]

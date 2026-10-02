@@ -133,6 +133,9 @@ python -m game_brain.demo --adapter mgba --steps 700 --mode auto   # headless，
 python -m game_brain.dashboard --adapter mgba                      # 開 http://127.0.0.1:8765/
 ```
 
+- **Dashboard 同 CLI 共用同一套 setup**（[`game_brain/setup.py`](game_brain/setup.py)）：adapter（連 collision / NPC / 隊伍 RAM）、大腦清單、里程碑、戰鬥信心門檻、自動存檔 / 續玩都喺度砌，`demo.py` 同 `dashboard/live.py` 都用佢，旗標一樣（`--adapter --mode --brains --battle-confidence --seed --out --save-dir --save-every --no-save --resume`）。
+- Dashboard 預設：`--adapter auto`（有 `$GAME_BRAIN_ROM` 檔就用 mgba，冇就用 mock 兼喺 stderr 警告）、`--brains battle,path,rule`（同 Dockerfile CMD 一樣）。CLI 預設維持 `mock` / `rule,random`。
+
 - 喺自己部機，將上面兩個路徑換成你 build 出嚟嘅位置（`<build>/python/lib.linux-x86_64-cpython-3XX` 同 `<build>`）。
 - 可選：設定 `GAME_BRAIN_START_STATE=<file>`，每次 `reset()` 就會載入嗰個 mGBA state，唔使由開機行起。檔案放本機，`*.state` 已經 gitignore。
 
@@ -236,7 +239,7 @@ python -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 1000 
 - 每個存檔：`.state`（mGBA save state，主要）＋`.json` sidecar（step、frame、地圖、座標、里程碑、HP（有先有）、ROM SHA1、brains、git commit、時間）＋`.sav`（遊戲入面自己 SAVE 過先有，只係備份）。
 - **存檔目錄唔可以喺 repo 入面**（repo 係 public）：會直接拒絕。`--no-save` 唔存。
 - 續玩：檢查 ROM SHA1 → 載入 state → 還原里程碑 → step / frame 由存檔嗰度繼續；log header 有 `resumed_from`，`replay()` 會自動由同一個 state 開始。
-- Docker 入面預設存喺 container 自己嘅 `~/.game-brain/saves`，想留低就加 volume（image 用戶係 `brain`：`-v ~/.game-brain:/home/brain/.game-brain`，未喺 Docker 實測，因為 box 上 docker daemon 用唔到）。Dashboard（`live.py`）未支援 resume。
+- Dashboard（`live.py`）用同一套旗標自動存檔 / 續玩（`--resume latest` 等）。`compose.yaml` 將 host 嘅 `${GAME_BRAIN_SAVE_DIR_HOST:-<home>/.game-brain/saves}` mount 去 container 嘅 `/saves`（`--save-dir /saves`）；Linux 要先 `mkdir -p ~/.game-brain/saves`（container 用戶係 uid 1000 `brain`，唔係就會變 root 擁有、寫唔到），`start.bat` 會自動開 `%USERPROFILE%\.game-brain\saves`。未喺 Docker 實測（box 上 docker daemon 用唔到）。
 - 格式：[`notes/savestate-format.md`](notes/savestate-format.md)。
 
 ## PathBrain（自動尋路）
