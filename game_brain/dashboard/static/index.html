@@ -506,54 +506,33 @@ tr.actor-row-human td { color: var(--gba-amber); }
 }
 
 /* ======================= GOAL / MILESTONES ======================= */
-#goal {
-  font-size: 15px; font-weight: 600;
-  margin-bottom: 12px;
-  background: linear-gradient(90deg, var(--fg), var(--gba-violet));
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
+.goal-kicker { color: var(--fg-dim); font-size: 12px; margin-bottom: 2px; }
+#goal { font-size: 18px; font-weight: 700; color: var(--fg); line-height: 1.35; }
+.goal-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0 12px; }
+.bar { flex: 1; height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+.bar div { height: 100%; width: 0; background: var(--gba-cyan); border-radius: 999px; transition: width .45s cubic-bezier(.4,0,.2,1); }
+#msCount { color: var(--fg-dim); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ms { display: flex; flex-direction: column; gap: 4px; }
+.ms.all { max-height: 320px; overflow-y: auto; }
+.ms > div { position: relative; padding: 7px 10px 7px 34px; border-radius: var(--radius-sm); font-size: 14px; color: var(--fg); opacity: .75; cursor: pointer; }
+.ms > div::before { content: ""; position: absolute; left: 10px; top: 10px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--fg-dim); box-sizing: border-box; }
+.ms > div.done { opacity: .55; }
+.ms > div.done::before { content: "✓"; border: none; background: var(--gba-green); color: #0a0618; font-size: 10px; font-weight: 700; line-height: 14px; text-align: center; }
+.ms > div.current { opacity: 1; font-weight: 700; background: rgba(167,139,250,0.15); box-shadow: inset 3px 0 0 var(--gba-violet); }
+.ms > div.current::before { border: none; background: var(--gba-violet); animation: ms-dot 1.6s ease-in-out infinite; }
+.ms .tag { margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--gba-violet); border: 1px solid var(--line-strong); }
+.ms .desc { display: none; margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--fg-dim); }
+.ms > div.open .desc { display: block; }
+.ms-empty { color: var(--fg-dim); font-size: 13px; }
+.linkbtn { margin-top: 8px; padding: 2px 0; background: none; border: none; color: var(--gba-cyan); font: inherit; font-size: 13px; cursor: pointer; }
+.linkbtn:hover { text-decoration: underline; }
+@keyframes ms-dot { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes ms-flash { 0% { background: rgba(34,211,238,0.45); } 100% { background: rgba(167,139,250,0.15); } }
+@media (prefers-reduced-motion: reduce) {
+  .ms > div.current::before { animation: none; }
+  .ms > div { animation: none !important; }
+  .bar div { transition: none; }
 }
-.ms { display: flex; gap: 8px; flex-wrap: wrap; }
-.ms span {
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: 11px;
-  background: rgba(255,255,255,0.04);
-  color: var(--fg-mute);
-  border: 1px solid var(--line);
-  transition: all .25s;
-}
-.ms span.done {
-  background: rgba(52,211,153,0.14);
-  color: var(--gba-green);
-  border-color: rgba(52,211,153,0.4);
-}
-.ms span.current {
-  background: rgba(124,92,255,0.22);
-  color: var(--gba-violet);
-  border-color: var(--line-strong);
-  animation: pulse-current 2.4s ease-in-out infinite;
-}
-@keyframes pulse-current {
-  0%,100% { box-shadow: 0 0 14px rgba(124,92,255,0.35); }
-  50%     { box-shadow: 0 0 26px rgba(124,92,255,0.65); }
-}
-.bar {
-  height: 8px;
-  background: rgba(0,0,0,0.45);
-  border-radius: 999px;
-  margin: 14px 0 6px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-}
-.bar div {
-  height: 100%; width: 0;
-  background: linear-gradient(90deg, var(--gba-purple), var(--gba-cyan));
-  border-radius: 999px;
-  transition: width .45s cubic-bezier(.4,0,.2,1);
-  box-shadow: 0 0 14px rgba(124,92,255,0.7);
-}
-#msCount { color: var(--fg-mute); font-size: 11px; }
 
 /* ======================= EVENTS ======================= */
 #events {
@@ -663,8 +642,8 @@ tr.actor-row-human td { color: var(--gba-amber); }
           <option value="manual">手動</option>
           <option value="auto">Auto</option>
         </select>
-        <input id="fpsSlider" type="range" min="1" max="60" step="1" value="4">
-        <input id="fpsNum" type="number" min="1" max="60" step="1" value="4">
+        <input id="fpsSlider" type="range" min="1" max="60" step="1" value="24">
+        <input id="fpsNum" type="number" min="1" max="60" step="1" value="24">
         <span id="fpsUnit">fps</span>
         <div id="fpsStat">–</div>
       </div>
@@ -716,10 +695,11 @@ tr.actor-row-human td { color: var(--gba-amber); }
 
     <section id="navSection" class="gb-card">
       <h2>目標與里程碑</h2>
+      <div class="goal-kicker">目前目標</div>
       <div id="goal">–</div>
-      <div class="ms" id="milestones"><span>（大腦沒有提供里程碑）</span></div>
-      <div class="bar"><div id="msBar"></div></div>
-      <div id="msCount"></div>
+      <div class="goal-progress"><div class="bar"><div id="msBar"></div></div><span id="msCount"></span></div>
+      <div class="ms" id="milestones"><span class="ms-empty">（大腦沒有提供里程碑）</span></div>
+      <button id="msToggle" class="linkbtn" type="button" style="display:none"></button>
     </section>
 
     <section id="battleSection" class="gb-card idle">
@@ -885,21 +865,63 @@ function fmtRam(k, v) {
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 
+// Short Chinese names for the milestone ids in game_brain/brain/goals.py; unknown ids fall back to the label.
+function msName(m) {
+  const SHORT = {
+    intro: "開場劇情", leave_bedroom: "走出睡房", leave_house: "走出家門", pallet_town: "到達真新鎮",
+    oak_stops_you: "被大木博士叫住", oak_lab: "跟博士到研究所", get_starter: "選初始寶可夢",
+    rival_battle: "勁敵出現", rival_battle_over: "打完勁敵戰", leave_lab: "離開研究所",
+    route_1: "走上 1 號道路", viridian_city: "到達常青市", viridian_mart: "進入友好商店",
+    oaks_parcel: "拿到大木的包裹", back_to_pallet: "回到真新鎮", deliver_parcel: "交包裹、拿圖鑑",
+    pewter_city: "前往深灰市",
+  };
+  return SHORT[m.id] || m.label || m.id;
+}
+function escMs(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+function msExpanded(v) {  // read (no arg) or write the "展開全部" choice; localStorage may be missing or blocked
+  try { if (v === undefined) return localStorage.getItem("gb.msExpanded") === "1"; localStorage.setItem("gb.msExpanded", v ? "1" : "0"); }
+  catch { return false; }
+  return v;
+}
 function onMilestones(d) {
-  $("goal").textContent = d.goal || "（大腦沒有提供目標）";
-  const ms = Array.isArray(d.milestones) ? d.milestones : null, box = $("milestones");
-  box.innerHTML = "";
-  if (!ms || !ms.length) { box.innerHTML = "<span>（大腦沒有提供里程碑）</span>"; $("msBar").style.width = "0"; $("msCount").textContent = ""; return; }
-  const current = ms.findIndex(m => !m.done);
-  ms.forEach((m, i) => {
-    const sp = document.createElement("span");
-    sp.textContent = `${m.done ? "✓ " : ""}${m.label}`; sp.title = m.id;
-    sp.className = m.done ? "done" : (i === current ? "current" : "");
-    box.appendChild(sp);
-  });
-  const done = ms.filter(m => m.done).length;
+  const ms = Array.isArray(d.milestones) ? d.milestones : null, box = $("milestones"), tog = $("msToggle");
+  if (!ms || !ms.length) {
+    state.msSig = null; box.innerHTML = "";
+    $("goal").textContent = d.goal || "（大腦沒有提供目標）"; $("goal").title = "";
+    box.innerHTML = '<span class="ms-empty">（大腦沒有提供里程碑）</span>';
+    $("msBar").style.width = "0"; $("msCount").textContent = ""; tog.style.display = "none"; return;
+  }
+  const done = ms.filter(m => m.done).length, current = ms.findIndex(m => !m.done);
+  const allDone = current < 0, expanded = msExpanded();
+  $("goal").textContent = allDone ? "全部完成" : msName(ms[current]);
+  $("goal").title = allDone ? "" : (d.goal || ms[current].label || "");
   $("msBar").style.width = `${Math.round(100 * done / ms.length)}%`;
-  $("msCount").textContent = `完成 ${done} / ${ms.length}`;
+  $("msCount").textContent = `${done} / ${ms.length}`;
+  // Every step re-sends the list: rebuild the rows only when it changes, so the
+  // flash, an opened description and the scroll position survive.
+  const sig = JSON.stringify([ms.map(m => [m.id, !!m.done, m.label]), expanded]);
+  if (sig === state.msSig) return;
+  state.msSig = sig; box.innerHTML = "";
+  // Always three rows: previous, current, next (at the ends: the first three / the last three).
+  const at = allDone ? ms.length - 1 : current;
+  const lo = Math.max(0, Math.min(at - 1, ms.length - 3)), hi = Math.min(ms.length, lo + 3);
+  const advanced = state.msDone !== undefined && done > state.msDone;
+  state.msDone = done;
+  let currentRow = null;
+  ms.forEach((m, i) => {
+    const row = document.createElement("div");
+    row.className = m.done ? "done" : (i === current ? "current" : "");
+    row.title = m.label || m.id;
+    row.innerHTML = `${escMs(msName(m))}${i === current ? '<span class="tag">進行中</span>' : ""}<div class="desc">${escMs(m.label || m.id)}</div>`;
+    row.onclick = () => { row.className = row.className.includes("open") ? row.className.replace(/ ?open/, "") : (row.className + " open").trim(); };
+    if (!expanded && (i < lo || i >= hi)) row.style.display = "none";
+    if (i === current) { currentRow = row; if (advanced) row.style.animation = "ms-flash .6s ease-out"; }
+    box.appendChild(row);
+  });
+  box.className = expanded ? "ms all" : "ms";
+  tog.style.display = ms.length > 3 ? "" : "none";
+  tog.textContent = expanded ? "收起" : `展開全部（${ms.length}）`;
+  if (expanded && currentRow && currentRow.scrollIntoView && !state.msScrolled) { currentRow.scrollIntoView({ block: "nearest" }); state.msScrolled = true; }
 }
 
 function onObservation(env) {
@@ -1034,7 +1056,14 @@ function onStatus(env) {
 const FPS_MIN = 1, FPS_MAX = 60;
 const clampFps = v => Math.min(FPS_MAX, Math.max(FPS_MIN, Math.round(Number(v) || FPS_MIN)));
 let fpsTimer = null, fpsEditingUntil = 0;
+const DEFAULT_FPS = 24;  // what a freshly opened page asks for (YIN, 2026-10-02)
 function onDisplay(d) {
+  // First status after (re)connecting: if no page has set a speed yet the run is still on its CLI
+  // --step-delay, so ask for the default. If another tab already chose a speed, follow it instead.
+  if (!state.displayChecked) {
+    state.displayChecked = true;
+    if (d.mode === "cli") { $("fpsMode").value = "manual"; $("fpsNum").value = DEFAULT_FPS; sendDisplay(); }
+  }
   const editing = Date.now() < fpsEditingUntil || document.activeElement === $("fpsNum");
   if (!editing && d.mode !== "cli") {
     state.displayMode = d.mode; $("fpsMode").value = d.mode;
@@ -1056,6 +1085,10 @@ function queueDisplay() { fpsEditingUntil = Date.now() + 1500; clearTimeout(fpsT
 $("fpsSlider").addEventListener("input", () => { $("fpsNum").value = $("fpsSlider").value; queueDisplay(); });
 $("fpsNum").addEventListener("change", queueDisplay);
 $("fpsMode").addEventListener("change", queueDisplay);
+$("msToggle").addEventListener("click", () => {
+  msExpanded(!msExpanded()); state.msScrolled = false; state.msSig = null;
+  onMilestones(state.lastDecision || {});
+});
 
 function send(env) {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) { event("未連線，指令沒有送出", true); return; }
@@ -1086,7 +1119,7 @@ document.addEventListener("keydown", e => {
 
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`); state.ws = ws;
-  ws.onopen = () => { $("conn").textContent = "已連線"; $("conn").className = "pill on"; event("已連線"); };
+  ws.onopen = () => { state.displayChecked = false; $("conn").textContent = "已連線"; $("conn").className = "pill on"; event("已連線"); };
   ws.onclose = () => { $("conn").textContent = "未連線，重試中…"; $("conn").className = "pill off"; setTimeout(connect, 1500); };
   ws.onmessage = (m) => {
     let env; try { env = JSON.parse(m.data); } catch { return; }

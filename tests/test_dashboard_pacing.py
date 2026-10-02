@@ -162,3 +162,14 @@ def test_page_latency_clock_starts_after_the_frame_is_broadcast(tmp_path, monkey
     live.run(srv, "mock", "auto", steps=3, step_delay=0, out_dir=str(tmp_path), quiet=True)
     assert seen, "auto mode with a viewer should send a screenshot"
     assert all(s and s[-1] == "observation" for s in seen), seen
+
+
+def test_page_asks_for_24_fps_by_default_only_while_the_run_is_on_cli_pacing():
+    from pathlib import Path
+    html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
+    assert "const DEFAULT_FPS = 24;" in html
+    assert 'id="fpsSlider" type="range" min="1" max="60" step="1" value="24"' in html
+    assert 'id="fpsNum" type="number" min="1" max="60" step="1" value="24"' in html
+    # sent once per connection, and only when no tab has chosen a speed yet (mode "cli")
+    assert 'if (d.mode === "cli") { $("fpsMode").value = "manual"; $("fpsNum").value = DEFAULT_FPS; sendDisplay(); }' in html
+    assert "state.displayChecked = false;" in html
