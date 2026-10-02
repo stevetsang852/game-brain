@@ -55,4 +55,4 @@ ENV PYTHONPATH=/app:/opt/mgba/python \
     GAME_BRAIN_IN_CONTAINER=1 \
     GAME_BRAIN_ROM=/data/rom.gba
 EXPOSE 8765
-CMD ["python3", "-m", "game_brain.dashboard", "--adapter", "mgba", "--host", "0.0.0.0", "--port", "8765"]
+CMD ["python3", "-m", "game_brain.dashboard", "--adapter", "mgba", "--brains", "path,rule", "--host", "0.0.0.0", "--port", "8765"]
