@@ -65,6 +65,7 @@
   <h1>game-brain</h1>
   <span id="conn" class="pill off">未連線</span>
   <span id="adapter" class="pill">adapter: –</span>
+  <span id="party" class="pill" title="ram.party_count">隊伍：–</span>
   <span class="meta">step <b id="step">–</b> · frame <b id="frame">–</b></span>
 </header>
 <main>
@@ -113,6 +114,7 @@
       <div class="legend">
         <span><i style="background:#2b3240"></i>可走</span><span><i style="background:#151922; outline:1px solid #2a2f3a"></i>牆／障礙</span><span><i style="outline:1px solid #6b5a2a"></i>未驗證出入口</span>
         <span><i style="background:#f5a524"></i>可用出入口</span><span><i style="background:#3ecf8e"></i>規劃路徑</span>
+        <span><i style="background:#b07cff"></i>NPC</span>
         <span><i style="background:#5aa9ff"></i>主角</span>
       </div>
       <div id="mapNote">等待地圖資料…</div>
@@ -194,10 +196,21 @@ function drawMap(cv, ram, path) {
     const [ex, ey] = pts[pts.length - 1]; c.fillStyle = "#3ecf8e";
     c.beginPath(); c.arc(ox + (ex + .5) * cell, oy + (ey + .5) * cell, Math.max(2, cell / 3), 0, Math.PI * 2); c.fill();
   }
+  const npcs = (Array.isArray(ram.npcs) ? ram.npcs : []).filter(n => n && Number.isInteger(n.x) && Number.isInteger(n.y)
+    && n.x >= 0 && n.y >= 0 && n.x < w && n.y < h);
+  c.fillStyle = "#b07cff";
+  for (const n of npcs) c.fillRect(...box(n.x, n.y, Math.max(1, cell / 5)));
+  cv._layout = { ox, oy, cell, npcs };
   c.fillStyle = ram.in_battle ? "#ff5d5d" : "#5aa9ff"; c.fillRect(...box(ram.player_x, ram.player_y, Math.max(1, cell / 6)));
   c.fillStyle = "#8b93a7";
   c.fillText(`map ${ram.map_bank}/${ram.map_id}  (${ram.player_x},${ram.player_y}) ${ram.facing ?? ""}${ram.in_battle ? "  BATTLE" : ""}`, 6, 2);
   return !!rows;
+}
+
+function npcAt(cv, px, py) {  // canvas-pixel hit test for the NPC tooltip
+  const L = cv._layout; if (!L) return null;
+  const x = Math.floor((px - L.ox) / L.cell), y = Math.floor((py - L.oy) / L.cell);
+  return L.npcs.find(n => n.x === x && n.y === y) || null;
 }
 
 function redrawMaps() {
@@ -205,12 +218,20 @@ function redrawMaps() {
   const hasCollision = drawMap($("minimap"), ram, path);
   $("mapNote").textContent = ram.player_x === undefined ? "還沒有座標（例如開場動畫中）"
     : (hasCollision ? "碰撞格來自 RAM" : "adapter 沒有碰撞資料，只畫座標")
+      + (Array.isArray(ram.npcs) ? ` · NPC ${ram.npcs.length} 個` : "")
       + (path && path.length > 1 ? ` · 路徑 ${path.length - 1} 格，終點 (${path[path.length - 1].join(",")})` : " · 沒有規劃路徑");
   if (!state.lastObs?.screenshot_b64) { canvas.width = 240; canvas.height = 160; drawMap(canvas, ram, path); }
 }
 
+$("minimap").addEventListener("mousemove", e => {
+  const cv = e.currentTarget, r = cv.getBoundingClientRect();
+  const n = npcAt(cv, (e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height);
+  cv.title = n ? `NPC local_id ${n.local_id} · (${n.x},${n.y}) · elevation ${n.elevation ?? "?"} · gfx ${n.gfx ?? "?"}` : "";
+});
+
 function fmtRam(k, v) {  // keep the RAM table readable: big map structures are summarised
   if (k === "collision" && Array.isArray(v)) return `${v.length} 行 × ${v[0]?.length ?? 0} 格（見地圖）`;
+  if (k === "npcs" && Array.isArray(v)) return `${v.length} 個（見地圖，滑鼠移上去看 local_id）`;
   if (k === "warps" && Array.isArray(v)) return `${v.length} 個（${v.filter(w => w.enter).length} 個可用）`;
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
@@ -241,6 +262,8 @@ function onObservation(env) {
   } else {
     $("screenNote").textContent = "adapter 沒有截圖，以 RAM 座標畫示意圖";
   }
+  const pc = (p.ram || {}).party_count;
+  $("party").textContent = `隊伍：${Number.isInteger(pc) ? pc + " 隻" : "–"}`;
   redrawMaps();
   const tb = $("ram").tBodies[0]; tb.innerHTML = "";
   const entries = Object.entries(p.ram || {});

@@ -317,3 +317,37 @@ def test_page_has_nav_panels():
     for needle in ('id="minimap"', 'id="goal"', 'id="milestones"', 'id="msBar"', "onMilestones(d)", "redrawMaps()"):
         assert needle in html
     assert "drawGrid" not in html
+
+
+NODE_NPC_HARNESS = NODE_HARNESS.split("const out = {};")[0] + r"""
+eval(grab("npcAt"));
+const out = {};
+const ram = { player_x: 2, player_y: 2, map_bank: 4, map_id: 3, collision: ["....", "....", "....", "...."],
+  npcs: [{ x: 1, y: 1, local_id: 3, elevation: 3, gfx: 7 }, { x: 3, y: 0, local_id: 5 }, { x: 9, y: 9, local_id: 8 }, { x: -1, y: 0 }] };
+drawMap(cv, ram, null);
+out.drawn = cv._layout.npcs.map(n => n.local_id);
+const L = cv._layout, at = (x, y) => npcAt(cv, L.ox + (x + .5) * L.cell, L.oy + (y + .5) * L.cell);
+out.hit = at(1, 1) && at(1, 1).local_id; out.miss = at(0, 0);
+drawMap(cv, { player_x: 1, player_y: 1 }, null);
+out.noNpcs = cv._layout.npcs.length;
+out.fmt = fmtRam("npcs", [{}, {}]);
+console.log(JSON.stringify(out));
+"""
+
+
+def test_page_npc_rendering_logic_in_node():
+    import shutil, subprocess
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", NODE_NPC_HARNESS], input=_page_js(), capture_output=True, text=True, timeout=20)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert out["drawn"] == [3, 5]          # off-map / malformed entries are skipped
+    assert out["hit"] == 3 and out["miss"] is None
+    assert out["noNpcs"] == 0 and out["fmt"].startswith("2 個")
+
+
+def test_page_shows_party_count_and_npcs():
+    from pathlib import Path
+    html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
+    assert 'id="party"' in html and "party_count" in html and "ram.npcs" in html
