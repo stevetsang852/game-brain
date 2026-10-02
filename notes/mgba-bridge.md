@@ -105,3 +105,29 @@ Takeover check for `firered_extra.py` (written by the M2 PR):
   walkable `.` tile, leaves the player at (9,5) (blocked). The other 7 lab objects either stand
   on `#` tiles or could not be reached before the rival script triggers, so this check covers 1
   of 8. The M2 PR's own check bumped into each NPC.
+
+## `ram["battle"]` (verified on the supplied ROM)
+
+Read by `game_brain/adapters/gba_mgba/firered_battle.py`, present only while `in_battle` is True.
+All checks were done in the rival battle in Oak's lab, starting from a local save state taken
+right before it (not in the repo).
+
+| key | address | how it was checked |
+|---|---|---|
+| `player` / `opponent` | `gBattleMons` `0x02023BE4`, 0x58 bytes per battler (opponent `0x02023C3C`); species `+0x00`, moves u16[4] `+0x0C`, pp u8[4] `+0x24`, hp `+0x28`, level `+0x2A`, max_hp `+0x2C` | Raw dump matched the screen: BULBASAUR Lv5 22/22 and CHARMANDER Lv5. The nickname at `+0x30` decodes to the species name, and ability/types (`+0x20..0x22`) are Overgrow, Grass/Poison and Blaze, Fire. The only move, 118, is shown on screen as "Foe CHARMANDER used METRONOME!". PP goes 40 -> 39 after a turn. HP drops match the HP bars, and Lv5 -> Lv6 with max_hp 22 -> 25 after the win. Writing 4 test moves into the slots showed "METRONOME TACKLE / GROWL SCRATCH" and "PP 30/35" in the move menu. |
+| `menu` | `gBattlerControllerFuncs[0]` `0x03004FE0` | I compared u32 snapshots of EWRAM and IWRAM across text boxes, the action menu (3 snapshots) and the move menu (2 snapshots). This is the only word that is constant in each menu and differs between them. Action menu = `0x080E763D`, which first appears at the same step the screen first shows "What will BULBASAUR do?". Move menu = `0x080E7989`. These are code addresses in this ROM. Anything else is reported as `"other"`. |
+| `cursor` (action) | `gActionSelectionCursor[0]` `0x02023FF8` | Diff of none / RIGHT / DOWN / RIGHT+DOWN gave 0/1/2/3, the only byte with that pattern. Screen: FIGHT, BAG / POKéMON, RUN. LEFT or UP at 0 stays 0, and RIGHT twice stays 1, so it does not wrap. |
+| `cursor` (move) | `gMoveSelectionCursor[0]` `0x02023FFC` | Same diff in the move menu (with 4 test moves written in) gave 0/1/2/3, the only byte with that pattern. RIGHT+DOWN showed the arrow on slot 3. |
+| `outcome` | `gBattleOutcome` `0x02023E8A` | 0 during the battle. Over 12 runs with different waits before the first action, it was 1 in every run where the opponent's HP hit 0 and 2 in every run where ours did. It is **not cleared** after the battle, so it is only reported inside `battle`. |
+
+Other things found while checking:
+
+* For the first ~5 observations after `in_battle` turns True, `gBattleMons` is still all 0, so
+  `player` and `opponent` are None.
+* B advances battle text, the same as A.
+* Gen 3 remembers the cursor between turns. Pressing past an edge does not wrap.
+* **Losing the rival battle does not stop the story.** After a loss the player is back in the
+  lab (4/3) at (7,8), the same as after a win: party_count 1, the rival is gone (8 -> 7 NPCs), and
+  the player can walk to the exit mat (7,12). Of the 12 runs above, 6 were won and 6 lost.
+* In this ROM both starters only know METRONOME, so the rival battle's result is random.
+* Not verified yet, so not exposed: status, max_pp, battle type, turn, party, bag, wild battles.
