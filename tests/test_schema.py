@@ -28,6 +28,7 @@ def test_action_total_frames():
     Action([ButtonPress("START", 2, 6)], source="manual"),
     Observation(frame=42, game="MOCK", ram={"player_x": 1, "player_y": 2, "in_battle": False}),
     Decision(brain="rule", plan="p", reason="r", mode="shadow", executed=False),
+    Decision(brain="human", plan="assist: human override", mode="assist", actor="human"),
     ModeCommand("assist", issued_by="dashboard", reason="test"),
 ])
 def test_json_roundtrip(msg):
@@ -62,3 +63,11 @@ def test_mode_parse():
 def test_observation_summary_drops_image():
     o = Observation(frame=1, screenshot_b64="AAAA")
     assert "screenshot_b64" not in o.summary()
+
+
+def test_decision_actor_defaults_and_validation():
+    legacy = {"type": "decision", "v": 1, "brain": "rule", "plan": "p"}  # pre-actor log line
+    assert Decision.from_dict(legacy).actor == "brain"
+    assert to_envelope(Decision(brain="human", plan="p", actor="human"), 0)["payload"]["actor"] == "human"
+    with pytest.raises(SchemaError):
+        Decision(brain="x", plan="p", actor="robot")

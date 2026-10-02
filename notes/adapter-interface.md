@@ -48,7 +48,8 @@ Button names: `A B SELECT START RIGHT LEFT UP DOWN R L NONE`
 WebSocket envelope `{type, frame, ts, payload}`; `game_brain.schema.to_envelope()` /
 `from_envelope()` produce/parse it for `observation`, `decision`, `mode_command`, `action`.
 Dashboard actions go through `Arbiter.submit_manual()`, which **rejects them unless the mode
-is MANUAL** (and rejects any action whose `source` starts with `brain`).
+is MANUAL or ASSIST** (in Assist they preempt the brain; any action whose `source` starts with
+`brain` is always rejected).
 
 ## Hints from a quick probe (before the scope change; for Backend to double-check)
 

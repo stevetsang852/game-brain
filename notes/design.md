@@ -20,20 +20,32 @@ First target: Pokémon FireRed on mGBA (adapter owned by Backend).
 | Mode | brains consulted | brain action executed | dashboard/manual action |
 |---|---|---|---|
 | auto | yes | yes | rejected |
-| assist | yes | yes (*semantics TBD*) | rejected |
+| assist | yes, unless a human action is queued | yes, unless preempted | **accepted; jumps the queue** (executed before the brain is asked again) |
 | manual | no | no (rejected) | executed (queued) |
 | shadow | yes | no — logged only; game idles for the same frames | rejected |
 
+   **Assist** (decided by GitHub Mannger): the brain plays as in Auto. A dashboard action
+   submitted in Assist is queued and, on the next step(s), executed *instead of* asking the
+   brain — the human takes over momentarily. Several queued actions run one per step in
+   FIFO order; when the queue is empty the brain resumes. Brain-sourced actions are still
+   rejected by `submit_manual`. Switching to Auto/Shadow drops any queued human actions;
+   Manual ↔ Assist keeps them.
+
+   Every `Decision` carries **`actor`**: `"brain"` (a brain produced the action — executed in
+   Auto/Assist, only proposed in Shadow), `"human"` (a queued dashboard/manual action was
+   executed; in Assist this means the brain was preempted), or `"none"` (idle wait).
+   Older logs without `actor` parse as `"brain"`.
+
 5. **Run log** — JSONL, one `step` line per decision with observation summary, decision,
    proposed and executed actions, frames advanced. `replay()` re-runs executed actions and
-   checks frame + RAM per step.
+   checks frame + RAM per step. Human actions are logged as the step's `executed_action`
+   (`source: "manual"`, `decision.actor: "human"`), so replay needs no live input and stays
+   deterministic.
 
 ## Why frames, not ms
 mGBA steps frame by frame. Expressing every hold/release in frames makes runs
 deterministic and replayable regardless of host speed (headless runs at >1000 fps).
 
 ## Open questions
-* What exactly should ASSIST do (e.g. brain acts but asks for confirmation on risky actions,
-  or human acts and brain only suggests)? Currently = AUTO execution.
 * Savestates in `reset()` (start from a fixed state instead of power-on) — Backend.
 * LLM prompt/response format and budget once a key exists.

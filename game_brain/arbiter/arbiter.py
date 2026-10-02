@@ -3,15 +3,20 @@
 Modes (``game_brain.schema.Mode``):
 
 * AUTO   -- the first available brain decides; its action is executed.
-* ASSIST -- currently identical to AUTO for execution (brain acts). Reserved for
-            "brain acts, human supervises" semantics; still TBD with the team.
-            Dashboard actions are rejected here (Frontend contract: Manual only).
+* ASSIST -- the brain acts as in AUTO, but actions submitted via
+            :meth:`Arbiter.submit_manual` (dashboard/human) jump the queue: while any are
+            queued, the oldest one is executed instead of consulting the brain
+            (``Decision.actor == "human"``). Once the queue is empty the brain resumes.
 * MANUAL -- brains are not consulted and any brain action is rejected. Only actions
             submitted via :meth:`Arbiter.submit_manual` (dashboard/human) are executed;
             with none queued, the game idles for ``idle_frames``.
 * SHADOW -- the brain decides and the Decision + proposed Action are logged, but the
             action is NOT executed; the game idles for the proposal's duration so time
             still moves forward. Dashboard actions are rejected.
+
+Dashboard/manual actions are accepted only in MANUAL and ASSIST; AUTO and SHADOW reject them.
+Every Decision carries ``actor`` ("brain" | "human" | "none") so the run log records
+who actually acted; replay just re-executes ``executed_action`` and stays deterministic.
 
 Brain selection: ``brains`` is a priority list. A brain raising ``BrainUnavailable``
 (or any exception) is skipped and the next one is used; the skip is recorded.
@@ -25,6 +30,9 @@ from typing import Deque, List, Optional, Sequence
 
 from ..brain import Brain, BrainUnavailable
 from ..schema import Action, Decision, Mode, ModeCommand, Observation
+
+#: Modes in which human/dashboard actions are accepted.
+HUMAN_INPUT_MODES = (Mode.MANUAL, Mode.ASSIST)
 
 
 @dataclass
@@ -53,14 +61,15 @@ class Arbiter:
             cmd = ModeCommand(Mode.parse(cmd))
         self.mode = cmd.mode
         self.mode_history.append(cmd)
-        if self.mode is not Mode.MANUAL:
-            self._manual.clear()  # don't let stale human input leak into brain modes
+        if self.mode not in HUMAN_INPUT_MODES:
+            self._manual.clear()  # don't let stale human input leak into brain-only modes
         return self.mode
 
     def submit_manual(self, action: Action, origin: str = "dashboard") -> bool:
-        """Queue a human/dashboard action. Accepted only in MANUAL mode."""
-        if self.mode is not Mode.MANUAL:
-            self.rejected.append(f"{origin} action rejected: mode is {self.mode.value}, actions only accepted in manual")
+        """Queue a human/dashboard action. Accepted only in MANUAL and ASSIST modes."""
+        if self.mode not in HUMAN_INPUT_MODES:
+            self.rejected.append(f"{origin} action rejected: mode is {self.mode.value}, "
+                                 "actions only accepted in manual or assist")
             return False
         if action.source.startswith("brain"):
             self.rejected.append(f"{origin} action rejected: source {action.source!r} is a brain")
@@ -92,21 +101,30 @@ class Arbiter:
             if self._manual:
                 act = self._manual.popleft()
                 dec = Decision(brain="human", plan="manual control", reason="executing queued manual action",
-                               mode=mode.value, executed=True)
+                               mode=mode.value, executed=True, actor="human")
             else:
                 act = Action.wait(self.idle_frames)
                 dec = Decision(brain="human", plan="manual control", reason="no manual input queued -> idle",
-                               mode=mode.value, executed=True)
+                               mode=mode.value, executed=True, actor="none")
+            return StepResult(mode, dec, None, act, notes)
+
+        if mode is Mode.ASSIST and self._manual:
+            # Human takes over momentarily; the brain is not consulted this step.
+            act = self._manual.popleft()
+            dec = Decision(brain="human", plan="assist: human override",
+                           reason=f"queued human action preempted the brain ({len(self._manual)} more queued)",
+                           mode=mode.value, executed=True, actor="human")
             return StepResult(mode, dec, None, act, notes)
 
         brain, proposed, dec = self._ask_brains(obs, notes)
         if brain is None:
             act = Action.wait(self.idle_frames)
             dec = Decision(brain="none", plan="idle", reason="; ".join(notes) or "no brain available",
-                           mode=mode.value, executed=True)
+                           mode=mode.value, executed=True, actor="none")
             return StepResult(mode, dec, None, act, notes)
 
         dec.mode = mode.value
+        dec.actor = "brain"
         if notes:
             dec.reason = f"{dec.reason} [fallback: {'; '.join(notes)}]"
 

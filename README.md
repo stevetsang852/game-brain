@@ -36,7 +36,7 @@ flowchart LR
     ARB -- step record --> LOG
     Adapter -- Observation --> DASH
     ARB -- Decision --> DASH
-    DASH -- "ModeCommand / Action (manual only)" --> ARB
+    DASH -- "ModeCommand / Action (manual + assist)" --> ARB
 ```
 
 Messages (`game_brain/schema`), all plain JSON with a `type` and schema version `v`:
@@ -49,7 +49,8 @@ Messages (`game_brain/schema`), all plain JSON with a `type` and schema version 
 | `ModeCommand` | dashboard → arbiter | `mode` ∈ auto/assist/manual/shadow |
 
 Dashboard transport: `to_envelope(msg, frame)` → `{type, frame, ts, payload}` (and `from_envelope`).
-Dashboard actions are only accepted in **Manual** mode.
+Dashboard actions are accepted in **Manual** and **Assist** (where they preempt the brain);
+Auto and Shadow reject them. `Decision.actor` (`brain` / `human` / `none`) records who acted.
 
 ## Dashboard
 
