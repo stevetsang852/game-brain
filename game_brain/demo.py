@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from . import savestate
 from .runlog import RunLogWriter
 from .schema import Mode, ModeCommand
-from .setup import Session, StopSignals, add_run_args, save_dir_from_args
+from .setup import ForcedStop, Session, StopSignals, add_run_args, save_dir_from_args
 
 
 def _parse_switches(items: List[str]) -> Dict[int, Mode]:
@@ -122,6 +122,9 @@ def main(argv=None) -> int:
     except (ValueError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except ForcedStop as exc:
+        print(f"{exc.args[0]} again: forced stop (no final save; resume from the last save)", file=sys.stderr)
+        return 128 + exc.signum
     print("\n=== summary ===")
     for k, v in s.items():
         print(f"{k}: {v}")

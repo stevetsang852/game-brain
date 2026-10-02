@@ -19,7 +19,10 @@ use it yet; that is Frontend's.
   * `.gitignore` also covers `*.ss*`, `*.sav`, `*.state`, `saves/`, `.game-brain/`, `*.tmp` and
     model files.
 * Layout: `<save_dir>/<run_id>/<step:07d>_<reason>.{state,json[,sav]}` plus `<save_dir>/latest`.
-  * `<run_id>` is the run's timestamp, the same as the `runs/<run_id>/` log dir.
+  * `<run_id>` is the run's start time in **UTC**, ISO 8601 basic with `Z` (`20261002T083408Z`), the
+    same as the `runs/<run_id>/` log dir, so ids sort chronologically by name and are the same on the
+    host and in the container. Runs before this used local time (`20261002-163408`); nothing parses
+    run ids, so those saves still resume and their logs still replay.
   * `latest` is a text file holding the path of the newest sidecar **relative to `<save_dir>`**
     (`<run_id>/<step:07d>_<reason>.json`), so the save dir can be moved or mounted elsewhere
     (Docker writes `/saves`, the host sees `~/.game-brain/saves`).
@@ -156,14 +159,14 @@ Sidecar 喺 v1 欄位之外加：
 
 ### AI 狀態檔（`kind: "ai_status"`）
 
-* 位置：`<save_dir>/ai_status/<ai_status_id>.ai.json`，`ai_status_id` = `ai_<YYYYmmdd-HHMMSS>_<step:07d>`
+* 位置：`<save_dir>/ai_status/<ai_status_id>.ai.json`，`ai_status_id` = `ai_<YYYYmmddTHHMMSSZ>_<step:07d>`（UTC；舊格式 `ai_<YYYYmmdd-HHMMSS>_…` 照讀）
   （同一秒再存就加 `-2`…）。冇 `.state`：**唔包括遊戲**。
 * 內容：
 
 ```json
 {
   "format": "game-brain-ai-status", "format_version": 2, "kind": "ai_status",
-  "ai_status_id": "ai_20261002-153000_0003268", "label": "包裹後",
+  "ai_status_id": "ai_20261002T073000Z_0003268", "label": "包裹後",
   "timestamp": "2026-10-02T15:30:00+08:00",
   "source": {"run_id": "...", "save_id": null, "step": 3268, "frame": 44046,
              "rom_sha1": "e019...", "git_commit": "..."},
