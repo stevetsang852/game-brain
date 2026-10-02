@@ -1,0 +1,3 @@
+# Runtime: standard library only (ctypes + zlib). Native: libmgba 0.10.x (system package).
+# Dev/test:
+pytest==8.3.3

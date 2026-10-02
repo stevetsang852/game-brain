@@ -1,0 +1,37 @@
+# --- Never commit game data ---
+*.gba
+*.gbc
+*.gb
+*.agb
+*.zip
+*.7z
+*.sav
+*.srm
+*.ss[0-9]
+*.ss*
+*.state
+roms/
+saves/
+bios/
+*.bin
+
+# --- Run artifacts (logs, screenshots of copyrighted game) ---
+runs/
+*.png
+*.mp4
+
+# --- Built native shim ---
+game_brain/adapters/gba_mgba/_build/
+*.so
+*.o
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.env

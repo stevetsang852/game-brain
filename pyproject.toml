@@ -1,0 +1,15 @@
+[project]
+name = "game-brain"
+version = "0.1.0"
+description = "Game-agnostic AI brain for auto-playing games (first adapter: Pokemon FireRed on mGBA)"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.3"]
+
+[tool.setuptools.packages.find]
+include = ["game_brain*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
