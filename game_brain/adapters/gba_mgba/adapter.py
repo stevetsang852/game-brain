@@ -13,6 +13,7 @@ from typing import Optional
 from ..base import Adapter
 from ...schema import BUTTONS, Action, Observation
 from .firered import FireRedRam
+from .firered_battle import read_battle
 from .firered_extra import read_extra
 
 #: GBA KEYINPUT bit per logical button (A=0 ... L=9); "NONE" holds nothing.
@@ -83,6 +84,8 @@ class MgbaFireRedAdapter(Adapter):
             raise RuntimeError("call reset() before observe()")
         ram = self.ram.read()
         ram.update(read_extra(self.ram, ram))  # M2 nav keys (npcs, party_count); firered_extra.py
+        if ram.get("in_battle"):
+            ram["battle"] = read_battle(self.ram)  # firered_battle.py
         return Observation(frame=self._frame, game="POKEMON FIRE (BPRE)", ram=ram)
 
     def act(self, action: Action) -> int:

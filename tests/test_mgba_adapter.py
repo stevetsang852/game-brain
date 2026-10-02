@@ -12,6 +12,7 @@ import pytest
 from game_brain.adapters import make_adapter
 from game_brain.adapters.gba_mgba import MgbaFireRedAdapter
 from game_brain.adapters.gba_mgba import firered as fr
+from game_brain.adapters.gba_mgba import firered_battle as fb
 from game_brain.adapters.gba_mgba.adapter import keymask
 from game_brain.schema import Action, ButtonPress
 
@@ -109,6 +110,56 @@ def test_in_battle_is_bit1_of_gmain_439_only():
     assert a.observe().ram["in_battle"] is False
 
 
+def _put_mon(core, battler, species, level, hp, max_hp, moves):
+    b = fb.G_BATTLE_MONS + fb.BATTLE_MON_SIZE * battler
+    core.memory.put(b + fb.BM_SPECIES, species, 2)
+    core.memory.put(b + fb.BM_LEVEL, level, 1)
+    core.memory.put(b + fb.BM_HP, hp, 2)
+    core.memory.put(b + fb.BM_MAX_HP, max_hp, 2)
+    for i, (mid, pp) in enumerate(moves):
+        core.memory.put(b + fb.BM_MOVES + 2 * i, mid, 2)
+        core.memory.put(b + fb.BM_PP + i, pp, 1)
+
+
+def test_battle_dict_only_while_in_battle():
+    core = FakeCore()
+    a = MgbaFireRedAdapter(core=core)
+    assert "battle" not in a.reset().ram
+    core.memory.put(fr.MAIN_FLAGS_439, 0x02, 1)              # battle started, mons not filled yet
+    b = a.observe().ram["battle"]
+    assert b["player"] is None and b["opponent"] is None
+    _put_mon(core, 0, 1, 5, 22, 22, [(118, 40)])            # values seen in the rival battle
+    _put_mon(core, 1, 4, 5, 14, 20, [(118, 40)])
+    b = a.observe().ram["battle"]
+    assert b["player"] == {"species": 1, "level": 5, "hp": 22, "max_hp": 22, "moves": [{"id": 118, "pp": 40}]}
+    assert b["opponent"]["hp_pct"] == 70 and b["opponent"]["species"] == 4
+    assert b["menu"] == "other" and b["cursor"] is None and b["outcome"] is None
+    core.memory.put(fr.MAIN_FLAGS_439, 0x00, 1)              # outcome byte is not cleared, battle key goes away
+    core.memory.put(fb.G_BATTLE_OUTCOME, 1, 1)
+    assert "battle" not in a.observe().ram
+
+
+def test_battle_menu_cursor_and_outcome():
+    core = FakeCore()
+    a = MgbaFireRedAdapter(core=core)
+    a.reset()
+    core.memory.put(fr.MAIN_FLAGS_439, 0x02, 1)
+    core.memory.put(fb.G_ACTION_SELECTION_CURSOR, 3, 1)
+    core.memory.put(fb.G_MOVE_SELECTION_CURSOR, 2, 1)
+    core.memory.put(fb.G_BATTLER_CONTROLLER_FUNCS, fb.CTRL_CHOOSE_ACTION, 4)
+    b = a.observe().ram["battle"]
+    assert (b["menu"], b["cursor"]) == ("action", 3)
+    core.memory.put(fb.G_BATTLER_CONTROLLER_FUNCS, fb.CTRL_CHOOSE_MOVE, 4)
+    b = a.observe().ram["battle"]
+    assert (b["menu"], b["cursor"]) == ("move", 2)
+    _put_mon(core, 0, 1, 5, 22, 22, [(118, 40), (33, 35), (0, 0), (10, 35)])
+    _put_mon(core, 1, 4, 5, 20, 20, [(118, 40)])
+    assert [m["id"] for m in a.observe().ram["battle"]["player"]["moves"]] == [118, 33, 10]
+    for raw, want in ((0, None), (1, "win"), (2, "lose"), (4, "unknown")):
+        core.memory.put(fb.G_BATTLE_OUTCOME, raw, 1)
+        assert a.observe().ram["battle"]["outcome"] == want
+
+
 def test_reset_restarts_frame_counter():
     core = FakeCore()
     a = MgbaFireRedAdapter(core=core)
@@ -150,7 +201,7 @@ def test_real_not_in_battle_from_boot_to_overworld():
     a.reset()
     for _ in range(600):
         obs = a.observe()
-        assert obs.ram["in_battle"] is False
+        assert obs.ram["in_battle"] is False and "battle" not in obs.ram
         if obs.position is not None:
             return
         a.act(Action.tap("A", 8, 8))
