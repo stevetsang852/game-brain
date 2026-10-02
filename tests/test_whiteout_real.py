@@ -75,7 +75,8 @@ def test_real_whiteout_wakes_up_at_home_and_walks_back_to_viridian(tmp_path, mon
     info = make_losing_state(state)
     assert info["hp_before"] > 1
     monkeypatch.setenv("GAME_BRAIN_START_STATE", state)
-    s = demo.run("mgba", steps=2300, mode="auto", brains="battle,path,rule", out_dir=str(tmp_path), quiet=True)
+    # Viridian at step 2103 (notes/nav.md "Whiteout"); after that the parcel errand starts
+    s = demo.run("mgba", steps=2120, mode="auto", brains="battle,path,rule", out_dir=str(tmp_path), quiet=True)
     steps = list(iter_steps(s["log"]))
     battles = _battles(steps)
     a, b = battles[0]
@@ -96,6 +97,6 @@ def test_real_whiteout_wakes_up_at_home_and_walks_back_to_viridian(tmp_path, mon
     assert visits[:3] == [(4, 0), (3, 0), (3, 19)] and visits[-1] == (3, 1)
     assert all(r["decision"]["brain"] == "battle" for x, y in battles for r in steps[x:y + 1])
     done = {m["id"]: m["done"] for m in steps[-1]["decision"]["milestones"]}
-    assert done["viridian_city"] and not done["oaks_parcel"]
+    assert done["viridian_city"] and not done["viridian_mart"]
     assert all(r["decision"].get("milestones") for r in steps)
     assert replay(s["log"], make_adapter("mgba", start_state=state)) == []

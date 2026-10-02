@@ -65,7 +65,7 @@ class PathBrain(Brain):
                  max_warp_tries: int = 3, max_transition_waits: int = 20, max_settle_waits: int = 12,
                  idle_on_placeholder: bool = True, settle_checks: int = 4,
                  frozen_press_every: int = 2, max_frozen: int = 400, max_script_decisions: int = 600,
-                 max_interact_presses: int = 200, max_placeholder_presses: int = 100,
+                 max_interact_presses: int = 200, max_placeholder_presses: int = 200,
                  avoid_npcs: bool = True):
         self.planner = planner or GoalPlanner()
         self.maps = map_provider or RamMapProvider()
@@ -306,6 +306,24 @@ class PathBrain(Brain):
                 self._edge_tries[key] = self._edge_tries.get(key, 0) + 1
                 if self._edge_tries[key] >= self.max_warp_tries:
                     self._dead_edges.add(key)
+            if kind == "warp" and detail[0] == grid.key and pos == prev_pos and \
+                    obs.ram.get("facing") not in (None, detail[1].enter):
+                # Pressed the warp's direction but could not even turn that way: the player is
+                # frozen (e.g. the Viridian Mart clerk's script right after arriving), not a dead
+                # warp. Don't count the try; wait / press the script button like other freezes.
+                self._turn_fails += 1
+                self.stats["frozen"] += 1
+                if self._turn_fails > self.max_frozen:
+                    raise self._unavailable(f"player frozen for {self.max_frozen} decisions -> give up",
+                                            milestone)
+                if self._turn_fails % self.frozen_press_every:
+                    return self._wait(8, "frozen"), self._dec(
+                        goal_txt, f"could not turn {detail[1].enter} onto the warp (player frozen: "
+                        "script/text box) -> wait", goal=goal_txt, path=[pos])
+                self._last = ("a", None)
+                return self._act(sb, 2, 8), self._dec(
+                    goal_txt, f"still frozen on the warp tile (script/text box) -> press {sb} to advance",
+                    goal=goal_txt, path=[pos])
             if kind == "warp":
                 key = detail
                 self._warp_tries[key] = self._warp_tries.get(key, 0) + 1

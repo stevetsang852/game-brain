@@ -106,8 +106,11 @@ Once a milestone is done it stays done.
   `viridian_city` (`Target.edge("UP")` on Route 1). Wild battles in Route 1's grass are fought by
   the battle brain. If the starter faints (whiteout) you wake up at home, and the targets lead back
   out: 2F → 1F → Pallet → north. This was not seen in the runs so far; every battle was won.
-* **Next** (placeholder): `oaks_parcel`. PathBrain idles (`idle_on_placeholder=False` makes it
-  report unavailable instead).
+* **Oak's Parcel:** `viridian_mart` (warp to 5/3 in Viridian) → `oaks_parcel` (leave the mart) →
+  `back_to_pallet` (`Target.edge("DOWN")` on Viridian and Route 1) → `deliver_parcel` (lab door,
+  then `interact((6,4), UP, A)` on Oak). See "Oak's Parcel (measured on this ROM)" below.
+* **Next** (placeholder): `pewter_city`. PathBrain finishes any open dialogue, then idles
+  (`idle_on_placeholder=False` makes it report unavailable instead).
 
 ### Whiteout (verified on the ROM)
 
@@ -161,6 +164,52 @@ Done-detection uses only verified signals:
 
 M1 milestones are also marked done on later evidence (in the lab, `party_count` > 0), so a run
 started from a later save state doesn't get stuck on an earlier goal.
+
+### Oak's Parcel (measured on this ROM)
+
+Evidence: save states and screenshots made at runtime in a temp dir (not committed), plus the
+from-boot run below.
+
+* **Mart:** the Viridian Mart door is the warp at (36,19) on 3/1 → 5/3. You arrive on the exit
+  warp tile (4,7), and the clerk's script starts at once ("Hey! You came from PALLET TOWN?"). The
+  game walks you to the counter (4,3), facing LEFT. About 20 A presses later the text reads
+  "… received OAK'S PARCEL", and you are free. The exit is the warp (4,7), `enter` DOWN.
+  * PathBrain change: on arrival it stands on the exit warp and presses DOWN, but you can't even
+    turn (still facing UP). Before, that counted as a failed warp try, and after 3 the exit was
+    "dead". Now "pressed the warp direction, same tile, facing ≠ `enter`" is treated as a freeze:
+    wait / press the script button, like other freezes (`max_frozen` cap).
+  * **Parcel detection:** the bag / key-item RAM is **not verified**, so no address is read.
+    `oaks_parcel` is done when you leave the mart (the script always runs on the first visit, and
+    you can't leave before it ends). This is scene/position evidence, not an item check.
+* **Going south (Route 1):** ledges are `#` in `collision`, so A\* just takes the non-ledge path
+  south. In the run there were only 2 "no movement" bumps (NPC / text), and no ledge jumps.
+  **Ledge behaviour values (0x32/0x33 etc.) were not needed, so they were not measured.** They
+  would be needed to *use* a ledge as a one-way shortcut. Flagged for Backend; nothing assumed.
+* **Lab:** Oak is `npcs` local_id 4 at (6,3). Stand at (6,4), face UP, press A. Script: the rival
+  (local_id 8) walks in to (5,4), and Oak walks to the table (5,2). About 108 A presses in, the
+  two Pokedex objects on the table (local_id 9 and 10, gfx 94, at (4,1)/(5,1)) disappear from
+  `npcs` (the screenshot shows the empty table). About 7 presses later the text reads "… received
+  the POKéDEX", followed by five POKé BALLS and a long speech. After that you are free again
+  (~5 presses after the brain's old 100-press placeholder cap, so the cap is now 200).
+  * **Pokedex detection:** the Pokedex flag is **not verified**, so no address is read.
+    `deliver_parcel` is done when, in the lab, Oak (local_id 4) is in `npcs`, the player is at
+    y ≤ 5, and neither local_id 9 nor 10 is listed.
+  * `npcs` only lists objects near the camera. Measured: Oak at y=3 appears once you are at
+    y ≤ 10, so the table at y=1 needs y ≤ ~8. Without the y check, the brain wrongly marked the
+    milestone done at the lab entrance (6,10), before talking to Oak.
+* **Save / resume (notes/savestate-format.md):** each new milestone gets its own milestone save
+  (`milestone-viridian_mart`, `-oaks_parcel`, `-back_to_pallet`, `-deliver_parcel`). After the mart
+  the map no longer says whether you have the parcel; only the sidecar's `milestones_done` says so,
+  and `--resume` restores it. Measured on the ROM (2026-10-02):
+  * resume from `milestone-oaks_parcel` (3/1 (36,19), step 3268): first observation identical
+    to the boot run; delivered at step 3944, the same step as the uninterrupted run; replay [].
+  * resume from `milestone-viridian_mart` (5/3 (4,7), step 3167, clerk script pending): parcel,
+    back to Pallet at step 4064, delivered at step 4279 (different wild battles); replay [].
+  * The mart also counts as "left the lab" (`left_lab`), so a save state in the mart without a
+    sidecar does not send PathBrain back to the rival battle.
+* **Whiteout during the errand:** you wake up at home. `to_viridian` / `to_pallet` lead back
+  (house → Pallet → north before the mart; → Pallet → lab after it). This is a unit test only;
+  no whiteout happened on the parcel errand in the real runs.
 
 ### M2 route (measured on this ROM)
 
@@ -260,7 +309,8 @@ detected by behaviour instead ("a turn didn't take"), so no RAM is needed for th
 
 ## Not handled yet
 
-* One-way ledges and direction-blocked tiles. During exploration, two tiles in the 2F room
+* One-way ledges (jumping down as a shortcut; south of Viridian A\* just avoids them) and
+  direction-blocked tiles. During exploration, two tiles in the 2F room
   showed `.` but couldn't be crossed in one direction. The contract has no field for this yet,
   so PathBrain just bumps and replans. Details went to Backend.
 * Water / surf tiles that show as `.`. In Pallet Town the south water has collision 0, but you

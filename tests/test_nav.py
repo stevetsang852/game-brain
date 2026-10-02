@@ -145,12 +145,57 @@ def test_goal_planner_is_sticky_and_ordered():
         assert pl.update(o).id == "viridian_city" and pl.update(o).target(o) == t
     viridian = Observation(frame=12, ram={"player_x": 25, "player_y": 39, "map_bank": 3, "map_id": 1, "party_count": 1})
     m = pl.update(viridian)
-    assert m.id == "oaks_parcel" and m.placeholder
+    assert m.id == "viridian_mart" and m.target(viridian) == Target.warp(5, 3)
+    # Oak's Parcel: the clerk's script runs on entering the mart; then back out to Viridian
+    mart = Observation(frame=13, ram={"player_x": 4, "player_y": 3, "map_bank": 5, "map_id": 3, "party_count": 1})
+    m = pl.update(mart)
+    assert m.id == "oaks_parcel" and m.target(mart) == Target.warp(3, 1)
+    m = pl.update(viridian)
+    assert m.id == "back_to_pallet" and m.target(viridian) == Target.edge("DOWN")
+    assert m.target(route) == Target.edge("DOWN")
+    m = pl.update(pallet)
+    assert m.id == "deliver_parcel" and m.target(pallet) == Target.warp(4, 3)
+    in_lab = Observation(frame=14, ram={"player_x": 6, "player_y": 12, "map_bank": 4, "map_id": 3, "party_count": 1,
+                                        "npcs": [{"local_id": 1}, {"local_id": 2}, {"local_id": 3}]})
+    assert m.target(in_lab) == Target.interact(6, 4, "UP", "A")
+    # far from the table: Oak / Pokedex objects not in view yet -> not done
+    assert pl.update(in_lab).id == "deliver_parcel"
+    # Oak in view but the player far from the table (Pokedexes out of the object window) -> not done
+    far = Observation(frame=15, ram={"player_x": 6, "player_y": 10, "map_bank": 4, "map_id": 3, "party_count": 1,
+                                     "npcs": [{"local_id": 4}, {"local_id": 6}]})
+    assert pl.update(far).id == "deliver_parcel"
+    near = Observation(frame=16, ram={"player_x": 6, "player_y": 4, "map_bank": 4, "map_id": 3, "party_count": 1,
+                                      "npcs": [{"local_id": 4}, {"local_id": 8}, {"local_id": 9}, {"local_id": 10}]})
+    assert pl.update(near).id == "deliver_parcel"
+    gone = Observation(frame=17, ram={"player_x": 6, "player_y": 4, "map_bank": 4, "map_id": 3, "party_count": 1,
+                                      "npcs": [{"local_id": 4}, {"local_id": 8}]})
+    m = pl.update(gone)
+    assert m.id == "pewter_city" and m.placeholder
     done = {m["id"]: m["done"] for m in pl.summary()}
-    assert all(v for k, v in done.items() if k != "oaks_parcel") and not done["oaks_parcel"]
+    assert all(v for k, v in done.items() if k != "pewter_city") and not done["pewter_city"]
     assert list(done) == ["intro", "leave_bedroom", "leave_house", "pallet_town", "oak_stops_you", "oak_lab",
                           "get_starter", "rival_battle", "rival_battle_over", "leave_lab", "route_1",
-                          "viridian_city", "oaks_parcel"]
+                          "viridian_city", "viridian_mart", "oaks_parcel", "back_to_pallet", "deliver_parcel",
+                          "pewter_city"]
+
+
+def test_goal_planner_parcel_errand_after_a_whiteout():
+    # whited out at home with the parcel: back to Pallet, then the lab
+    pl = GoalPlanner()
+    for o in (Observation(frame=0, ram={"player_x": 25, "player_y": 39, "map_bank": 3, "map_id": 1, "party_count": 1}),
+              Observation(frame=1, ram={"player_x": 4, "player_y": 3, "map_bank": 5, "map_id": 3, "party_count": 1}),
+              Observation(frame=2, ram={"player_x": 36, "player_y": 19, "map_bank": 3, "map_id": 1, "party_count": 1})):
+        pl.update(o)
+    home = Observation(frame=3, ram={"player_x": 8, "player_y": 5, "map_bank": 4, "map_id": 0, "party_count": 1})
+    m = pl.update(home)
+    assert m.id == "back_to_pallet" and m.target(home) == Target.warp(3, 0)
+    # before the mart, a whiteout leads north again
+    pl2 = GoalPlanner()
+    pl2.update(Observation(frame=0, ram={"player_x": 25, "player_y": 39, "map_bank": 3, "map_id": 1, "party_count": 1}))
+    m = pl2.update(home)
+    assert m.id == "viridian_mart" and m.target(home) == Target.warp(3, 0)
+    pallet = Observation(frame=4, ram={"player_x": 8, "player_y": 8, "map_bank": 3, "map_id": 0, "party_count": 1})
+    assert pl2.update(pallet).target(pallet) == Target.edge("UP")
 
 
 def test_goal_planner_resumed_after_the_rival_battle():
@@ -184,7 +229,7 @@ def test_custom_milestones():
                                 target=lambda o: Target.at(2, 2))])
     assert pl.update(Observation(frame=0, ram={"player_x": 1, "player_y": 1})).id == "a"
     assert pl.update(Observation(frame=0, ram={"player_x": 2, "player_y": 2})) is None
-    assert len(firered_milestones()) == 13
+    assert len(firered_milestones()) == 17
 
 
 def test_firered_extra_reads_npcs_and_party_count():
