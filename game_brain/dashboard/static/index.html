@@ -585,6 +585,33 @@ tr.actor-row-human td { color: var(--gba-amber); }
   background: rgba(124,92,255,0.6);
 }
 
+/* ======================= BATTLE ======================= */
+#battleSection.idle .bbody { display:none; }
+#battleState { color: var(--fg-dim); font-size:12px; margin-bottom:10px; }
+.mons { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+.mon { background: rgba(255,255,255,0.03); border:1px solid var(--line); border-radius: var(--radius-sm); padding:10px; min-width:0; }
+.mon .who { color: var(--fg-mute); font-size:11px; letter-spacing:.5px; }
+.mon .nm { font-weight:600; }
+.hp { height:8px; background: rgba(255,255,255,0.06); border-radius:999px; overflow:hidden; margin:6px 0 3px; }
+.hp div { height:100%; width:0; background: var(--gba-green); box-shadow: 0 0 8px rgba(52,211,153,0.5); transition: width .3s, background .3s; }
+.hp div.mid { background: var(--gba-amber); box-shadow: 0 0 8px rgba(251,191,36,0.5); }
+.hp div.low { background: var(--gba-red); box-shadow: 0 0 8px rgba(251,113,133,0.5); }
+.mon .hptxt { font-size:12px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.mon ul { margin:6px 0 0; padding-left:16px; font-size:12px; }
+.mon ul .pp { color: var(--fg-mute); }
+#battleSection dl { display:grid; grid-template-columns: 150px 1fr; gap:4px 10px; margin:10px 0 0; }
+#battleSection dt { color: var(--fg-mute); } #battleSection dd { margin:0; }
+#bopts { width:100%; border-collapse:collapse; margin-top:8px; font-size:12px; }
+#bopts th, #bopts td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); }
+#bopts th { color: var(--fg-mute); font-weight:500; }
+#bopts td.score { width:80px; font-variant-numeric: tabular-nums; }
+#bopts td.empty { color: var(--fg-mute); }
+#bopts tr.chosen td { color: var(--gba-cyan); font-weight:600; }
+#bopts .sbar { height:4px; background: linear-gradient(90deg, var(--gba-purple), var(--gba-cyan)); border-radius:999px; margin-top:3px; }
+#handoff { display:none; margin:10px 0 0; padding:9px 12px; border-radius: var(--radius-sm); background: rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.35); color: var(--gba-amber); font-weight:600; }
+#handoff.on { display:block; }
+.bnote { color: var(--fg-mute); }
+
 /* ======================= RESPONSIVE ======================= */
 @media (max-width: 980px) {
   .gb-main { grid-template-columns: 1fr; }
@@ -693,6 +720,23 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <div class="ms" id="milestones"><span>（大腦沒有提供里程碑）</span></div>
       <div class="bar"><div id="msBar"></div></div>
       <div id="msCount"></div>
+    </section>
+
+    <section id="battleSection" class="gb-card idle">
+      <h2>戰鬥</h2>
+      <div id="battleState">不在戰鬥中</div>
+      <div class="bbody">
+        <div class="mons">
+          <div class="mon" id="monPlayer"></div>
+          <div class="mon" id="monOpponent"></div>
+        </div>
+        <div id="handoff"></div>
+        <dl>
+          <dt id="bChosenLabel">選擇</dt><dd id="bChosen">–</dd>
+          <dt>信心</dt><dd id="bConf">–</dd>
+        </dl>
+        <table id="bopts"><thead><tr><th>選項</th><th>名稱</th><th>分數</th></tr></thead><tbody></tbody></table>
+      </div>
     </section>
 
     <section class="gb-card">
@@ -836,6 +880,7 @@ $("minimap").addEventListener("mousemove", e => {
 function fmtRam(k, v) {
   if (k === "collision" && Array.isArray(v)) return `${v.length} 行 × ${v[0]?.length ?? 0} 格（見地圖）`;
   if (k === "npcs" && Array.isArray(v)) return `${v.length} 個（見地圖，滑鼠移上去看 local_id）`;
+  if (k === "battle" && v && typeof v === "object") return `${v.menu ?? "?"}${v.outcome ? " · " + v.outcome : ""}（見戰鬥面板）`;
   if (k === "warps" && Array.isArray(v)) return `${v.length} 個（${v.filter(w => w.enter).length} 個可用）`;
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
@@ -870,6 +915,7 @@ function onObservation(env) {
   const pc = (p.ram || {}).party_count;
   $("party").textContent = `隊伍：${Number.isInteger(pc) ? pc + " 隻" : "–"}`;
   redrawMaps();
+  renderBattle();
   const tb = $("ram").tBodies[0]; tb.innerHTML = "";
   const entries = Object.entries(p.ram || {});
   if (!entries.length) tb.innerHTML = "<tr><td colspan=2>（空）</td></tr>";
@@ -888,9 +934,78 @@ function onDecision(env) {
   $("reason").textContent = d.reason || "–";
   onMilestones(d);
   redrawMaps();
+  renderBattle();
   $("executed").innerHTML = d.executed ? '<span class="badge yes">執行</span>'
                                        : '<span class="badge no">只提議（未執行）</span>';
 }
+
+// ------------------------------------------------------------------ battle panel
+// HP and menu come from ram.battle (every observation); names, options, confidence and handoff
+// from the battle brain's Decision (only while it is the one deciding).
+const MENU_LABEL = { action: "行動選單", move: "招式選單", other: "文字／動畫" };
+const ACTION_ITEMS = ["FIGHT", "BAG", "POKéMON", "RUN"];
+const OUTCOME_LABEL = { win: "勝利", lose: "落敗", unknown: "結束（結果不明）" };
+const CONF_LOW = 0.6;  // RuleBattleBrain's default handoff threshold (notes/battle-brain.md)
+const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+function hpInfo(m) {
+  if (Number.isFinite(m.hp) && Number.isFinite(m.max_hp) && m.max_hp > 0) return { pct: 100 * m.hp / m.max_hp, txt: `HP ${m.hp} / ${m.max_hp}` };
+  if (Number.isFinite(m.hp_pct)) { const p = m.hp_pct <= 1 ? m.hp_pct * 100 : m.hp_pct; return { pct: p, txt: `HP ${Math.round(p)}%` }; }
+  return { pct: null, txt: "HP –" };
+}
+function renderMon(el, who, m, named) {
+  if (!m) { el.innerHTML = `<div class="who">${who}</div><div class="hptxt">資料未就緒（等第一個選單）</div>`; return; }
+  const name = named?.species === m.species && named?.name ? cap(named.name) : `#${m.species ?? "?"}`;
+  const hp = hpInfo(m), pct = hp.pct == null ? 0 : Math.max(0, Math.min(100, hp.pct));
+  const moves = (Array.isArray(m.moves) ? m.moves : []).map((mv, i) => {
+    const nm = named?.species === m.species ? named.moves?.[i]?.name : null;
+    return `<li>${esc(cap(nm) || "#" + mv.id)} <span class="pp">PP ${mv.pp ?? "?"}</span></li>`;
+  }).join("");
+  el.innerHTML = `<div class="who">${who}</div><div class="nm">${esc(name)} <span class="pp" style="font-weight:400">Lv${m.level ?? "?"}</span></div>
+    <div class="hp"><div class="${pct <= 20 ? "low" : pct <= 50 ? "mid" : ""}" style="width:${pct}%"></div></div>
+    <div class="hptxt">${hp.txt}</div>${moves ? `<ul>${moves}</ul>` : ""}`;
+}
+// A step with no options may send no key, null or []: all three mean "nothing chosen this step".
+const hasOpts = x => Array.isArray(x?.battle_options) && x.battle_options.length > 0;
+const pick = c => ({ battle_options: c.battle_options, chosen_option: c.chosen_option, confidence: c.confidence, intent: c.intent });
+function renderBattle() {
+  const ram = state.lastObs?.ram || {}, b = ram.battle, now = state.lastDecision || {};
+  const sec = $("battleSection"), inBattle = ram.in_battle === true && b && typeof b === "object";
+  sec.classList.toggle("idle", !inBattle);
+  // Keep the last choice on screen while the move animates / text scrolls (menu "other").
+  if (!inBattle) state.lastChoice = null;  // lastChoiceSrc stays, so the same decision isn't re-captured after a battle
+  else if (hasOpts(now) && state.lastChoiceSrc !== now) {  // capture once per decision, not again on the next observation
+    state.lastChoiceSrc = now; state.lastChoice = { ...now, step: (state.step ?? -1) + 1 };  // status for this step comes after the decision
+  }
+  const d = state.lastChoice && !hasOpts(now) ? { ...now, ...pick(state.lastChoice), handoff: now.handoff } : now;
+  $("bChosenLabel").textContent = d !== now ? `上次選擇（第 ${state.lastChoice.step ?? "?"} 步）` : "選擇";
+  if (!inBattle) { $("battleState").textContent = ram.in_battle === undefined ? "adapter 沒有戰鬥資料" : "不在戰鬥中"; return; }
+  const cur = Number.isInteger(b.cursor) ? b.cursor : null;
+  const curTxt = cur == null ? "" : b.menu === "action" ? ` · 游標 ${ACTION_ITEMS[cur]}` : b.menu === "move" ? ` · 游標第 ${cur + 1} 招` : "";
+  $("battleState").textContent = `${MENU_LABEL[b.menu] ?? b.menu}${curTxt}${b.outcome ? " · " + (OUTCOME_LABEL[b.outcome] ?? b.outcome) : ""}`;
+  const fromBrain = d.brain === "battle" && d.battle ? d.battle : null;
+  renderMon($("monPlayer"), "我方", b.player, fromBrain?.player);
+  renderMon($("monOpponent"), "對手", b.opponent, fromBrain?.opponent);
+  const opts = Array.isArray(d.battle_options) ? d.battle_options : null;
+  const ho = $("handoff");
+  ho.classList.toggle("on", d.handoff === true);
+  ho.textContent = d.handoff === true ? `大腦信心不足，正在等人手決定（大腦建議 ${d.chosen_option ?? "?"}）。切到 Assist 用按鍵操作，或等它逾時自己出手。` : "";
+  $("bChosen").textContent = d.chosen_option ? d.chosen_option + (opts?.find(o => o.id === d.chosen_option) ? `（${opts.find(o => o.id === d.chosen_option).label}）` : "") : (d.intent || "–");
+  const c = Number.isFinite(d.confidence) ? d.confidence : null;
+  $("bConf").innerHTML = c == null ? "–" : `${c.toFixed(2)} ${c < CONF_LOW ? `<span class="badge no">低於 ${CONF_LOW}</span>` : '<span class="badge yes">夠高</span>'}${opts && opts.length === 1 ? ' <span class="bnote">只有一個合法選項，直接出手</span>' : ""}`;
+  const tb = $("bopts").tBodies[0]; tb.innerHTML = "";
+  if (!opts || !opts.length) { tb.innerHTML = `<tr><td colspan=3 class="empty">${b.menu === "other" ? "文字或動畫中，沒有選項" : "大腦這一步沒有列出選項"}</td></tr>`; return; }
+  const max = Math.max(...opts.map(o => Number(o.score) || 0), 1e-9);
+  for (const o of opts) {
+    const tr = tb.insertRow(); if (o.id === d.chosen_option) tr.className = "chosen";
+    tr.insertCell().textContent = (o.id === d.chosen_option ? "▶ " : "") + o.id;
+    tr.insertCell().textContent = o.label;
+    const td = tr.insertCell(); td.className = "score";
+    const sc = Number(o.score);
+    td.innerHTML = `${Number.isFinite(sc) ? sc.toFixed(1) : "–"}<div class="sbar" style="width:${Number.isFinite(sc) ? Math.max(0, 100 * sc / max) : 0}%"></div>`;
+  }
+}
+
 
 function setMode(mode) {
   state.mode = mode;
@@ -900,7 +1015,7 @@ function setMode(mode) {
 
 function onStatus(env) {
   const s = env.payload;
-  $("step").textContent = s.step; $("adapter").textContent = "adapter: " + s.adapter;
+  $("step").textContent = s.step; state.step = s.step; $("adapter").textContent = "adapter: " + s.adapter;
   if (s.mode !== state.mode) setMode(s.mode);
   const d = state.lastDecision || {};
   const act = d.executed === false ? s.proposed_action : s.executed_action;
