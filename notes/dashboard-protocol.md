@@ -60,3 +60,20 @@ The live wire still carries collision/warps on every observation; log dedupe (ma
 - `ram.party_count` -> "隊伍：n 隻" pill in the header ("–" when the adapter does not report it).
 - The RAM table shows `npcs` as a count. The live wire carries the full NPC list every step; the log dedupe
   from PR #14 (`npcs_same` / `npcs_delta`) only affects the file.
+
+## Display speed (FPS): `view_config` and `frame_ack`
+
+Display-only messages from the page; they are not part of the game schema, never reach the
+arbiter and are never written to the run log. Pacing only changes the sleep between steps and
+whether a PNG is attached to the live `observation`, so logs and replay are identical at any FPS.
+
+- `{"type": "view_config", "payload": {"mode": "manual" | "auto", "fps": <number>}}`
+  - `manual`: run `fps` steps per second; a screenshot every `--screenshot-every` steps.
+  - `auto`: `fps` is a ceiling. A screenshot is only sent once the page acknowledged the previous one,
+    and the step rate follows the page's send-to-ack time (1 / latency, clamped 1..ceiling).
+    With no tab open, auto sends no screenshots and runs at the ceiling. An unacknowledged frame
+    stops blocking after 1 s (closed tab).
+  - `fps` outside 1..60 is clamped; a non-number, NaN, bool or unknown `mode` is refused with an `error` envelope.
+- `{"type": "frame_ack", "frame": <int >= 0>}`: sent by the page after it has drawn a screenshot (auto only).
+- Until the page sends `view_config`, the CLI `--step-delay` / `--screenshot-every` apply unchanged (`mode: "cli"`).
+- Every `status` carries `display: {mode, fps, target_fps, actual_fps, frame_fps, page_ms}`; the page shows it under the slider.

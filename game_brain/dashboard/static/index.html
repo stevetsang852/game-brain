@@ -31,6 +31,10 @@
   .pad button { padding:8px 0; } .pad button:disabled { opacity:.35; cursor:not-allowed; }
   .pad .gap { visibility:hidden; }
   .padrow { display:flex; align-items:center; gap:10px; margin-top:10px; color:var(--dim); font-size:12px; }
+  .fpsrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:13px; }
+  .fpsrow select, .fpsrow input[type=number] { background:#11141a; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 6px; }
+  .fpsrow input[type=number] { width:56px; } .fpsrow input[type=range] { flex:1; min-width:120px; }
+  #fpsStat { color:var(--dim); font-size:12px; width:100%; }
   .padrow input { width:64px; background:#11141a; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 6px; }
   dl { display:grid; grid-template-columns: 90px 1fr; gap:4px 10px; margin:0; }
   dt { color:var(--dim); } dd { margin:0; word-break: break-word; }
@@ -82,6 +86,12 @@
         <button data-mode="assist" title="大腦執行；人手按鍵會插隊先行，之後交回大腦">Assist</button>
         <button data-mode="manual" title="只執行人手按鍵">Manual</button>
         <button data-mode="shadow" title="大腦只提議、不執行">Shadow</button>
+      </div>
+      <div class="fpsrow" title="只改畫面更新速度（步與步之間的等待和截圖頻率），不影響遊戲本身和 run log">
+        畫面速度 <select id="fpsMode"><option value="manual">手動</option><option value="auto">Auto</option></select>
+        <input id="fpsSlider" type="range" min="1" max="60" step="1" value="4">
+        <input id="fpsNum" type="number" min="1" max="60" step="1" value="4"> <span id="fpsUnit">fps</span>
+        <div id="fpsStat">–</div>
       </div>
       <div class="padrow" style="margin-top:12px">手動操作（Manual 和 Assist 模式可用；Assist 下按鍵會插隊，執行完交回大腦；鍵盤：方向鍵、Z=A、X=B、Enter=START、Shift=SELECT）</div>
       <div class="pad" id="pad" style="margin-top:8px">
@@ -151,7 +161,11 @@ const ACTOR_LABEL = { brain: "大腦", human: "人手", none: "等待" };
 const state = { mode: null, lastDecision: null, lastObs: null, ws: null };
 const canvas = $("screen"), ctx = canvas.getContext("2d");
 const img = new Image();
-img.onload = () => { canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0); };
+img.onload = () => {
+  canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0);
+  // Auto display mode: tell the server this frame is on screen so it may send the next one.
+  if (state.displayMode === "auto" && state.imgFrame !== undefined) send({ type: "frame_ack", frame: state.imgFrame, ts: Date.now() / 1000, payload: {} });
+};
 
 function event(text, bad) {
   const li = document.createElement("li");
@@ -257,6 +271,7 @@ function onObservation(env) {
   const p = env.payload; state.lastObs = p;
   $("frame").textContent = p.frame;
   if (p.screenshot_b64) {
+    state.imgFrame = env.frame;
     img.src = "data:image/png;base64," + p.screenshot_b64;
     $("screenNote").textContent = `即時畫面 · ${p.game || ""}`;
   } else {
@@ -303,7 +318,35 @@ function onStatus(env) {
     tr.insertCell().textContent = v;
   while (tb.rows.length > MAX_STEPS) tb.deleteRow(-1);
   for (const n of s.notes || []) event(n, /REJECTED|error|unavailable/.test(n));
+  if (s.display) onDisplay(s.display);
 }
+
+// ------------------------------------------------------------------ display speed (FPS)
+const FPS_MIN = 1, FPS_MAX = 60;
+const clampFps = v => Math.min(FPS_MAX, Math.max(FPS_MIN, Math.round(Number(v) || FPS_MIN)));
+let fpsTimer = null, fpsEditingUntil = 0;
+function onDisplay(d) {
+  const editing = Date.now() < fpsEditingUntil || document.activeElement === $("fpsNum");
+  if (!editing && d.mode !== "cli") {
+    state.displayMode = d.mode; $("fpsMode").value = d.mode;
+    $("fpsSlider").value = $("fpsNum").value = clampFps(d.fps);
+  } else if (!editing && d.target_fps) {  // CLI pacing until the page changes it
+    $("fpsSlider").value = $("fpsNum").value = clampFps(d.target_fps);
+  }
+  $("fpsUnit").textContent = $("fpsMode").value === "auto" ? "fps 上限" : "fps";
+  const f = v => v == null ? "–" : v;
+  $("fpsStat").textContent = `${d.mode === "auto" ? "Auto，依頁面畫圖速度調整" : d.mode === "cli" ? "使用啟動參數" : "手動"} · 目標 ${f(d.target_fps)} · 實際 ${f(d.actual_fps)} 步/秒 · 畫面 ${f(d.frame_fps)} 張/秒${d.page_ms != null ? ` · 頁面每張約 ${d.page_ms} ms` : ""}`;
+}
+function sendDisplay() {
+  const fps = clampFps($("fpsNum").value), mode = $("fpsMode").value;
+  $("fpsSlider").value = $("fpsNum").value = fps; state.displayMode = mode;
+  $("fpsUnit").textContent = mode === "auto" ? "fps 上限" : "fps";
+  send({ type: "view_config", frame: -1, ts: Date.now() / 1000, payload: { mode, fps } });
+}
+function queueDisplay() { fpsEditingUntil = Date.now() + 1500; clearTimeout(fpsTimer); fpsTimer = setTimeout(sendDisplay, 150); }
+$("fpsSlider").addEventListener("input", () => { $("fpsNum").value = $("fpsSlider").value; queueDisplay(); });
+$("fpsNum").addEventListener("change", queueDisplay);
+$("fpsMode").addEventListener("change", queueDisplay);
 
 function send(env) {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) { event("未連線，指令沒有送出", true); return; }
@@ -328,7 +371,7 @@ document.querySelectorAll("#pad button").forEach(b => b.onclick = () => sendPres
 const KEYS = { ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT",
                z: "A", Z: "A", x: "B", X: "B", Enter: "START", Shift: "SELECT", a: "L", s: "R" };
 document.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT" || !HUMAN_MODES.includes(state.mode) || !KEYS[e.key]) return;
+  if (["INPUT", "SELECT"].includes(e.target.tagName) || !HUMAN_MODES.includes(state.mode) || !KEYS[e.key]) return;
   e.preventDefault(); sendPress(KEYS[e.key]);
 });
 
