@@ -158,18 +158,28 @@ class Decision:
     reason: str = ""      # why this action
     mode: str = Mode.AUTO.value
     executed: bool = True  # False in SHADOW mode / when overridden by a human
+    #: Who produced the action of this step: "brain" | "human" | "none" (idle wait).
+    #: In ASSIST, actor == "human" means a dashboard action preempted the brain this step.
+    actor: str = "brain"
 
     TYPE = "decision"
+    ACTORS = ("brain", "human", "none")
+
+    def __post_init__(self) -> None:
+        if self.actor not in self.ACTORS:
+            raise SchemaError(f"actor must be one of {self.ACTORS}, got {self.actor!r}")
 
     def to_dict(self) -> Dict[str, Any]:
         return {"type": self.TYPE, "v": SCHEMA_VERSION, "brain": self.brain, "plan": self.plan,
-                "reason": self.reason, "mode": self.mode, "executed": self.executed}
+                "reason": self.reason, "mode": self.mode, "executed": self.executed,
+                "actor": self.actor}
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Decision":
         _check_type(d, cls.TYPE)
         return cls(brain=d["brain"], plan=d.get("plan", ""), reason=d.get("reason", ""),
-                   mode=Mode.parse(d.get("mode", "auto")).value, executed=bool(d.get("executed", True)))
+                   mode=Mode.parse(d.get("mode", "auto")).value, executed=bool(d.get("executed", True)),
+                   actor=d.get("actor", "brain"))
 
 
 # --------------------------------------------------------------------------- ModeCommand

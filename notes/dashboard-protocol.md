@@ -12,7 +12,7 @@ It talks to the live loop over one WebSocket: `ws://127.0.0.1:8765/ws`.
 * The page can only send `mode_command` and `action`. Any `action` it sends is re-tagged
   `source: "manual"`, so it can never pose as a brain.
 * Manual actions are passed to `Arbiter.submit_manual`, which rejects them unless the mode
-  is `manual`. The rejection is shown in the page's event list and recorded in
+  is `manual` or `assist` (in `assist` they preempt the brain for that step). The rejection is shown in the page's event list and recorded in
   `arbiter.rejected`.
 
 ## Envelope
@@ -28,7 +28,7 @@ in `game_brain/schema/messages.py`). Durations are always frames.
 | `status` | server → page | dashboard-only, not a schema message: `step`, `mode`, `adapter`, `proposed_action`, `executed_action`, `frames_advanced`, `pending_manual`, `notes` |
 | `error` | server → page | dashboard-only: `reason` for a refused inbound message |
 | `mode_command` | page → server | `ModeCommand`: `mode` ∈ auto / assist / manual / shadow |
-| `action` | page → server | `Action`: `presses: [{button, frames, release_frames}]` — manual mode only |
+| `action` | page → server | `Action`: `presses: [{button, frames, release_frames}]` — manual and assist modes (server side; see `decision.actor`) |
 
 Order per step: `observation`, then `decision`, then `status`. A newly opened tab is sent the
 latest envelope of each type first, so it shows the current state immediately.

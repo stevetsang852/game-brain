@@ -47,3 +47,37 @@ def test_example_log_is_valid():
     steps = [r for r in recs if r["kind"] == "step"]
     assert steps
     assert replay(EXAMPLE, MockAdapter()) == []
+
+
+def test_replay_of_assist_run_with_injected_human_action(tmp_path):
+    """Assist run where a 'dashboard' injects human actions mid-run; replay must match."""
+    from game_brain.arbiter import Arbiter
+    from game_brain.brain import RuleBrain
+    from game_brain.runlog import RunLogWriter
+    from game_brain.schema import ButtonPress
+
+    adapter, arb = MockAdapter(battle_tiles=()), Arbiter([RuleBrain()], mode="assist")
+    inject = {16: [Action([ButtonPress("LEFT", 8)], source="manual"),
+                   Action([ButtonPress("LEFT", 8)], source="manual")],
+              25: [Action.tap("B", source="manual")]}
+    path = tmp_path / "assist.jsonl"
+    adapter.reset()
+    with RunLogWriter(path) as log:
+        log.header(adapter=adapter.name, mode="assist")
+        for step in range(40):
+            for a in inject.get(step, []):
+                assert arb.submit_manual(a, origin="dashboard")
+            obs = adapter.observe()
+            res = arb.step(obs)
+            log.step(step, obs, res, adapter.act(res.executed))
+
+    steps = [r for r in read_log(path) if r["kind"] == "step"]
+    actors = [r["decision"]["actor"] for r in steps]
+    assert [i for i, a in enumerate(actors) if a == "human"] == [16, 17, 25]
+    assert all(a == "brain" for i, a in enumerate(actors) if i not in (16, 17, 25))
+    assert steps[16]["executed_action"]["source"] == "manual"
+    assert steps[18]["decision"]["brain"] == "rule"  # brain resumed
+    # the two human LEFT steps actually moved the player two tiles left (walls clamp at x=0)
+    before, after = steps[16]["observation"]["ram"], steps[18]["observation"]["ram"]
+    assert after["player_x"] == max(before["player_x"] - 2, 0) and after["player_y"] == before["player_y"]
+    assert replay(path, MockAdapter(battle_tiles=())) == []
