@@ -8,7 +8,7 @@ from game_brain import demo
 from game_brain.adapters.mock import MockHouseAdapter
 from game_brain.arbiter import Arbiter
 from game_brain.brain import BrainUnavailable, GoalPlanner, Milestone, PathBrain, RuleBrain, Target
-from game_brain.runlog import read_log, replay
+from game_brain.runlog import iter_steps, replay
 from game_brain.schema import Observation
 
 ROWS = ["#######",
@@ -108,7 +108,7 @@ def test_placeholder_milestone_idles():
 
 def test_pathbrain_walks_mock_house_to_outside_and_replays(tmp_path):
     s = demo.run("mock-house", steps=120, mode="auto", brains="path,rule", out_dir=str(tmp_path), quiet=True)
-    steps = [r for r in read_log(s["log"]) if r["kind"] == "step"]
+    steps = list(iter_steps(s["log"]))
     maps = [(r["observation"]["ram"].get("map_bank"), r["observation"]["ram"].get("map_id")) for r in steps]
     assert (4, 0) in maps and (3, 0) in maps
     first_out = maps.index((3, 0))
@@ -145,7 +145,7 @@ def test_real_firered_pathbrain_reaches_pallet_town(tmp_path):
     from game_brain.adapters import make_adapter
 
     s = demo.run("mgba", steps=650, mode="auto", brains="path,rule", out_dir=str(tmp_path), quiet=True)
-    steps = [r for r in read_log(s["log"]) if r["kind"] == "step"]
+    steps = list(iter_steps(s["log"]))
     maps = [(r["observation"]["ram"].get("map_bank"), r["observation"]["ram"].get("map_id")) for r in steps]
     assert (4, 1) in maps and (4, 0) in maps and (3, 0) in maps
     assert maps.index((4, 1)) < maps.index((4, 0)) < maps.index((3, 0))
