@@ -193,3 +193,115 @@ def test_real_demo_log_replays(tmp_path):
     from game_brain.runlog import replay
     s = run("mgba", steps=150, mode="auto", out_dir=str(tmp_path), quiet=True)
     assert replay(s["log"], make_adapter("mgba")) == []
+
+
+# ----------------------------------------------------------------- collision + warps
+
+import collections
+
+_DIRS = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
+
+
+def test_fake_map_layout_collision_and_warps():
+    core = FakeCore()
+    overworld(core, x=1, y=1)
+    m = core.memory
+    layout, vmap, events, warps, ts, attrs = 0x08100000, 0x02031000, 0x08200000, 0x08300000, 0x08400000, 0x08500000
+    m.put(fr.G_MAP_HEADER, layout, 4); m.put(fr.G_MAP_HEADER + 4, events, 4)
+    m.put(layout, 3, 4); m.put(layout + 4, 2, 4); m.put(layout + 0x10, ts, 4)
+    m.put(ts + 0x14, attrs, 4)
+    vw = 3 + 15
+    m.put(fr.G_BACKUP_MAP_LAYOUT, vw, 4); m.put(fr.G_BACKUP_MAP_LAYOUT + 8, vmap, 4)
+    def tile(x, y, metatile, coll):
+        m.put(vmap + 2 * ((y + 7) * vw + x + 7), metatile | (coll << 10), 2)
+    tile(0, 0, 1, 1); tile(1, 0, 1, 1); tile(2, 0, 1, 1)
+    tile(0, 1, 2, 0); tile(1, 1, 2, 0); tile(2, 1, 3, 0)
+    m.put(attrs + 4 * 3, 0x65, 4)  # metatile 3 = south arrow warp
+    m.put(events + 1, 1, 1); m.put(events + 8, warps, 4)
+    m.put(warps, 2, 2); m.put(warps + 2, 1, 2); m.put(warps + 6, 0, 1); m.put(warps + 7, 3, 1)
+    ram = MgbaFireRedAdapter(core=core).reset().ram
+    assert (ram["map_w"], ram["map_h"]) == (3, 2)
+    assert ram["collision"] == ["###", "..."]
+    assert ram["warps"] == [{"x": 2, "y": 1, "dest_bank": 3, "dest_map": 0, "behavior": 0x65, "enter": "DOWN"}]
+
+
+def _bfs(ram, goal):
+    """Shortest path over ram['collision'] (goal tile allowed even if blocked)."""
+    start = (ram["player_x"], ram["player_y"])
+    grid, w, h = ram["collision"], ram["map_w"], ram["map_h"]
+    prev = {start: None}
+    q = collections.deque([start])
+    while q:
+        cur = q.popleft()
+        if cur == goal:
+            break
+        for d, (dx, dy) in _DIRS.items():
+            n = (cur[0] + dx, cur[1] + dy)
+            if 0 <= n[0] < w and 0 <= n[1] < h and n not in prev and (grid[n[1]][n[0]] == "." or n == goal):
+                prev[n] = (cur, d)
+                q.append(n)
+    path, n = [], goal
+    while prev.get(n):
+        n, d = prev[n]
+        path.append(d)
+    return list(reversed(path)) if goal in prev else None
+
+
+def _walk(a, path):
+    for d in path:
+        a.act(Action([ButtonPress(d, 16, 16)]))
+
+
+def _take_warp(a, warp):
+    path = _bfs(a.observe().ram, (warp["x"], warp["y"]))
+    assert path is not None, f"no path to {warp}"
+    if warp["enter"] == "UP" and path and path[-1] == "UP":
+        path = path[:-1]  # doors: stand below, then walk UP into the door
+    _walk(a, path)
+    a.act(Action([ButtonPress(warp["enter"], 90, 0)]))
+    a.act(Action.wait(300))
+    return a.observe()
+
+
+@real
+def test_real_collision_matches_movement():
+    a = make_adapter("mgba")
+    a.reset()
+    _mash_to_overworld(a)
+    a.act(Action.wait(120))
+    checked = 0
+    for d in ["UP", "LEFT", "DOWN", "RIGHT", "RIGHT", "UP", "UP", "LEFT"]:
+        o = a.observe().ram
+        dx, dy = _DIRS[d]
+        tx, ty = o["player_x"] + dx, o["player_y"] + dy
+        free = 0 <= tx < o["map_w"] and 0 <= ty < o["map_h"] and o["collision"][ty][tx] == "."
+        a.act(Action([ButtonPress(d, 16, 30)]))
+        n = a.observe().ram
+        moved = (n["player_x"], n["player_y"]) != (o["player_x"], o["player_y"])
+        assert moved == free, (d, (o["player_x"], o["player_y"]), free, moved)
+        checked += 1
+    assert checked == 8
+    a.close()
+
+
+@real
+def test_real_pathfind_out_of_the_house():
+    """2F -> stairs -> 1F -> door mat -> Pallet Town, using only collision + warps from RAM."""
+    a = make_adapter("mgba")
+    a.reset()
+    _mash_to_overworld(a)
+    a.act(Action.wait(120))
+    stairs = [w for w in a.observe().ram["warps"] if w["enter"]]
+    assert [(w["x"], w["y"], w["dest_bank"], w["dest_map"], w["enter"]) for w in stairs] == [(10, 2, 4, 0, "LEFT")]
+    o = _take_warp(a, stairs[0])
+    assert (o.ram["map_bank"], o.ram["map_id"]) == (4, 0)
+    exits = [w for w in o.ram["warps"] if w["enter"] and (w["dest_bank"], w["dest_map"]) == (3, 0)]
+    assert exits, o.ram["warps"]
+    o = _take_warp(a, exits[0])
+    assert (o.ram["map_bank"], o.ram["map_id"]) == (3, 0)  # Pallet Town
+    assert o.position == (6, 8)
+    home = [w for w in o.ram["warps"] if (w["dest_bank"], w["dest_map"]) == (4, 0)]
+    assert home and home[0]["enter"] == "UP" and (home[0]["x"], home[0]["y"]) == (6, 7)
+    o = _take_warp(a, home[0])
+    assert (o.ram["map_bank"], o.ram["map_id"]) == (4, 0)  # back inside through the door
+    a.close()

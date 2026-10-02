@@ -55,6 +55,19 @@ ROM headless, mashing A through the intro (8 frames A, 8 frames released):
 | `map_bank`, `map_id` | `*gSaveBlock1Ptr +4/+5` | 4/1 (Pallet Town, player's house 2F) on arrival |
 | `facing` | `gObjectEvents[gPlayerAvatar.objectEventId].facingDirection` (`0x02036E38`, `0x02037078+5`, low nibble of `+0x18`) | 1/2/3/4 = DOWN/UP/LEFT/RIGHT after each walk above |
 
+| `map_w`, `map_h`, `collision` | `gMapHeader` (`0x02036DFC`) `->mapLayout` width/height; collision bits 10-11 of each metatile in `gBackupMapLayout` (`0x03005040`, coords +7) | `collision` is rows of `#` (blocked) / `.` (free) over the map layout. In the player's room, 8 moves were predicted from the grid and compared with whether the player actually moved: 8/8 match |
+| `warps` | `gMapHeader->events` (`+4`): warpCount `+1`, warps `+8`, 8 bytes each (`x, y, elevation, warpId, mapNum, mapGroup`); `behavior` = metatile behavior of the warp tile (tileset attributes, bits 0-8) | each warp: `x, y, dest_bank, dest_map, behavior, enter`. Walked with BFS over `collision` only: 2F stairs (10,2) + LEFT goes to 1F (4/0); 1F mat (4,8) + DOWN goes to Pallet Town (3/0) at (6,8); Pallet door (6,7) + UP goes back to 4/0 |
+
+`enter` is the button that triggers the warp from (or, for doors, into) its tile, and is only set for
+behaviors verified above: `0x65` south arrow mat = DOWN, `0x69` door = UP (walk into it from the tile
+below), `0x6F` the house stairs = LEFT. Other warps keep `enter: null`. Note the event table can
+list warps that do not trigger: on 1F, (5,8) and (3,9) are listed but have behavior 0 and pressing
+DOWN there does nothing; only (4,8) works.
+
+Not handled yet: NPCs/objects blocking tiles, ledges (one-way jumps) and elevation, other warp
+behaviors. `collision` and `warps` are re-read on every observe (a few hundred reads, under 1 ms) so
+they are never stale during a map transition.
+
 `player_x/y`, `map_*` and `facing` are only emitted while `callback2 == CB2_Overworld`, per the
 interface (no position outside the overworld).
 
