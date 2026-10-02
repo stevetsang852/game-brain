@@ -161,6 +161,10 @@ class Decision:
     #: Who produced the action of this step: "brain" | "human" | "none" (idle wait).
     #: In ASSIST, actor == "human" means a dashboard action preempted the brain this step.
     actor: str = "brain"
+    #: Optional navigation info (PathBrain). Omitted from the wire format when None.
+    goal: Optional[str] = None                       # human-readable current goal
+    path: Optional[List[List[int]]] = None           # [[x, y], ...] grid coords; first = current position
+    milestones: Optional[List[Dict[str, Any]]] = None  # [{"id", "label", "done"}, ...]
 
     TYPE = "decision"
     ACTORS = ("brain", "human", "none")
@@ -168,18 +172,41 @@ class Decision:
     def __post_init__(self) -> None:
         if self.actor not in self.ACTORS:
             raise SchemaError(f"actor must be one of {self.ACTORS}, got {self.actor!r}")
+        if self.goal is not None and not isinstance(self.goal, str):
+            raise SchemaError("goal must be a string or None")
+        if self.path is not None:
+            try:
+                if any(len(p) != 2 for p in self.path):
+                    raise ValueError
+                self.path = [[int(p[0]), int(p[1])] for p in self.path]
+            except (TypeError, ValueError):
+                raise SchemaError("path must be a list of [x, y] pairs") from None
+        if self.milestones is not None:
+            out = []
+            for m in self.milestones:
+                if not isinstance(m, dict) or "id" not in m:
+                    raise SchemaError("milestones must be a list of {id, label, done}")
+                out.append({"id": str(m["id"]), "label": str(m.get("label", m["id"])),
+                            "done": bool(m.get("done", False))})
+            self.milestones = out
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"type": self.TYPE, "v": SCHEMA_VERSION, "brain": self.brain, "plan": self.plan,
-                "reason": self.reason, "mode": self.mode, "executed": self.executed,
-                "actor": self.actor}
+        d = {"type": self.TYPE, "v": SCHEMA_VERSION, "brain": self.brain, "plan": self.plan,
+             "reason": self.reason, "mode": self.mode, "executed": self.executed,
+             "actor": self.actor}
+        for k in ("goal", "path", "milestones"):
+            v = getattr(self, k)
+            if v is not None:
+                d[k] = v
+        return d
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Decision":
         _check_type(d, cls.TYPE)
         return cls(brain=d["brain"], plan=d.get("plan", ""), reason=d.get("reason", ""),
                    mode=Mode.parse(d.get("mode", "auto")).value, executed=bool(d.get("executed", True)),
-                   actor=d.get("actor", "brain"))
+                   actor=d.get("actor", "brain"), goal=d.get("goal"), path=d.get("path"),
+                   milestones=d.get("milestones"))
 
 
 # --------------------------------------------------------------------------- ModeCommand

@@ -16,16 +16,21 @@
 | 項目 | 狀態 |
 |---|---|
 | 模擬器 | ✅ 用 mGBA 0.10.5 Python bindings **headless** 行真 FireRed（`--adapter mgba`）；決定性 act + replay 已驗證（見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)） |
-| RuleBrain | ⚠️ 只係**狂按 A 過開場**，入到主角房間之後**行固定圖案亂行**；未有尋路、未有戰鬥邏輯 |
+| RuleBrain | ⚠️ 只係**狂按 A 過開場**，入到主角房間之後**行固定圖案亂行**；而家主要做 PathBrain 嘅後備 |
+| PathBrain | ✅ **A\* 尋路**（4 方向）＋目標清單：真 ROM 上由主角房 2F → 1F → **真新鎮（map 3/0）**；未有戰鬥邏輯，M2（研究所、御三家、第一戰）仲係 placeholder |
 | RandomBrain | ✅ 有 seed、可重現嘅隨機按鍵（baseline / 後備） |
 | LLMBrain | ⛔ **stub**：未接任何 LLM provider、無 API key、唔會打任何 API；呼叫時會回報 unavailable，arbiter 自動 fallback |
-| RAM 位址 | 只有 [`notes/mgba-bridge.md`](notes/mgba-bridge.md) 表入面嗰啲係**喺呢隻 ROM 上驗證過**：`vblank_counter`、`held_keys`、`callback2`/`scene`、`player_x`/`player_y`、`map_bank`/`map_id`、`facing`。**`in_battle`、`party_count` 未驗證，mGBA adapter 暫時唔會輸出** |
+| RAM 位址 | 只有 [`notes/mgba-bridge.md`](notes/mgba-bridge.md) 表入面嗰啲係**喺呢隻 ROM 上驗證過**：`vblank_counter`、`held_keys`、`callback2`/`scene`、`player_x`/`player_y`、`map_bank`/`map_id`、`facing`、`map_w`/`map_h`/`collision`/`warps`（PR #7）。**`in_battle`、`party_count` 未驗證，mGBA adapter 暫時唔會輸出** |
 | ROM | 我哋手上嗰隻 SHA1 係 `e0194282c427689768f8e618a285552f264524a4`，**唔係**乾淨 FireRed US 1.0（`41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`），亦唔係 Rev 1（`dd5945db…`），應該係改過嘅 image。所以 pokefirered 嘅位址全部要自己逐個驗證 |
 | Dashboard | ✅ 本機網頁：即時畫面、計劃、最近步驟（顯示邊個做）、模式切換、Manual/Assist 手動按鍵 |
 | CI | ⛔ 未有（現有 token 無 `workflow` scope，推唔到 `.github/workflows`） |
 | License | 未揀（private repo，團隊之後決定） |
 
-實測（2026-10-02，共用 box）：`--adapter mgba --steps 700 --mode auto` 跑 6744 frames，約 4.5 秒。喺 frame 4456（step 557）進入 overworld，主角出現喺 map 4/1（真新鎮主角屋 2F）嘅 (6,6)，之後喺房入面行，最後停喺 (4,5)。用同一個 log `replay()`，0 mismatch。
+實測（2026-10-02，共用 box）：
+
+- **RuleBrain 單獨跑**：`--adapter mgba --steps 700 --mode auto` 跑 6744 frames，約 4.5 秒。喺 frame 4456（step 557）進入 overworld，主角出現喺 map 4/1（真新鎮主角屋 2F）嘅 (6,6)，之後喺房入面亂行。
+- **PathBrain**：`--adapter mgba --brains path,rule --steps 700` 喺 step 575（frame 4832）落到 1F（4/0），step 594（frame 5244）出到**真新鎮 3/0**，最後企定喺 (6,8)。
+- 兩個 log 用 `replay()` 都係 0 mismatch。
 
 ## 架構
 
@@ -36,6 +41,7 @@ flowchart LR
         MGBA["gba_mgba: MgbaFireRedAdapter<br/>(mGBA 0.10.5 bindings)"]
     end
     subgraph Brains["brain/"]
+        PB["PathBrain (A* + goals)"]
         RB[RuleBrain]
         RND[RandomBrain]
         LLM["LLMBrain (stub)"]
@@ -79,6 +85,7 @@ pip install -r requirements.txt        # 只得 pytest
 python -m game_brain.demo --adapter mock --steps 60 --mode auto
 python -m game_brain.demo --adapter mock --steps 40 --mode shadow --switch 20:auto
 python -m game_brain.demo --adapter mock --steps 20 --brains llm,rule   # LLM stub -> fallback 去 rule
+python -m game_brain.demo --adapter mock-house --brains path,rule --steps 80   # PathBrain 行出合成「屋企」
 python -m game_brain.dashboard --adapter mock --mode auto               # 開 http://127.0.0.1:8765/
 ```
 
@@ -159,13 +166,35 @@ print(replay('runs/<timestamp>/run.jsonl', make_adapter('mock')))   # [] = 完�
 
 真 ROM 嘅 log 就用 `make_adapter('mgba')`，而且要設定同上面一樣嘅 env。因為時間全部用 frame 計，又冇 wall-clock sleep，同一個起點加同一串 Action 一定得到同一個結果。範例 log：[`examples/mock_run.jsonl`](examples/mock_run.jsonl)（mock 遊戲，合成數據）。
 
+## PathBrain（自動尋路）
+
+```bash
+python -m game_brain.demo --adapter mgba --brains path,rule --steps 700   # 真 ROM（env 同上）
+```
+
+- **目標清單**（`game_brain/brain/goals.py`）：
+  - M1：過開場（RuleBrain 狂按 A）→ 離開睡房（2F 樓梯）→ 離開屋企（1F 門口地氈）→ 企喺真新鎮。
+  - M2 暫時係 placeholder：去研究所 → 攞御三家 → 第一場戰。
+  - 去到 placeholder，PathBrain 會原地等，唔會亂行。
+- **地圖**：由 `Observation.ram` 嘅 `map_w`/`map_h`/`collision`/`warps` 讀（`RamMapProvider`），每張 map 只 parse 一次。
+  - `warps` 只用 `enter` 唔係 `null` 嘅。
+  - Warp 格可行，就企上去撳 `enter`（地氈、樓梯）。
+  - Warp 格係牆，就由後面嗰格行 `enter` 方向入去（門）。
+- **每一步**：
+  - 唔係面向要行嘅方向，就先輕按一下轉身；之後一個 Action 行一格。
+  - 轉 map 之後，等位置穩定先再行。
+  - 轉唔到身：當角色被凍結（淡入、劇情），等。
+  - 行唔到：先撳 A（可能係對話框）再試；同一格失敗兩次就當有 NPC 擋住，暫時封咗嗰格，再用 A\* 重新規劃。
+- **Decision 新增**（可選，dashboard 可以畫）：`goal`、`path`（`[[x,y],…]`，第一個係現位置）、`milestones`（`[{id,label,done}]`）。
+- 詳細合約同限制：[`notes/nav.md`](notes/nav.md)。
+
 ## 測試
 
 ```bash
 python -m pytest -q
 ```
 
-- 冇 mGBA bindings 或者冇 `GAME_BRAIN_ROM` 嘅時候，真 ROM 測試（`tests/test_mgba_adapter.py` 其中 5 個）會 **skip**，其餘照跑。
+- 冇 mGBA bindings 或者冇 `GAME_BRAIN_ROM` 嘅時候，真 ROM 測試會 **skip**，其餘照跑。真 ROM 測試包括 `tests/test_mgba_adapter.py` 其中一部分，同 `tests/test_path_brain.py` 嘅「行到真新鎮」。
 - 兩樣都設定好，就會全部跑。
 
 ## 目錄
@@ -173,23 +202,28 @@ python -m pytest -q
 ```
 game_brain/
   schema/       訊息 + JSON / envelope (de)serialisation
-  brain/        Brain interface, RuleBrain, RandomBrain, LLMBrain stub
+  brain/        Brain interface, RuleBrain, RandomBrain, PathBrain, goals (milestones), LLMBrain stub
+  nav/          MapGrid / MapProvider contract, RamMapProvider, A*
   arbiter/      模式處理 + brain fallback
-  adapters/     Adapter interface, MockAdapter, gba_mgba/ (MgbaFireRedAdapter + FireRed RAM map)
+  adapters/     Adapter interface, MockAdapter, MockHouseAdapter (合成地圖), gba_mgba/ (MgbaFireRedAdapter + FireRed RAM map)
   dashboard/    本機網頁 dashboard（HTTP + WebSocket，只用標準庫）+ live loop
   runlog.py     JSONL writer / reader / replay
   demo.py       end-to-end loop CLI
 examples/mock_run.jsonl   細份合成 run log（mock 遊戲，無遊戲數據）
-notes/          design.md, adapter-interface.md, mgba-bridge.md, dashboard-protocol.md, references.md
+notes/          design.md, adapter-interface.md, mgba-bridge.md, dashboard-protocol.md, nav.md, references.md, ml-decision.md
 tests/          pytest
 ```
 
 ## Roadmap（第 0–2 週目標：由真新鎮行到常青市道館門口）
 
 1. **驗證 `in_battle`、`party_count`**：要先去到攞咗御三家、打過第一場戰嘅 state，用同 `mgba-bridge.md` 一樣嘅方法逐個驗證，之後先輸出。
-2. **行路大腦**：讀地圖 / 碰撞資料，用 A* 尋路，取代而家嘅固定圖案；處理門口、樓梯、轉 map。
+2. **行路大腦**：✅ M1 完成（PathBrain：A\*、門口／樓梯、轉 map，真 ROM 行到真新鎮）。下一步：
+   - 單向格（ledge）同方向性阻擋；
+   - 跨 map 連接（行出 map 邊界）；
+   - M2 目標（研究所、御三家）；
+   - 處理 Oak 喺北面草叢嘅劇情。
 3. **戰鬥大腦**：基本揀招、換隻、逃走；需要 (1) 先完成。
 4. **LLM planner**：揀好 provider、有 API key 之後，先實作 `LLMBrain`（高層計劃，交俾規則 / 尋路大腦執行）。
 5. **CI**：token 有 `workflow` scope 之後先加 GitHub Actions，跑 `pytest`（mock 部分）。
 
-參考資料：[`notes/references.md`](notes/references.md)（Research Manager 整理）。
+參考資料：[`notes/references.md`](notes/references.md)、學習型決策評估 [`notes/ml-decision.md`](notes/ml-decision.md)（Research Manager 整理）。
