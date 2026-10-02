@@ -2,7 +2,8 @@
 
 * ``GET /``    -> the single-page dashboard (``static/index.html``)
 * ``GET /ws``  -> WebSocket. Server pushes envelopes ``{type, frame, ts, payload}``;
-  the page sends back ``mode_command`` and ``action`` envelopes.
+  the page sends back ``mode_command`` and ``action`` envelopes, plus the display-only
+  ``view_config`` / ``frame_ack`` (see :mod:`.pacing`).
 
 Security: binds to 127.0.0.1 by default and refuses to bind a non-loopback address;
 the one exception is ``0.0.0.0`` *inside a container* (see :func:`container_bind_allowed`),
@@ -27,12 +28,15 @@ from urllib.parse import urlparse
 
 from ..schema import Action, ModeCommand, SchemaError, from_envelope
 from . import ws
+from .pacing import FrameAck, ViewConfig
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).with_name("static")
 
 #: envelope types the page may send. Everything else is refused.
-INBOUND_TYPES = ("mode_command", "action")
+INBOUND_TYPES = ("mode_command", "action", "view_config", "frame_ack")
+#: dashboard-only display messages, never part of the game schema (see pacing.py)
+_VIEW_TYPES = {"view_config": ViewConfig.from_envelope, "frame_ack": FrameAck.from_envelope}
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
 
@@ -190,6 +194,9 @@ class DashboardServer:
             t = env.get("type") if isinstance(env, dict) else None
             if t not in INBOUND_TYPES:
                 raise SchemaError(f"type {t!r} may not be sent by the dashboard (allowed: {INBOUND_TYPES})")
+            if t in _VIEW_TYPES:
+                self._inbox.put(_VIEW_TYPES[t](env))
+                return
             msg = from_envelope(env)
             if isinstance(msg, Action):  # the page can never claim to be a brain
                 msg = Action(list(msg.presses), source="manual")

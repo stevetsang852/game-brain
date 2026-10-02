@@ -23,6 +23,7 @@ from ..arbiter import Arbiter
 from ..brain import make_brain
 from ..runlog import RunLogWriter
 from ..schema import Action, ModeCommand, Mode, to_envelope
+from .pacing import FrameAck, Pacer, ViewConfig
 from .server import DashboardServer
 
 
@@ -33,7 +34,8 @@ def _screenshot_b64(adapter, tmpdir: Path) -> Optional[str]:
     return base64.b64encode(Path(path).read_bytes()).decode("ascii")
 
 
-def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: int = 0, frame: int = 0):
+def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: int = 0, frame: int = 0,
+                   pacer: Optional[Pacer] = None):
     """Feed dashboard input into the arbiter. Returns a list of human-readable outcomes."""
     outcomes = []
     for msg in server.poll():
@@ -43,6 +45,12 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
             outcomes.append(f"mode -> {arbiter.mode.value}")
             if log:
                 log.event("mode_change", step=step, frame=frame, mode=arbiter.mode.value, issued_by="dashboard")
+        elif isinstance(msg, ViewConfig):  # display only: never logged, never reaches the arbiter
+            if pacer:
+                outcomes.append(pacer.apply(msg))
+        elif isinstance(msg, FrameAck):
+            if pacer:
+                pacer.ack(msg)
         elif isinstance(msg, Action):
             ok = arbiter.submit_manual(msg, origin="dashboard")
             buttons = "+".join(p.button for p in msg.presses) or "(empty)"
@@ -60,6 +68,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
     arbiter.reset()
     run_dir = Path(out_dir) / time.strftime("%Y%m%d-%H%M%S")
     tmp = Path(tempfile.mkdtemp(prefix="gb-dash-"))
+    pacer = Pacer(step_delay, screenshot_every)
     step = 0
     with RunLogWriter(run_dir / "run.jsonl") as log:
         log.header(adapter=adapter.name, brains=[b.name for b in brain_objs], mode=arbiter.mode.value,
@@ -67,10 +76,13 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
         obs = adapter.reset()
         try:
             while not steps or step < steps:
-                outcomes = apply_commands(server, arbiter, log, step, obs.frame)
+                started = pacer.clock()
+                outcomes = apply_commands(server, arbiter, log, step, obs.frame, pacer)
                 obs = adapter.observe()
-                if screenshot_every and step % screenshot_every == 0:
+                if pacer.want_screenshot(step, getattr(server, "client_count", 1) > 0):
                     obs.screenshot_b64 = _screenshot_b64(adapter, tmp)
+                    if obs.screenshot_b64:
+                        pacer.sent_screenshot(obs.frame)
                 result = arbiter.step(obs)
                 advanced = adapter.act(result.executed) if result.executed else 0
                 log.step(step, obs, result, advanced)
@@ -81,13 +93,15 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                     "proposed_action": result.proposed.to_dict() if result.proposed else None,
                     "executed_action": result.executed.to_dict() if result.executed else None,
                     "frames_advanced": advanced, "pending_manual": arbiter.pending_manual,
-                    "notes": list(result.notes) + outcomes,
+                    "notes": list(result.notes) + outcomes, "display": pacer.status(),
                 }})
                 if not quiet and outcomes:
                     print(f"step {step} frame {obs.frame}: " + "; ".join(outcomes))
                 step += 1
-                if step_delay:
-                    time.sleep(step_delay)
+                pacer.stepped()
+                delay = pacer.sleep_after(started)
+                if delay:
+                    time.sleep(delay)
         except KeyboardInterrupt:
             pass
     adapter.close()

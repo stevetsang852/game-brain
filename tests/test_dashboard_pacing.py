@@ -1,0 +1,135 @@
+"""Display pacing (FPS): unit tests for Pacer, server validation, and the live loop end to end."""
+
+import json
+import threading
+import time
+
+import pytest
+
+from game_brain.dashboard import DashboardServer
+from game_brain.dashboard.live import run
+from game_brain.dashboard.pacing import FPS_MAX, FrameAck, Pacer, PacingError, ViewConfig
+from game_brain.runlog import iter_steps
+
+from test_dashboard import Client, wait_for  # noqa: E402  (same tests/ dir)
+
+
+class Clock:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_view_config_validation_and_clamp():
+    assert ViewConfig.from_envelope({"payload": {"mode": "manual", "fps": 500}}).fps == FPS_MAX
+    assert ViewConfig.from_envelope({"payload": {"mode": "auto", "fps": 0}}).fps == 1
+    assert ViewConfig.from_envelope({"payload": {"mode": "manual", "fps": 12.5}}).fps == 12.5
+    for bad in ({"mode": "turbo", "fps": 5}, {"mode": "manual", "fps": "9"}, {"mode": "manual", "fps": True},
+                {"mode": "manual", "fps": float("nan")}, {"mode": "manual"}):
+        with pytest.raises(PacingError):
+            ViewConfig.from_envelope({"payload": bad})
+    with pytest.raises(PacingError):
+        ViewConfig.from_envelope({})
+    for bad in (-1, "3", None, True):
+        with pytest.raises(PacingError):
+            FrameAck.from_envelope({"frame": bad})
+
+
+def test_cli_mode_keeps_step_delay_exactly():
+    p = Pacer(step_delay=0.25, screenshot_every=2, clock=Clock())
+    assert p.mode == "cli" and p.target_fps() is None and p.sleep_after(p.clock()) == 0.25
+    assert [p.want_screenshot(i) for i in range(4)] == [True, False, True, False]
+    assert Pacer(step_delay=0, clock=Clock()).sleep_after(0) == 0
+
+
+def test_manual_fps_subtracts_step_time():
+    clk = Clock(); p = Pacer(clock=clk)
+    p.apply(ViewConfig("manual", 10))
+    started = clk(); clk.t += 0.03
+    assert p.sleep_after(started) == pytest.approx(0.07)
+    clk.t += 0.5
+    assert p.sleep_after(started) == 0.0  # slow step: never negative
+
+
+def test_auto_waits_for_ack_and_follows_page_speed():
+    clk = Clock(); p = Pacer(clock=clk)
+    p.apply(ViewConfig("auto", 60))
+    assert not p.want_screenshot(0, has_clients=False)  # nobody watching -> no PNGs
+    assert p.want_screenshot(0) and p.target_fps() == 60
+    p.sent_screenshot(10)
+    clk.t += 0.05
+    assert not p.want_screenshot(1)  # frame 10 still in flight
+    p.ack(FrameAck(9, clk()))        # stale ack does not release it
+    assert not p.want_screenshot(1)
+    # page needs 0.2 s to receive + draw each frame -> ~5 steps/s
+    for i in range(12):
+        clk.t += 0.2
+        p.ack(FrameAck(10 + i, clk()))
+        assert p.want_screenshot(2 + i)
+        p.sent_screenshot(11 + i)
+    assert p.target_fps() == pytest.approx(5, abs=0.5)
+    for i in range(20):                # fast page (5 ms) -> capped at the slider value
+        clk.t += 0.005
+        p.ack(FrameAck(22 + i, clk()))
+        p.sent_screenshot(23 + i)
+    assert p.target_fps() == 60
+    p.apply(ViewConfig("auto", 15))
+    assert p.target_fps() == 15
+    p.sent_screenshot(50)
+    clk.t += 1.5                       # page vanished: in-flight frame times out
+    assert p.want_screenshot(99)
+
+
+def test_server_queues_view_messages_and_refuses_bad_ones():
+    with DashboardServer("127.0.0.1", 0) as server:
+        c = Client(server.port)
+        assert wait_for(lambda: server.client_count == 1)
+        c.send({"type": "view_config", "frame": -1, "ts": 0, "payload": {"mode": "auto", "fps": 999}})
+        c.send({"type": "frame_ack", "frame": 42, "ts": 0, "payload": {}})
+        c.send({"type": "view_config", "frame": -1, "ts": 0, "payload": {"mode": "warp", "fps": 5}})
+        err = c.recv_until(lambda e: e["type"] == "error")
+        assert "view_config mode" in err["payload"]["reason"]
+        got = []
+        assert wait_for(lambda: got.extend(server.poll()) or len(got) >= 2)
+        assert isinstance(got[0], ViewConfig) and got[0].fps == FPS_MAX
+        assert isinstance(got[1], FrameAck) and got[1].frame == 42
+        c.close()
+
+
+def _steps(log):
+    return [{k: v for k, v in s.items() if k != "ts"} for s in iter_steps(log)]
+
+
+def test_live_fps_change_takes_effect_and_log_is_unchanged(tmp_path):
+    """Same seed, same steps: a run whose FPS is changed mid-way logs exactly what a plain run logs."""
+    with DashboardServer("127.0.0.1", 0) as server:
+        base = run(server, "mock", "auto", steps=40, step_delay=0, out_dir=str(tmp_path / "a"), quiet=True)
+    with DashboardServer("127.0.0.1", 0) as server:
+        c = Client(server.port)
+        assert wait_for(lambda: server.client_count == 1)
+        result = {}
+        t = threading.Thread(target=lambda: result.update(
+            run(server, "mock", "auto", steps=40, step_delay=0, out_dir=str(tmp_path / "b"), quiet=True)))
+        t.start()
+        c.recv_until(lambda e: e["type"] == "status" and e["payload"]["step"] >= 2)
+        c.send({"type": "view_config", "frame": -1, "ts": 0, "payload": {"mode": "manual", "fps": 20}})
+        st = c.recv_until(lambda e: e["type"] == "status" and e["payload"]["display"]["mode"] == "manual")
+        assert st["payload"]["display"]["fps"] == 20 and any("display -> manual 20" in n for n in st["payload"]["notes"])
+        t0, s0 = time.monotonic(), st["payload"]["step"]
+        st = c.recv_until(lambda e: e["type"] == "status" and e["payload"]["step"] >= s0 + 10)
+        rate = 10 / (time.monotonic() - t0)
+        assert 10 < rate < 30, rate  # ~20 steps/s instead of flat out
+        t.join(timeout=20)
+        c.close()
+    assert _steps(base["log"]) == _steps(result["log"])
+    events = [json.loads(l) for l in open(result["log"]) if '"kind"' in l]
+    assert not any("display" in json.dumps(e) for e in events if e.get("kind") != "step")
+
+
+def test_page_has_fps_controls():
+    from pathlib import Path
+    html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
+    for needle in ('id="fpsMode"', 'id="fpsSlider"', 'id="fpsNum"', '"view_config"', '"frame_ack"', 'max="60"'):
+        assert needle in html
