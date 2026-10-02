@@ -5,6 +5,8 @@
   the page sends back ``mode_command`` and ``action`` envelopes.
 
 Security: binds to 127.0.0.1 by default and refuses to bind a non-loopback address;
+the one exception is ``0.0.0.0`` *inside a container* (see :func:`container_bind_allowed`),
+where the host side must still publish the port on 127.0.0.1 only;
 WebSocket upgrades from a non-local ``Origin`` are rejected (stops other web pages
 in your browser from driving the game). Inbound frames are capped at 64 KiB.
 """
@@ -14,6 +16,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
+import os
 import queue
 import socket
 import threading
@@ -40,6 +43,26 @@ def _is_loopback(host: str) -> bool:
         return ipaddress.ip_address(host.strip("[]")).is_loopback
     except ValueError:
         return False
+
+
+#: set by the Dockerfile; together with a container marker file it allows ``0.0.0.0``.
+CONTAINER_ENV = "GAME_BRAIN_IN_CONTAINER"
+_CONTAINER_MARKERS = ("/.dockerenv", "/run/.containerenv")
+
+
+def container_bind_allowed(host: str, env=None, markers=_CONTAINER_MARKERS) -> bool:
+    """``0.0.0.0`` is allowed only inside a container, i.e. when BOTH the env flag
+    ``GAME_BRAIN_IN_CONTAINER=1`` is set AND a docker/podman marker file exists.
+
+    Docker's ``-p 127.0.0.1:8765:8765`` forwards to the container's own network
+    interface, not its loopback, so the server must listen on 0.0.0.0 *in the
+    container*; the host still only exposes 127.0.0.1. Any other address (a LAN IP,
+    ``::``) stays refused, and the env flag alone does nothing on a bare machine.
+    """
+    env = os.environ if env is None else env
+    if host != "0.0.0.0" or env.get(CONTAINER_ENV) != "1":
+        return False
+    return any(os.path.exists(m) for m in markers)
 
 
 class _Client:
@@ -70,8 +93,9 @@ class DashboardServer:
     """Runs in a background thread. Use :meth:`broadcast` to push, :meth:`poll` to read commands."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8765):
-        if not _is_loopback(host):
-            raise ValueError(f"dashboard only binds loopback addresses, not {host!r}")
+        if not (_is_loopback(host) or container_bind_allowed(host)):
+            raise ValueError(f"dashboard only binds loopback addresses, not {host!r} "
+                             f"(0.0.0.0 is allowed only inside the game-brain container)")
         self._clients: List[_Client] = []
         self._clients_lock = threading.Lock()
         self._inbox: "queue.Queue[Any]" = queue.Queue()
@@ -108,7 +132,9 @@ class DashboardServer:
     # ------------------------------------------------------------------ lifecycle
     @property
     def url(self) -> str:
-        return f"http://{self.host}:{self.port}/"
+        # in the container we listen on 0.0.0.0, but the host publishes 127.0.0.1 only
+        host = "127.0.0.1" if self.host == "0.0.0.0" else self.host
+        return f"http://{host}:{self.port}/"
 
     def start(self) -> "DashboardServer":
         self._thread = threading.Thread(target=self._httpd.serve_forever, name="dashboard", daemon=True)

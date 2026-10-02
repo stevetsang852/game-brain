@@ -92,9 +92,22 @@ def test_unmasked_client_frame_refused():
         ws.read_frame(io.BytesIO(ws.encode_frame(b"hi")), require_mask=True)
 
 
-def test_refuses_non_loopback_bind():
+def test_refuses_non_loopback_bind(monkeypatch):
+    monkeypatch.delenv("GAME_BRAIN_IN_CONTAINER", raising=False)
     with pytest.raises(ValueError):
         DashboardServer("0.0.0.0", 0)
+
+
+def test_container_bind_needs_env_and_marker(tmp_path):
+    from game_brain.dashboard.server import container_bind_allowed
+    marker = tmp_path / ".dockerenv"
+    on = {"GAME_BRAIN_IN_CONTAINER": "1"}
+    assert not container_bind_allowed("0.0.0.0", env=on, markers=(str(marker),))  # env alone: no
+    marker.touch()
+    assert not container_bind_allowed("0.0.0.0", env={}, markers=(str(marker),))  # marker alone: no
+    assert container_bind_allowed("0.0.0.0", env=on, markers=(str(marker),))      # both: yes
+    for other in ("192.168.1.5", "::", "10.0.0.1"):                               # only 0.0.0.0
+        assert not container_bind_allowed(other, env=on, markers=(str(marker),))
 
 
 def test_serves_page(server):

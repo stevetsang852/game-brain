@@ -119,11 +119,40 @@ python -m game_brain.dashboard --adapter mgba                      # 開 http://
 
 ### Dashboard 只綁 127.0.0.1（刻意設計）
 
-Dashboard 可以控制遊戲，所以**只會 bind 嗰部機嘅 127.0.0.1**。用 `--host 0.0.0.0` 會直接報錯拒絕，唔好試圖改成對外開放。
+Dashboard 可以控制遊戲，所以**只會 bind 嗰部機嘅 127.0.0.1**。用 `--host 0.0.0.0` 會直接報錯拒絕，唔好試圖改成對外開放。唯一例外係喺 game-brain 嘅 Docker container 入面（見下面「Docker」），而且 host 嗰邊都係只開 127.0.0.1。
 
 - **喺共用 box 行：** 請喺 **box 自己嘅桌面瀏覽器**打開 http://127.0.0.1:8765/。喺你自己電腦嘅瀏覽器開係連唔到嘅。
 - **想喺自己電腦睇：** 喺自己部機裝 mGBA（build bindings）同 ROM，然後本機行。
 - 經 SSH tunnel 遠端睇，之後先補文件。**永遠唔好 bind 0.0.0.0。**
+
+### 3. Docker（本機用，唔使自己 build mGBA）
+
+Image 入面會由 source build mGBA 0.10.5（開 Python bindings 同 `USE_FFMPEG`），再裝 game-brain。**ROM 同 save state 唔會 COPY 入 image**，淨係喺行嘅時候用 `-v ...:ro` 唯讀掛入去。Image 只喺本機用，唔好 push 去任何 registry。
+
+```bash
+docker build -t game-brain:local .        # 第一次大約幾分鐘（要 build mGBA）
+
+# Dashboard：host 嗰邊只開 127.0.0.1，開 http://127.0.0.1:8765/
+docker run --rm -p 127.0.0.1:8765:8765 \
+  -v /abs/path/firered.gba:/data/rom.gba:ro \
+  -v "$PWD/runs":/app/runs \
+  game-brain:local
+
+# Headless demo / 測試
+docker run --rm -v /abs/path/firered.gba:/data/rom.gba:ro -v "$PWD/runs":/app/runs \
+  game-brain:local python3 -m game_brain.demo --adapter mgba --brains path,rule --steps 700
+docker run --rm -v /abs/path/firered.gba:/data/rom.gba:ro game-brain:local python3 -m pytest -q
+
+# 或者用 compose（設定好 ROM 路徑先）
+GAME_BRAIN_ROM_FILE=/abs/path/firered.gba docker compose up --build
+```
+
+- `./runs` 要畀 uid 1000 寫得到（container 用非 root 嘅 `brain` user 行）。
+- 想由某個 state 開始：加 `-v /abs/path/x.state:/data/start.state:ro -e GAME_BRAIN_START_STATE=/data/start.state`。
+
+**點解 container 入面要 bind `0.0.0.0`：** `-p` 會將 host 嘅 port 轉去 container 嘅網卡，唔係 container 自己嘅 loopback。如果 container 入面只 bind 127.0.0.1，host 就連唔到。所以 image 設咗 `GAME_BRAIN_IN_CONTAINER=1`，dashboard 只會喺**同時**有呢個 env 同埋有 `/.dockerenv` 或 `/run/.containerenv` 嘅時候先接受 `0.0.0.0`；其他位址（LAN IP、`::`）照樣拒絕，喺普通機設咗 env 都冇用。
+
+**對外仍然只係 localhost：** 一定要寫 `-p 127.0.0.1:8765:8765`。**唔好**寫 `-p 8765:8765`，咁樣 Docker 會開喺 host 所有網卡上面。WebSocket 嘅 Origin 檢查冇改：`http://127.0.0.1:8765` 同 `http://localhost:8765` 通過，其他 origin 照樣 403。
 
 ## 四個模式同 `actor` 欄位
 

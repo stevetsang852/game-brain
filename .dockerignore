@@ -1,0 +1,25 @@
+# keep game data, run output and local junk out of the build context
+.git
+runs/
+roms/
+saves/
+bios/
+*.gba
+*.gbc
+*.gb
+*.agb
+*.sav
+*.state
+*.ss*
+*.png
+*.mp4
+*.zip
+*.7z
+**/__pycache__
+.pytest_cache
+.venv
+venv
+build/
+dist/
+*.egg-info
+.env

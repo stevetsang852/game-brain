@@ -1,0 +1,17 @@
+# Local only. Usage:
+#   GAME_BRAIN_ROM_FILE=/abs/path/to/firered.gba docker compose up --build
+# then open http://127.0.0.1:8765/ on this machine.
+services:
+  dashboard:
+    build: .
+    image: game-brain:local          # local tag; never pushed to a registry
+    ports:
+      - "127.0.0.1:8765:8765"        # host side is loopback only; do not drop the 127.0.0.1
+    volumes:
+      - type: bind                   # ROM mounted read-only, never baked into the image
+        source: ${GAME_BRAIN_ROM_FILE:?set GAME_BRAIN_ROM_FILE to your ROM path}
+        target: /data/rom.gba
+        read_only: true
+      - ./runs:/app/runs             # run logs land on the host in ./runs (gitignored)
+    command: ["python3", "-m", "game_brain.dashboard", "--adapter", "mgba",
+              "--brains", "path,rule", "--host", "0.0.0.0", "--port", "8765"]
