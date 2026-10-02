@@ -86,7 +86,19 @@ class Arbiter:
         context: dict = {}
         for brain in self.brains:
             try:
+                if hasattr(brain, "set_mode"):   # e.g. RuleBattleBrain: handoff only in ASSIST
+                    brain.set_mode(self.mode)
                 action, decision = brain.decide(obs)
+                # Brains after this one were not asked; those with ``observe`` still see the
+                # observation (e.g. PathBrain notices the battle start/end while the battle brain
+                # acts) and may return context such as milestones.
+                for later in self.brains[self.brains.index(brain) + 1:]:
+                    if hasattr(later, "observe"):
+                        try:
+                            for k, v in (later.observe(obs) or {}).items():
+                                context.setdefault(k, v)
+                        except Exception as exc:
+                            notes.append(f"{later.name} observe error: {type(exc).__name__}: {exc}")
                 for k, v in context.items():  # e.g. PathBrain's milestones while RuleBrain acts
                     if getattr(decision, k, None) is None:
                         setattr(decision, k, v)

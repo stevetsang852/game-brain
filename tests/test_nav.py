@@ -122,10 +122,19 @@ def test_goal_planner_is_sticky_and_ordered():
     assert m.id == "get_starter" and m.target(lab) == Target.interact(8, 5, "UP", "A")
     got = Observation(frame=5, ram={"player_x": 8, "player_y": 5, "map_bank": 4, "map_id": 3, "party_count": 1})
     m = pl.update(got)
-    assert m.id == "rival_battle" and m.placeholder and m.script_button == "B"
+    assert m.id == "rival_battle" and not m.placeholder and m.script_button == "B"
+    assert m.target(got) == Target.warp(3, 0)   # walk to the lab exit; the rival stops you
+    battle = Observation(frame=6, ram={"in_battle": True, "scene": "other"})
+    assert pl.update(battle).id == "rival_battle_over"
+    assert pl.update(Observation(frame=7, ram={"in_battle": True, "scene": "other"})).id == "rival_battle_over"
+    after = Observation(frame=8, ram={"player_x": 7, "player_y": 8, "map_bank": 4, "map_id": 3,
+                                      "party_count": 1, "in_battle": False})
+    m = pl.update(after)
+    assert m.id == "route_1" and m.placeholder
     done = {m["id"]: m["done"] for m in pl.summary()}
     assert done == {"intro": True, "leave_bedroom": True, "leave_house": True, "pallet_town": True,
-                    "oak_stops_you": True, "oak_lab": True, "get_starter": True, "rival_battle": False}
+                    "oak_stops_you": True, "oak_lab": True, "get_starter": True, "rival_battle": True,
+                    "rival_battle_over": True, "route_1": False}
 
 
 def test_goal_planner_skips_ahead_on_later_evidence():
@@ -142,7 +151,7 @@ def test_custom_milestones():
                                 target=lambda o: Target.at(2, 2))])
     assert pl.update(Observation(frame=0, ram={"player_x": 1, "player_y": 1})).id == "a"
     assert pl.update(Observation(frame=0, ram={"player_x": 2, "player_y": 2})) is None
-    assert len(firered_milestones()) == 8
+    assert len(firered_milestones()) == 10
 
 
 def test_firered_extra_reads_npcs_and_party_count():

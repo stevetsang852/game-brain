@@ -16,6 +16,10 @@ Three maps with the same ids as FireRed milestone 1 (layouts are made up, not ga
                   bumping); three balls on table tiles at (8,4) (9,4) (10,4). Facing a ball and
                   pressing A runs: text, YES/NO (A = YES -> ``party_count`` 1), text, nickname
                   YES/NO (A opens a "naming screen" the brain must avoid; B = NO), text.
+                  With the starter, entering row 8 (on the way to the exit warp at (5,10)) starts
+                  the rival: 2 text boxes, then a "battle" (``in_battle`` True, scene "other", no
+                  ``ram["battle"]``) that ends after ``battle_presses`` A presses; afterwards you
+                  stand at (7,8) in the lab, like FireRed after a win or a loss.
 
 Rules mimic FireRed closely enough for PathBrain: pressing a direction you are not facing
 only turns you (any hold length); when facing it, a 1-16 frame hold moves one tile and 17+
@@ -86,7 +90,8 @@ MAPS: Dict[Tuple[int, int], dict] = {
                  "#............",
                  "#####.###...#",
                  "#############"],
-        "warps": [],
+        "warps": [{"x": 5, "y": 10, "dest": (3, 0), "enter": "DOWN", "arrive": (12, 5)}],
+        "rival_row": 8,                       # with the starter: the rival stops you here
         "objects": [(6, 3), (5, 4)],          # Oak, rival: emitted in ram["npcs"]
         "balls": {(8, 4): 1, (9, 4): 7, (10, 4): 4},  # species ids (Bulbasaur, Squirtle, Charmander)
     },
@@ -97,8 +102,9 @@ class MockHouseAdapter(Adapter):
     name = "mock-house"
 
     def __init__(self, intro_presses: int = 6, start_map: Tuple[int, int] = (4, 1),
-                 start_pos: Tuple[int, int] = (4, 4), warp_frames: int = 24):
+                 start_pos: Tuple[int, int] = (4, 4), warp_frames: int = 24, battle_presses: int = 6):
         self.intro_presses = intro_presses
+        self.battle_presses = battle_presses
         self.start_map, self.start_pos = start_map, start_pos
         self.warp_frames = warp_frames
         self.reset()
@@ -120,6 +126,9 @@ class MockHouseAdapter(Adapter):
         self.party: List[int] = []
         self.naming_screen = False     # True if the nickname prompt was answered YES (brain bug)
         self.oak_done = False
+        self.rival_done = False
+        self.battle_left = 0           # A presses until the mock rival battle ends
+        self.battles = 0
         return self.observe()
 
     @property
@@ -138,6 +147,8 @@ class MockHouseAdapter(Adapter):
 
     # ------------------------------------------------------------------ Adapter API
     def observe(self) -> Observation:
+        if self.battle_left > 0:
+            return Observation(frame=self._frame, game="MOCK-HOUSE", ram={"scene": "other", "in_battle": True})
         if self.intro_left > 0 or self.transition > 0 or self.naming_screen:
             scene = "intro" if self.intro_left else "naming" if self.naming_screen else "transition"
             return Observation(frame=self._frame, game="MOCK-HOUSE", ram={"scene": scene, "in_battle": False})
@@ -192,6 +203,12 @@ class MockHouseAdapter(Adapter):
             return
         if self.transition > 0:
             return
+        if self.battle_left > 0:
+            if button == "A":
+                self.battle_left -= 1
+                if self.battle_left == 0:
+                    self.x, self.y, self.facing = 7, 8, "DOWN"
+            return
         if self.lock > 0:
             if button == "A":
                 self.lock -= 1
@@ -231,6 +248,11 @@ class MockHouseAdapter(Adapter):
                 self.oak_done = True
                 self.script = [("text",)] * 4 + [("to_lab",)]
                 return
+            if ny == m.get("rival_row") and self.party and not self.rival_done:
+                self.rival_done = True
+                self.facing = "UP"   # you turn to face the rival (as on FireRed): frozen, not bumped
+                self.script = [("text",)] * 2 + [("battle",)]
+                return
             row = m.get("dialogue_row")
             if row and ny == row[0] and self.map not in self.dialogues_seen:
                 self.dialogues_seen.add(self.map)
@@ -255,6 +277,9 @@ class MockHouseAdapter(Adapter):
         elif item[0] == "yesno" and item[1] == "nickname":
             if button == "A":
                 self.naming_screen = True                          # stuck: wrong answer
+        if self.script and self.script[0][0] == "battle":
+            self.script.pop(0)
+            self.battle_left, self.battles = self.battle_presses, self.battles + 1
         if self.script and self.script[0][0] == "to_lab":
             self.script.pop(0)
             self.warps_taken.append((self.map, (4, 3)))

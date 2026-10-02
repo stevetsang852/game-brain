@@ -161,7 +161,7 @@ def test_live_dashboard_envelopes_keep_full_decision_and_actions(tmp_path):
     for d in decisions:
         assert "type" not in d and not ({"milestones_same", "executed_same"} & d.keys())
         # every decision (PathBrain's, and RuleBrain's fallback via the arbiter) carries the full list
-        assert len(d["milestones"]) == 8 and all({"id", "label", "done"} <= m.keys() for m in d["milestones"])
+        assert len(d["milestones"]) == 10 and all({"id", "label", "done"} <= m.keys() for m in d["milestones"])
         Decision.from_dict({**d, "type": "decision"})
     for st in statuses:
         assert {"proposed_action", "executed_action"} <= st.keys()

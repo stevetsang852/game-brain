@@ -136,9 +136,20 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
         Milestone("get_starter", f"Choose {starter.title()} (ball at {(bx, by)}): face it, A, YES",
                   done=lambda o: _party(o) >= 1,
                   target=to_ball),
-        # --- next: not implemented. B advances the rest of the starter dialogue (nickname -> NO).
-        Milestone("rival_battle", "First rival battle (not implemented: stop here)",
-                  placeholder=True, script_button="B"),
+        # --- rival battle. B advances the rest of the starter dialogue (nickname -> NO). On the way
+        # to the exit the rival stops you (row 8, Backend: at (7,8)) and the battle starts; a
+        # battle brain fights it (PathBrain is not consulted while ``in_battle`` is True, but the
+        # arbiter still shows it every observation via ``observe``). Win or lose the story goes on:
+        # you are back at (7,8) in the lab.
+        Milestone("rival_battle", "Walk to the lab exit; the rival stops you and the battle starts",
+                  done=lambda o: o.ram.get("in_battle") is True,
+                  target=lambda o: Target.warp(*FR_PALLET_TOWN) if m(o) == FR_OAKS_LAB else None,
+                  script_button="B"),
+        Milestone("rival_battle_over", "Finish the rival battle (win or lose, the story goes on)",
+                  done=lambda o: o.position is not None and o.ram.get("in_battle") is False),
+        # --- next: not implemented.
+        Milestone("route_1", "Leave the lab, head north to Route 1 (not implemented: stop here)",
+                  placeholder=True),
     ]
 
 
