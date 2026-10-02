@@ -42,6 +42,17 @@
   .badge.actor-brain { background:#16253a; color:var(--accent); } .badge.actor-human { background:#3a2a10; color:var(--warn); }
   .badge.actor-none { background:var(--line); color:var(--dim); }
   tr.actor-row-human td { color:var(--warn); }
+  #minimap { width:100%; background:#0b0d11; border-radius:6px; display:block; image-rendering: pixelated; }
+  #mapNote { color:var(--dim); font-size:12px; margin-top:6px; }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; color:var(--dim); font-size:12px; margin-top:4px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+  #goal { font-size:15px; font-weight:600; margin-bottom:8px; }
+  .ms { display:flex; gap:6px; flex-wrap:wrap; }
+  .ms span { padding:3px 10px; border-radius:999px; font-size:12px; background:var(--line); color:var(--dim); }
+  .ms span.done { background:#123a2a; color:var(--ok); }
+  .ms span.current { background:#16253a; color:var(--accent); outline:1px solid var(--accent); }
+  .bar { height:6px; background:var(--line); border-radius:999px; margin:10px 0 2px; overflow:hidden; }
+  .bar div { height:100%; width:0; background:var(--ok); transition: width .3s; }
   #steps { max-height: 340px; overflow:auto; display:block; }
   #ram td:first-child { color:var(--dim); width: 40%; }
   #events { max-height:120px; overflow:auto; font-size:12px; color:var(--dim); margin:0; padding-left:16px; }
@@ -89,6 +100,23 @@
     </section>
   </div>
   <div class="col">
+    <section id="navSection">
+      <h2>目標與里程碑</h2>
+      <div id="goal">–</div>
+      <div class="ms" id="milestones"><span>（大腦沒有提供里程碑）</span></div>
+      <div class="bar"><div id="msBar"></div></div>
+      <div id="msCount" style="color:var(--dim); font-size:12px"></div>
+    </section>
+    <section>
+      <h2>地圖與規劃路徑</h2>
+      <canvas id="minimap" width="320" height="240"></canvas>
+      <div class="legend">
+        <span><i style="background:#2b3240"></i>可走</span><span><i style="background:#151922; outline:1px solid #2a2f3a"></i>牆／障礙</span><span><i style="outline:1px solid #6b5a2a"></i>未驗證出入口</span>
+        <span><i style="background:#f5a524"></i>可用出入口</span><span><i style="background:#3ecf8e"></i>規劃路徑</span>
+        <span><i style="background:#5aa9ff"></i>主角</span>
+      </div>
+      <div id="mapNote">等待地圖資料…</div>
+    </section>
     <section>
       <h2>目前計劃</h2>
       <dl>
@@ -136,24 +164,72 @@ function fmtAction(a) {
   return a.presses.map(p => p.button === "NONE" ? `wait ${p.frames}f` : `${p.button} ${p.frames}f`).join(", ");
 }
 
-function drawGrid(ram) {  // fallback view when the adapter has no screenshots (e.g. mock)
-  const W = 240, H = 160; canvas.width = W; canvas.height = H;
-  ctx.fillStyle = "#101418"; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "#8b93a7"; ctx.font = "10px system-ui";
-  if (ram.player_x === undefined) {
-    ctx.fillText(`scene: ${ram.scene ?? "?"}`, 8, 16); return;
+function drawMap(cv, ram, path) {
+  // Grid view from RAM: collision rows ("#" wall, "." walkable) when the adapter gives them,
+  // otherwise a plain grid sized to the player position (mock). Path = [[x,y],...] from Decision.
+  const c = cv.getContext("2d"), W = cv.width, H = cv.height, top = 14;
+  c.fillStyle = "#0b0d11"; c.fillRect(0, 0, W, H);
+  c.fillStyle = "#8b93a7"; c.font = "10px system-ui"; c.textBaseline = "top";
+  if (ram.player_x === undefined) { c.fillText(`scene: ${ram.scene ?? "?"}`, 6, 4); return false; }
+  const rows = Array.isArray(ram.collision) ? ram.collision : null;
+  const pts = (path || []).filter(p => Array.isArray(p) && p.length === 2);
+  let w, h;
+  if (rows && rows.length) { h = rows.length; w = Math.max(...rows.map(r => r.length)); }
+  else { w = h = Math.max(8, ram.player_x + 1, ram.player_y + 1, ...pts.map(p => Math.max(p[0], p[1]) + 1)); }
+  const cell = Math.max(2, Math.floor(Math.min(W / w, (H - top) / h)));
+  const ox = Math.floor((W - cell * w) / 2), oy = top + Math.floor((H - top - cell * h) / 2);
+  const box = (x, y, inset) => [ox + x * cell + inset, oy + y * cell + inset, cell - 2 * inset, cell - 2 * inset];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const wall = rows ? (rows[y] || "")[x] !== "." : false;
+    c.fillStyle = wall ? "#151922" : "#2b3240"; c.fillRect(...box(x, y, cell > 4 ? 0.5 : 0));
   }
-  const n = Math.max(8, ram.player_x + 1, ram.player_y + 1), cell = Math.floor((H - 16) / n);
-  const ox = Math.floor((W - cell * n) / 2), oy = 12;
-  ctx.strokeStyle = "#2a2f3a";
-  for (let i = 0; i <= n; i++) {
-    ctx.beginPath(); ctx.moveTo(ox + i * cell, oy); ctx.lineTo(ox + i * cell, oy + n * cell); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ox, oy + i * cell); ctx.lineTo(ox + n * cell, oy + i * cell); ctx.stroke();
+  for (const wp of (Array.isArray(ram.warps) ? ram.warps : [])) {
+    if (wp.enter) { c.fillStyle = "#f5a524"; c.fillRect(...box(wp.x, wp.y, 1)); }
+    else { c.strokeStyle = "#6b5a2a"; c.lineWidth = 1; c.strokeRect(...box(wp.x, wp.y, 1.5)); }
   }
-  ctx.fillStyle = ram.in_battle ? "#ff5d5d" : "#5aa9ff";
-  ctx.fillRect(ox + ram.player_x * cell + 2, oy + ram.player_y * cell + 2, cell - 4, cell - 4);
-  ctx.fillStyle = "#8b93a7";
-  ctx.fillText(`map ${ram.map_bank}/${ram.map_id}  (${ram.player_x},${ram.player_y}) ${ram.facing ?? ""}${ram.in_battle ? "  BATTLE" : ""}`, 6, 9);
+  if (pts.length > 1) {
+    c.strokeStyle = "#3ecf8e"; c.lineWidth = Math.max(2, cell / 4); c.lineJoin = "round"; c.beginPath();
+    pts.forEach(([x, y], i) => { const cx = ox + (x + .5) * cell, cy = oy + (y + .5) * cell; i ? c.lineTo(cx, cy) : c.moveTo(cx, cy); });
+    c.stroke();
+    const [ex, ey] = pts[pts.length - 1]; c.fillStyle = "#3ecf8e";
+    c.beginPath(); c.arc(ox + (ex + .5) * cell, oy + (ey + .5) * cell, Math.max(2, cell / 3), 0, Math.PI * 2); c.fill();
+  }
+  c.fillStyle = ram.in_battle ? "#ff5d5d" : "#5aa9ff"; c.fillRect(...box(ram.player_x, ram.player_y, Math.max(1, cell / 6)));
+  c.fillStyle = "#8b93a7";
+  c.fillText(`map ${ram.map_bank}/${ram.map_id}  (${ram.player_x},${ram.player_y}) ${ram.facing ?? ""}${ram.in_battle ? "  BATTLE" : ""}`, 6, 2);
+  return !!rows;
+}
+
+function redrawMaps() {
+  const ram = state.lastObs?.ram || {}, path = state.lastDecision?.path;
+  const hasCollision = drawMap($("minimap"), ram, path);
+  $("mapNote").textContent = ram.player_x === undefined ? "還沒有座標（例如開場動畫中）"
+    : (hasCollision ? "碰撞格來自 RAM" : "adapter 沒有碰撞資料，只畫座標")
+      + (path && path.length > 1 ? ` · 路徑 ${path.length - 1} 格，終點 (${path[path.length - 1].join(",")})` : " · 沒有規劃路徑");
+  if (!state.lastObs?.screenshot_b64) { canvas.width = 240; canvas.height = 160; drawMap(canvas, ram, path); }
+}
+
+function fmtRam(k, v) {  // keep the RAM table readable: big map structures are summarised
+  if (k === "collision" && Array.isArray(v)) return `${v.length} 行 × ${v[0]?.length ?? 0} 格（見地圖）`;
+  if (k === "warps" && Array.isArray(v)) return `${v.length} 個（${v.filter(w => w.enter).length} 個可用）`;
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
+}
+
+function onMilestones(d) {
+  $("goal").textContent = d.goal || "（大腦沒有提供目標）";
+  const ms = Array.isArray(d.milestones) ? d.milestones : null, box = $("milestones");
+  box.innerHTML = "";
+  if (!ms || !ms.length) { box.innerHTML = "<span>（大腦沒有提供里程碑）</span>"; $("msBar").style.width = "0"; $("msCount").textContent = ""; return; }
+  const current = ms.findIndex(m => !m.done);
+  ms.forEach((m, i) => {
+    const sp = document.createElement("span");
+    sp.textContent = `${m.done ? "✓ " : ""}${m.label}`; sp.title = m.id;
+    sp.className = m.done ? "done" : (i === current ? "current" : "");
+    box.appendChild(sp);
+  });
+  const done = ms.filter(m => m.done).length;
+  $("msBar").style.width = `${Math.round(100 * done / ms.length)}%`;
+  $("msCount").textContent = `完成 ${done} / ${ms.length}`;
 }
 
 function onObservation(env) {
@@ -163,15 +239,15 @@ function onObservation(env) {
     img.src = "data:image/png;base64," + p.screenshot_b64;
     $("screenNote").textContent = `即時畫面 · ${p.game || ""}`;
   } else {
-    drawGrid(p.ram || {});
     $("screenNote").textContent = "adapter 沒有截圖，以 RAM 座標畫示意圖";
   }
+  redrawMaps();
   const tb = $("ram").tBodies[0]; tb.innerHTML = "";
   const entries = Object.entries(p.ram || {});
   if (!entries.length) tb.innerHTML = "<tr><td colspan=2>（空）</td></tr>";
   for (const [k, v] of entries) {
     const tr = tb.insertRow(); tr.insertCell().textContent = k;
-    tr.insertCell().textContent = typeof v === "object" ? JSON.stringify(v) : String(v);
+    tr.insertCell().textContent = fmtRam(k, v);
   }
 }
 
@@ -180,6 +256,8 @@ function onDecision(env) {
   $("brain").textContent = d.brain;
   const actor = d.actor || "brain";  // logs from before PR #4 have no actor
   $("actor").innerHTML = `<span class="badge actor-${actor}">${ACTOR_LABEL[actor] ?? actor}</span>`; $("plan").textContent = d.plan || "–"; $("reason").textContent = d.reason || "–";
+  onMilestones(d);
+  redrawMaps();
   $("executed").innerHTML = d.executed ? '<span class="badge yes">執行</span>' : '<span class="badge no">只提議（未執行）</span>';
 }
 
