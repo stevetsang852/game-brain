@@ -81,3 +81,34 @@ def test_replay_of_assist_run_with_injected_human_action(tmp_path):
     before, after = steps[16]["observation"]["ram"], steps[18]["observation"]["ram"]
     assert after["player_x"] == max(before["player_x"] - 2, 0) and after["player_y"] == before["player_y"]
     assert replay(path, MockAdapter(battle_tiles=())) == []
+
+
+def test_map_keys_logged_once_per_map_and_restored(tmp_path):
+    import json as _json
+    from game_brain.runlog import RunLogWriter, iter_steps, read_log
+    from game_brain.schema import Observation
+
+    class _R:  # minimal ArbiterResult stand-in
+        def __init__(self):
+            from game_brain.schema import Mode
+            self.mode = Mode.AUTO
+            self.decision = type("D", (), {"to_dict": lambda s: {"type": "decision"}})()
+            self.proposed = self.executed = None
+            self.notes = []
+
+    grid_a = {"map_w": 2, "map_h": 1, "collision": [".#"], "warps": []}
+    grid_b = {"map_w": 1, "map_h": 1, "collision": ["."], "warps": [{"x": 0, "y": 0}]}
+    rams = [{"scene": "other"},
+            {"scene": "overworld", "player_x": 0, **grid_a},
+            {"scene": "overworld", "player_x": 1, **grid_a},
+            {"scene": "other"},
+            {"scene": "overworld", "player_x": 0, **grid_b},
+            {"scene": "overworld", "player_x": 0, **grid_a}]
+    p = tmp_path / "run.jsonl"
+    with RunLogWriter(p) as log:
+        for i, ram in enumerate(rams):
+            log.step(i, Observation(frame=i, ram=_json.loads(_json.dumps(ram))), _R(), 1)
+    recs = list(read_log(p))
+    assert [r["kind"] for r in recs].count("map") == 3  # a, b, a again
+    assert all("collision" not in r["observation"]["ram"] for r in recs if r["kind"] == "step")
+    assert [r["observation"]["ram"] for r in iter_steps(p)] == rams
