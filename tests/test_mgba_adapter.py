@@ -96,6 +96,19 @@ def test_overworld_fields():
     assert (obs.ram["map_bank"], obs.ram["map_id"], obs.ram["facing"]) == (4, 1, "LEFT")
 
 
+def test_in_battle_is_bit1_of_gmain_439_only():
+    core = FakeCore()
+    a = MgbaFireRedAdapter(core=core)
+    assert a.reset().ram["in_battle"] is False
+    core.memory.put(fr.MAIN_FLAGS_439, 0x01, 1)        # bit0 (oamLoadDisabled) is not a battle
+    assert a.observe().ram["in_battle"] is False
+    core.memory.put(fr.MAIN_FLAGS_439, 0x03, 1)
+    assert a.observe().ram["in_battle"] is True
+    overworld(core)                                    # also reported in the overworld
+    core.memory.put(fr.MAIN_FLAGS_439, 0x00, 1)
+    assert a.observe().ram["in_battle"] is False
+
+
 def test_reset_restarts_frame_counter():
     core = FakeCore()
     a = MgbaFireRedAdapter(core=core)
@@ -127,6 +140,19 @@ def _mash_to_overworld(a, limit=600):
         obs = a.observe()
         if obs.position is not None:
             return obs
+        a.act(Action.tap("A", 8, 8))
+    raise AssertionError("never reached the overworld")
+
+
+@real
+def test_real_not_in_battle_from_boot_to_overworld():
+    a = make_adapter("mgba")
+    a.reset()
+    for _ in range(600):
+        obs = a.observe()
+        assert obs.ram["in_battle"] is False
+        if obs.position is not None:
+            return
         a.act(Action.tap("A", 8, 8))
     raise AssertionError("never reached the overworld")
 

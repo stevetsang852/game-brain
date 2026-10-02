@@ -74,3 +74,34 @@ interface (no position outside the overworld).
 **Not included yet, because not verified on this ROM:** `in_battle` and `party_count`. Both need a
 state past getting the starter / a first battle; a follow-up PR will add them with the same kind
 of check.
+
+## `in_battle` (verified on the supplied ROM)
+
+`ram["in_battle"]` = bit 1 of the byte at `gMain + 0x439` (`0x03003529`), the `inBattle` bitfield
+in pokefirered's `struct Main`. Bit 0 of that byte is `oamLoadDisabled`, so only bit 1 is used.
+It is reported in every observation, not only in the overworld.
+
+How it was checked:
+
+* A `path,rule` run from boot to the starter (3000 steps, through the Oak cutscene, the lab and
+  `party_count` 0 -> 1 at step 963) has `in_battle == False` on every step.
+* Starting from a local save state taken right after the starter, I walked to the lab exit. The
+  rival stops you at (7,8) and the battle starts. Pressing A until it ended:
+  - About 20 steps of screen transition (`callback2` `0x080565A9`, then `0x0800FD9D`) with
+    `in_battle == False`.
+  - Then `in_battle == True` for 874 observations, with `callback2` `0x08010509` and then
+    `0x08011101` during the battle itself.
+  - At the end `callback2` is `0x08056809`, `in_battle` goes back to False, and two steps later
+    it is the overworld at (7,8) on 4/3.
+* `gBattleTypeFlags` (`0x02022B4C`) went 0 -> `0x18` -> `0x1c`, but it **stays `0x1c` after the
+  battle**, so it is not usable as "in a battle" and is not exposed.
+* Only a trainer battle (the rival) has been seen. A wild battle is not verified yet.
+
+Takeover check for `firered_extra.py` (written by the M2 PR):
+
+* `party_count`: 0 on every step before "received the BULBASAUR" (step 963 of the run
+  above), then 1.
+* `npcs`: from the post-starter state, pushing RIGHT into the NPC at (10,5), which stands on a
+  walkable `.` tile, leaves the player at (9,5) (blocked). The other 7 lab objects either stand
+  on `#` tiles or could not be reached before the rival script triggers, so this check covers 1
+  of 8. The M2 PR's own check bumped into each NPC.
