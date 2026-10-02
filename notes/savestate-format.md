@@ -88,6 +88,8 @@ sidecar for the half-written state, and `latest` still points at the previous co
 | `party_hp` | `[{hp, max_hp}]` from `ram["party"]` if the adapter has it (mGBA: overworld and battle steps, notes/party-and-icons.md). Otherwise, in battle, the active battler from `ram["battle"]["player"]` with `"source": "battle"`. Otherwise `null` |
 | `adapter`, `adapter_state` | adapter name, plus adapter-side state that is not in the emulator snapshot. mGBA: `{"battle_ready": bool}` (whether this battle's mon data is trusted yet, see notes/mgba-bridge.md). Without it, resuming mid-battle would hide `ram["battle"]` HP until the next menu |
 | `rom_sha1` | SHA1 of the ROM. Resume refuses a different ROM |
+| `starter` | `{"requested": "random"\|"bulbasaur"\|"charmander"\|"squirtle", "picked": <name> or null, "seed": int}`. `picked` is null until the ball is taken in Oak's lab (the `get_starter` milestone save already has it). `--resume` keeps it: the ball is `picked`, or (not picked yet) `requested` resolved with the recorded `seed`, so it is never re-rolled; an explicit different `--starter` is ignored with a warning. Missing (saves from before `--starter`) = `{"requested": "bulbasaur", "picked": "bulbasaur" if get_starter is done else null}` |
+| `seed` | the run's seed (`--seed`, or the one drawn at random when `--starter random` is used without `--seed`). `--resume` without `--seed` reuses it (and the starter keeps its own `starter.seed`) |
 | `brains`, `git_commit` (`-dirty` if uncommitted changes), `run_id`, `resumed_from` (sidecar this run resumed from), `timestamp` (local ISO 8601 with offset) | provenance |
 
 ## Resume
@@ -190,7 +192,7 @@ Sidecar 喺 v1 欄位之外加：
 ### 設定（`settings`）
 
 由 CLI／dashboard 啟動參數嚟、會影響決策嘅值：`battle_confidence`（RuleBattleBrain
-`confidence_threshold`）、`handoff_steps`、`allow_run`、`seed`。續玩時：遊戲存檔嘅 `settings` 只係**紀錄**
+`confidence_threshold`）、`handoff_steps`、`allow_run`、`seed`、`starter`。`starter` 例外：佢係遊戲狀態嘅一部分（揀咗就改唔到），所以續玩一定**套用**遊戲存檔嘅 `starter`（v1 已經喺 sidecar 頂層有 `starter`）。續玩時：遊戲存檔嘅 `settings` 只係**紀錄**
 （用目前啟動參數）；`ai_status` 嘅 `settings` 會**套用**（比較「同一個 AI」就要同一套門檻）。
 
 ### `brain_state` schema（v2）

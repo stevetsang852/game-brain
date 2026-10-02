@@ -17,6 +17,8 @@ services:
         read_only: true
       - ./runs:/app/runs             # run logs land on the host in ./runs (gitignored)
       - ${GAME_BRAIN_SAVE_DIR_HOST:-${USERPROFILE:-${HOME}}/.game-brain/saves}:/saves   # save states, outside the repo
+    environment:
+      GAME_BRAIN_STARTER: ${GAME_BRAIN_STARTER:-random}   # random (from --seed) | bulbasaur | charmander | squirtle
     command: ["python3", "-m", "game_brain.dashboard", "--adapter", "mgba",
               "--brains", "battle,path,rule", "--save-dir", "/saves",
               "--host", "0.0.0.0", "--port", "8765"]

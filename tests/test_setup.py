@@ -23,7 +23,7 @@ class _CaptureServer:
         return []
 
 
-SHARED = {"--adapter", "--mode", "--brains", "--battle-confidence", "--seed", "--out", "--save-dir", "--keep-periodic",
+SHARED = {"--adapter", "--mode", "--brains", "--battle-confidence", "--seed", "--starter", "--out", "--save-dir", "--keep-periodic",
           "--save-every", "--no-save", "--resume"}
 
 
@@ -45,7 +45,8 @@ def test_cli_and_dashboard_share_the_run_flags():
 
 def test_same_args_give_the_same_setup(tmp_path):
     argv = ["--adapter", "mock-house", "--brains", "battle,path,rule", "--battle-confidence", "0.7",
-            "--save-dir", str(tmp_path / "saves"), "--save-every", "100", "--out", str(tmp_path / "runs")]
+            "--save-dir", str(tmp_path / "saves"), "--save-every", "100", "--out", str(tmp_path / "runs"),
+            "--seed", "7"]                      # (without --seed, --starter random draws a fresh seed per run)
     a_cli = demo.build_parser().parse_args(argv)
     a_live = live.build_parser().parse_args(argv)
     c_cli = setup.Session.from_args(a_cli, quiet=True).config()

@@ -133,7 +133,8 @@ python -m game_brain.demo --adapter mgba --steps 700 --mode auto   # headless，
 python -m game_brain.dashboard --adapter mgba                      # 開 http://127.0.0.1:8765/
 ```
 
-- **Dashboard 同 CLI 共用同一套 setup**（[`game_brain/setup.py`](game_brain/setup.py)）：adapter（連 collision / NPC / 隊伍 RAM）、大腦清單、里程碑、戰鬥信心門檻、自動存檔 / 續玩都喺度砌，`demo.py` 同 `dashboard/live.py` 都用佢，旗標一樣（`--adapter --mode --brains --battle-confidence --seed --out --save-dir --save-every --keep-periodic --no-save --resume`）。
+- **Dashboard 同 CLI 共用同一套 setup**（[`game_brain/setup.py`](game_brain/setup.py)）：adapter（連 collision / NPC / 隊伍 RAM）、大腦清單、里程碑、戰鬥信心門檻、自動存檔 / 續玩都喺度砌，`demo.py` 同 `dashboard/live.py` 都用佢，旗標一樣（`--adapter --mode --brains --battle-confidence --seed --starter --out --save-dir --save-every --keep-periodic --no-save --resume`）。
+- `--starter random|bulbasaur|charmander|squirtle`：**預設 `random`**（或者 `$GAME_BRAIN_STARTER`；Docker：`GAME_BRAIN_STARTER=squirtle docker compose up`）。`random` 由 seed 決定（同一個 seed 永遠揀同一隻：seed 0 → bulbasaur、1 → charmander、2 → squirtle）。**冇俾 `--seed` 就自動抽一個 seed**（`secrets.randbits(32)`），寫入 log header（`seed`、`seed_source: "auto"`）、status、summary 同存檔；用 `--seed <嗰個數>` 可以重現成個 run，`--resume` 自動用返存檔嘅 seed。固定 starter 冇 `--seed` 就照舊用 0；指定一隻就用 `--starter charmander` 等。log header、`starter` event、`starter_picked` event、dashboard `status`、summary 同每個存檔 sidecar 都有 `starter: {"requested", "picked", "seed"}`（`picked` 喺研究所攞波之前係 `null`）。`--resume` 用存檔記錄，唔會重新抽。
 - Dashboard 預設：`--adapter auto`（有 `$GAME_BRAIN_ROM` 檔就用 mgba，冇就用 mock 兼喺 stderr 警告）、`--brains battle,path,rule`（同 Dockerfile CMD 一樣）。CLI 預設維持 `mock` / `rule,random`。
 
 - 喺自己部機，將上面兩個路徑換成你 build 出嚟嘅位置（`<build>/python/lib.linux-x86_64-cpython-3XX` 同 `<build>`）。

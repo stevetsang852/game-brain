@@ -34,15 +34,16 @@ def _parse_switches(items: List[str]) -> Dict[int, Mode]:
 
 
 def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains: str = "rule,random",
-        seed: int = 0, out_dir: str = "runs", switches: Optional[Dict[int, Mode]] = None,
+        seed: Optional[int] = 0, out_dir: str = "runs", switches: Optional[Dict[int, Mode]] = None,
         screenshot_every: int = 0, quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
-        resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC) -> dict:
+        resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
+        starter: Optional[str] = None) -> dict:
     """``save_dir``: write save states there (None = no saves). ``resume``: "latest" (in
     ``save_dir``, default ~/.game-brain/saves) or a sidecar/state path; the run continues from it.
     Adapter / brains / saves are built by :class:`game_brain.setup.Session` (shared with the dashboard)."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
-                   quiet=quiet, keep_periodic=keep_periodic)
+                   quiet=quiet, keep_periodic=keep_periodic, starter=starter)
     adapter, arbiter = sess.adapter, sess.arbiter
     switches = switches or {}
     start_step = sess.start_step
@@ -55,7 +56,7 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
     steps_done = 0
     stopped_by = None
     with RunLogWriter(sess.log_path) as log, StopSignals() as stop:
-        log.header(**sess.header_info(steps=steps, seed=seed))
+        log.header(**sess.header_info(steps=steps))
         obs = sess.start(log)
         for step in range(start_step, start_step + steps):
             if stop.requested:          # checked only here: the previous step completed in full
@@ -92,7 +93,7 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
             "mode_final": arbiter.mode.value, "log": str(sess.log_path), "log_lines": log.lines + 1,
             "screenshots": shots, "wall_seconds": round(time.time() - t0, 3),
             "saves": sess.saves, "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None,
-            "stopped_by": stopped_by,
+            "stopped_by": stopped_by, "starter": dict(sess.starter_info), "seed": sess.seed,
         }
         log.event("summary", **summary)
     adapter.close()
@@ -118,7 +119,7 @@ def main(argv=None) -> int:
         s = run(a.adapter, a.steps, a.mode, a.brains, a.seed, a.out, _parse_switches(a.switch),
                 a.screenshot_every, a.quiet, battle_confidence=a.battle_confidence,
                 save_dir=save_dir, save_every=a.save_every,
-                resume=a.resume, keep_periodic=a.keep_periodic)
+                resume=a.resume, keep_periodic=a.keep_periodic, starter=a.starter)
     except (ValueError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
