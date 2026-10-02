@@ -6,6 +6,10 @@
 Code: `game_brain/savestate.py`; CLI in `game_brain/demo.py`. The dashboard (`live.py`) does not
 use it yet; that is Frontend's.
 
+> **Planned v2** (docs only, not implemented yet): `brain_state` in every save, plus a separate
+> `ai_status` file kind. See "Format version 2" at the end, and the dashboard messages in
+> [`dashboard-protocol.md`](dashboard-protocol.md) "存檔 / 續玩".
+
 ## Where saves go
 
 * The default is `~/.game-brain/saves`, or `$GAME_BRAIN_SAVE_DIR`. Change it with `--save-dir DIR`.
@@ -106,3 +110,123 @@ its own log (replay 0 mismatches), but not step-for-step the same as the run tha
 
 `tests/test_savestate_real.py` repeats this in tmp_path (boot to 2510 steps, resume from the
 2500 save, 800 steps to Viridian, replay []).
+
+## Format version 2（計劃中，未實作）
+
+> 狀態：**只係規格**。由 Mannger／Frontend／Backend 定案（2026-10-02），**Backend 請 review**。
+> 實作：Fullstack（`savestate.py`、每個 brain 嘅 `export_state()`／`import_state()`）；
+> Dashboard 訊息同按鈕：Frontend（[`dashboard-protocol.md`](dashboard-protocol.md)「存檔 / 續玩」）。
+
+### 點解要 bump 版本
+
+v1 冇 brain 內部狀態，所以續玩之後頭幾步 AI 會同冇中斷過嘅 run 唔同（上面 "Brain-internal state is
+not saved"）。v2 喺每個存檔加 `brain_state`。#28 嘅 reader 會拒絕 `format_version > 1`，所以舊程式唔會
+誤讀新檔；新程式 v1、v2 都讀得。
+
+### 遊戲存檔（`kind: "game"`）
+
+目錄結構、檔名、寫入次序（`.state` → `.sav` → sidecar → `latest`）、原子寫入**全部唔變**。
+`--save-every`、里程碑、`final`、dashboard「存遊戲」按鈕（`reason: "manual"`）、resume 前自動存
+（`reason: "pre-resume"`）全部用**同一個** `SaveManager.save()`（包括 `adapter_state`）。
+
+Sidecar 喺 v1 欄位之外加：
+
+| 欄位 | 內容 |
+|---|---|
+| `format_version` | `2` |
+| `kind` | `"game"`（v1 冇呢個欄位 = 當 `"game"`） |
+| `label` | 按鈕存檔嘅標籤（可選，≤ 64 字元），否則 `null` |
+| `settings` | 見下面「設定」 |
+| `brain_state` | 見下面「`brain_state` schema」 |
+
+### AI 狀態檔（`kind: "ai_status"`）
+
+* 位置：`<save_dir>/ai_status/<ai_status_id>.ai.json`，`ai_status_id` = `ai_<YYYYmmdd-HHMMSS>_<step:07d>`
+  （同一秒再存就加 `-2`…）。冇 `.state`：**唔包括遊戲**。
+* 內容：
+
+```json
+{
+  "format": "game-brain-ai-status", "format_version": 2, "kind": "ai_status",
+  "ai_status_id": "ai_20261002-153000_0003268", "label": "包裹後",
+  "timestamp": "2026-10-02T15:30:00+08:00",
+  "source": {"run_id": "...", "save_id": null, "step": 3268, "frame": 44046,
+             "rom_sha1": "e019...", "git_commit": "..."},
+  "brains": ["battle", "path", "rule"],
+  "settings": {"battle_confidence": 0.6, "handoff_steps": 20, "allow_run": false},
+  "milestone": "back_to_pallet",
+  "milestones_done": ["intro", "...", "oaks_parcel"],
+  "brain_state": {"...": "同遊戲存檔一樣嘅 schema"}
+}
+```
+
+* 套用：`resume_request {save_id, ai_status_id}` = 載入 `save_id` 嘅遊戲 state，再用 `ai_status` 嘅
+  `brain_state`、`milestones_done`、`settings`（蓋過遊戲存檔自己嘅）。`brains`（名同次序）一定要同
+  目前個 run 一樣，否則 `ai_status_incompatible`。ROM 唔同都套得（AI 狀態唔含遊戲資料），但回覆會講明。
+* 里程碑預設跟 `ai_status` 走（Mannger 決定，刻意設計）；`resume_request` 可以帶 `milestones: "save"` 改用
+  遊戲存檔 sidecar 嘅 `milestones_done`（喺 `import_state` 之後蓋過 PathBrain `planner`）。`milestones` 只可以同
+  `ai_status_id` 一齊用，否則 `bad_request`。`resumed` 回覆會講明實際用咗邊邊。頁面要喺套用前並排顯示兩邊
+  `milestones_done`、唔同就警告、俾用戶揀（見 [`dashboard-protocol.md`](dashboard-protocol.md)「里程碑：跟 AI 狀態定跟存檔」）。
+* `list_saves` 嘅 `game[]` 同 `ai_status[]` 每項都帶完整 `milestones_done`（照抄檔案入面嘅 list）。
+
+### 設定（`settings`）
+
+由 CLI／dashboard 啟動參數嚟、會影響決策嘅值：`battle_confidence`（RuleBattleBrain
+`confidence_threshold`）、`handoff_steps`、`allow_run`、`seed`。續玩時：遊戲存檔嘅 `settings` 只係**紀錄**
+（用目前啟動參數）；`ai_status` 嘅 `settings` 會**套用**（比較「同一個 AI」就要同一套門檻）。
+
+### `brain_state` schema（v2）
+
+```json
+{
+  "schema": 1,
+  "arbiter": {"mode": "auto"},
+  "brains": [
+    {"name": "battle", "class": "RuleBattleBrain", "state": {...}},
+    {"name": "path",   "class": "PathBrain",       "state": {...}},
+    {"name": "rule",   "class": "RuleBrain",       "state": {...}}
+  ]
+}
+```
+
+* 每個 brain 加兩個方法：`export_state() -> dict`（JSON-safe）同 `import_state(state: dict) -> None`。
+  * JSON 化規則：tuple → list；set → 排好序嘅 list；key 唔係字串嘅 dict（例如 `(map, tile)`）→
+    `[[key, value], …]`。
+  * `import_state` 先 `reset()` 再填；**未知欄位忽略、缺少欄位用 reset 值**，唔會 raise。
+  * 冇實作 `export_state` 嘅 brain（例如 LLM stub）→ `state: null`，續玩時只 `reset()`。
+  * `name`／`class` 唔夾（例如 brains 次序改咗）→ 嗰個 brain `reset()`，寫 log warning。
+* Arbiter：`mode` 只係紀錄；續玩用目前模式（dashboard）或 `--mode`（CLI）。
+* 每個 brain 存咩（大綱；實作時以 code 為準，加欄位唔使 bump `schema`）：
+
+| brain | `state` |
+|---|---|
+| PathBrain | `planner.milestones_done`；`t`（決策計數，`blocked` 嘅到期值係相對佢）、`map`、`last_pos`、`last`（上一個動作 kind/detail）、`blocked`（`[[[map],[tile]], expiry]`）、`warp_tries`/`dead_warps`、`edge_tries`/`dead_edges`、`fails`、`turn_fails`、`transition_waits`、`settle_waits`、`settling`、`stable`、`script_n`、`free`、`stats` |
+| RuleBattleBrain | `trusted`（今場戰鬥資料信得過未）、`handoff_waits`、`unready`、`compiler`（揀好嘅 intent 同未撳完嘅按鍵序列，或 `null`）、`stats` |
+| RuleBrain | `i`（固定圖案位置）、`last_pos`、`last_was_walk`、`stuck` |
+| RandomBrain | `seed`、`rng_state`（`random.getstate()` 轉 list） |
+| LLMBrain（stub） | `null` |
+
+* 設定值（`settle_checks`、`max_frozen` 等 constructor 參數）**唔存**：由程式／啟動參數決定。
+* 目標：續玩後同一個 game state ＋ 同一個 `brain_state` → 同冇中斷過嘅 run **逐步一樣**
+  （實作 PR 要用真 ROM 證明：kill → resume → 之後 N 步 action 同原本 log 一樣）。
+
+### v1 相容
+
+* 讀：`format_version` 1 或 2 都收；冇 `kind` 當 `"game"`；冇 `brain_state` → brains `reset()`、
+  只還原 `milestones_done`（即係 #28 行為）；冇 `label`／`settings` → `null`。
+* `list_saves` 回 `has_brain_state: false` 俾 v1 存檔，頁面可以標示「AI 狀態唔完整」。
+* 寫：實作之後一律寫 v2；唔會改寫舊檔。
+* `runlog.replay()` 唔受影響（replay 只用遊戲 state 同 executed actions）。
+
+### Run log header（`resumed_from`，v2）
+
+v2 續玩（CLI `--resume` 同 dashboard `resume_request` 一樣）嘅 run log header `resumed_from` 喺 v1 欄位
+（`sidecar, state, state_sha1, step, frame, adapter_state, sav, milestone`）之外再加：
+
+| 欄位 | 內容 |
+|---|---|
+| `ai_status_id` | 套用咗嘅 AI 狀態 id；冇套用（包括 CLI `--resume`）就係 `null` |
+| `has_brain_state` | `true` = 續玩時真係 `import_state` 咗一份 `brain_state`（嚟自 `ai_status` 或者 v2 存檔）；`false` = 冇（v1 存檔又冇 `ai_status_id`），brains 只係 `reset()` ＋還原里程碑 |
+
+* 舊 log（冇呢兩個欄位）當 `ai_status_id: null`；`has_brain_state` 冇就當唔知道（`null`）。
+* `runlog.replay()` 只用 `state`／`state_sha1`，唔睇呢兩個欄位，所以 replay 唔受影響。
