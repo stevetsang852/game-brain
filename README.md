@@ -13,7 +13,15 @@
 
 ## 目前狀態（老實講）
 
-> **最後更新：2026-10-02，main 已 merge 到 PR #17。** 團隊而家**暫停**，唔開新任務，等 YIN 下一個指示。
+> **最後更新：2026-10-02 12:50，main 已 merge 到 PR #18。** YIN 已確認開工做下一個 task（勁敵戰），分工如下：
+>
+> | 負責 | Task | 狀態 |
+> |---|---|---|
+> | Backend | 驗證 `ram["battle"]`：選單/游標、雙方 HP、等級、招式、PP；試埋輸咗劇情係咪照行 | 🔄 進行中（初步：戰鬥寵物資料由 `0x02023BE4` 起、每隻 `0x58`；主選單游標 `0x02023FF8`，0–3 = FIGHT/BAG/POKéMON/RUN，**未 merge 前當未驗證**） |
+> | Fullstack | RuleBattleBrain＋PokeAPI 靜態表，先用 mock，`ram["battle"]` merge 後接真 ROM | 🔄 進行中 |
+> | Frontend | 戰鬥面板（`intent`、`battle` 等欄位） | ⏳ 等上面兩個 merge |
+>
+> ⚠️ 呢隻 ROM 嘅御三家**只識 METRONOME（揮指）**，所以勁敵戰結果係隨機；RuleBattleBrain 唔可以假設識咩招，要由 `ram["battle"]` 讀。
 >
 > **進度一句講晒**：AI 已經可以喺真 ROM 上由開機自己行到研究所、攞到妙蛙種子（M1 ✅、M2 前半 ✅）。**下一步**係第一場勁敵戰：要先驗證戰鬥 RAM（`ram["battle"]`），再寫 RuleBattleBrain。
 
