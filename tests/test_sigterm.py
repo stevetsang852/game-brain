@@ -90,17 +90,71 @@ def test_dashboard_sigterm_writes_final_save_and_summary(tmp_path):
     assert "'stopped_by': 'SIGTERM'" in stdout
 
 
-def test_stop_signals_only_set_a_flag_and_restore_handlers():
+def test_first_signal_sets_a_flag_second_forces_a_stop_and_handlers_are_restored():
+    from game_brain.setup import ForcedStop
     before = signal.getsignal(signal.SIGTERM)
-    with StopSignals() as stop:
-        assert not stop.requested
-        os.kill(os.getpid(), signal.SIGTERM)
-        time.sleep(0.01)
-        assert stop.requested and stop.name == "SIGTERM"
-        os.kill(os.getpid(), signal.SIGINT)        # a second signal changes nothing (no KeyboardInterrupt)
-        time.sleep(0.01)
-        assert stop.name == "SIGTERM"
+    with pytest.raises(ForcedStop) as exc:
+        with StopSignals() as stop:
+            assert not stop.requested
+            os.kill(os.getpid(), signal.SIGTERM)
+            time.sleep(0.01)
+            assert stop.requested and stop.name == "SIGTERM" and stop.forced is None
+            os.kill(os.getpid(), signal.SIGINT)        # a second signal: stop now
+            time.sleep(1)
+    assert isinstance(exc.value, KeyboardInterrupt) and exc.value.signum == signal.SIGINT
+    assert stop.forced == signal.SIGINT
     assert signal.getsignal(signal.SIGTERM) is before
+
+
+_HUNG = """
+import sys, time
+from game_brain.adapters.mock.house import MockHouseAdapter
+orig, n = MockHouseAdapter.act, [0]
+def act(self, action):
+    n[0] += 1
+    if n[0] == 25:
+        print("hung", flush=True)
+        while True:                       # a step that never finishes
+            time.sleep(0.05)
+    return orig(self, action)
+MockHouseAdapter.act = act
+from {mod} import main
+sys.exit(main(sys.argv[1:]))
+"""
+
+
+@pytest.mark.parametrize("mod,extra", [("game_brain.demo", ["--steps", "100000"]),
+                                       ("game_brain.dashboard.live", ["--steps", "0", "--step-delay", "0",
+                                                                      "--screenshot-every", "0"])])
+def test_second_signal_forces_exit_from_a_hung_step(tmp_path, mod, extra):
+    if "dashboard" in mod:
+        extra = extra + ["--port", str(_free_port())]
+    out, saves = tmp_path / "runs", tmp_path / "saves"
+    env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONPATH=str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    proc = subprocess.Popen([sys.executable, "-c", _HUNG.format(mod=mod), "--adapter", "mock-house", "-q",
+                             "--out", str(out), "--save-dir", str(saves), "--save-every", "0", *extra],
+                            cwd=str(tmp_path), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        for _ in range(5):                                # (the dashboard prints its URL first)
+            if proc.stdout.readline().strip() == "hung":
+                break
+        else:
+            raise AssertionError("never hung")
+        proc.send_signal(signal.SIGTERM)                  # 1st: only a flag; the hung step never ends
+        time.sleep(1.0)
+        assert proc.poll() is None
+        t0 = time.time()
+        proc.send_signal(signal.SIGTERM)                  # 2nd: forced
+        _, stderr = proc.communicate(timeout=10)
+        took = time.time() - t0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 128 + signal.SIGTERM, stderr
+    assert took < 3 and "SIGTERM again: forced stop" in stderr
+    assert not list(saves.glob("*/*_final.json"))       # mid-step: no (inconsistent) final save
+    log = _logs(out)[0]
+    assert 20 <= len(list(iter_steps(str(log)))) <= 24     # the log is intact up to the hung step
 
 
 class _Capture:

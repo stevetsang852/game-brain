@@ -78,14 +78,36 @@ def add_run_args(ap: argparse.ArgumentParser, *, adapter_default: str, brains_de
                     help="continue from a save (sidecar .json or .state path, or 'latest' in --save-dir)")
 
 
+def new_run_id(now: Optional[float] = None) -> str:
+    """Run id = UTC start time, ISO 8601 basic format with ``Z``: ``20261002T083408Z``. Same on the
+    host and in the container (no local time zone), and sorting by name is chronological. Older
+    runs used local time (``20261002-163408``); nothing parses run ids, so their saves / logs still
+    resume and replay (they sort before every new id of the same UTC date or later)."""
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
+
+
+class ForcedStop(KeyboardInterrupt):
+    """Raised by :class:`StopSignals` on the *second* SIGTERM / SIGINT: stop now, mid-step if need
+    be (e.g. a hung step). There is no final save (the game state may be mid-step); the last
+    milestone / periodic save is the resume point."""
+
+    def __init__(self, signum: int):
+        super().__init__(signal.Signals(signum).name)
+        self.signum = signum
+
+
 class StopSignals:
     """``with StopSignals() as stop:`` ... ``while ... and not stop.requested:`` (checked at the top
     of every iteration).
 
     SIGTERM and SIGINT (Ctrl-C) handlers only set a flag. The loop sees it before starting the next
     step, so the step in progress always completes (act + log + step counter) and the final save's
-    step matches the game state: a resume never repeats or skips a step. Repeated signals change
-    nothing. Without this, Python as PID 1 in the container ignores SIGTERM and ``docker compose down``
+    step matches the game state: a resume never repeats or skips a step. A **second** signal raises
+    :class:`ForcedStop` (a KeyboardInterrupt) at once, so a hung step can still be stopped; the
+    entry points then exit with 128 + signal number and no final save. (Restoring the default
+    handler instead would not work as PID 1 in a container, where SIG_DFL SIGTERM is ignored. Code
+    stuck inside C, e.g. the emulator, only sees the exception when it returns to Python; SIGKILL is
+    the last resort.) Without this, Python as PID 1 in the container ignores SIGTERM and ``docker compose down``
     SIGKILLs it after 10 s (no final save, no summary). Handlers are only installed from the main
     thread (signal module rule); the previous ones are restored on exit."""
 
@@ -93,6 +115,7 @@ class StopSignals:
 
     def __init__(self):
         self.signum: Optional[int] = None
+        self.forced: Optional[int] = None
         self._old: Dict[int, Any] = {}
 
     def __enter__(self) -> "StopSignals":
@@ -107,8 +130,11 @@ class StopSignals:
         self._old.clear()
 
     def _handle(self, signum, frame) -> None:
-        if self.signum is None:          # only set a flag; never raise in the middle of a step
+        if self.signum is None:          # first signal: only set a flag; the step in progress completes
             self.signum = signum
+            return
+        self.forced = signum             # second signal: stop now
+        raise ForcedStop(signum)
 
     @property
     def requested(self) -> bool:
@@ -163,7 +189,7 @@ class Session:
                                  "state_sha1": side["state_sha1"], "step": self.start_step, "frame": side["frame"],
                                  "adapter_state": side.get("adapter_state"), "sav": side.get("_sav_path"),
                                  "milestone": side.get("milestone")}
-        self.run_id = time.strftime("%Y%m%d-%H%M%S")
+        self.run_id = new_run_id()
         self.run_dir = Path(out_dir) / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.run_dir / "run.jsonl"
@@ -218,6 +244,8 @@ class Session:
             log.event("save", step=steps_done, frame=sv["frame"], reason=sv["reason"], path=sv["_path"])
         for p in self.saver.pruned[n_pruned:]:          # --keep-periodic retention
             log.event("save_pruned", step=steps_done, path=p)
+            if p in self.saves:                         # the summary lists only saves that still exist
+                self.saves.remove(p)
 
     def finish(self, log, steps_done: int, result) -> None:
         """End of run: the ``final`` save."""

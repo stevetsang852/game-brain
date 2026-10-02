@@ -29,10 +29,11 @@ def test_only_the_newest_periodic_saves_are_kept_milestones_and_final_never(tmp_
     run_dir = Path(s["saves"][-1]).parent
     stems = _stems(run_dir)
     periodic = [n for n in stems if n.endswith("_periodic")]
-    written_periodic = sorted(Path(p).stem for p in s["saves"] if p.endswith("_periodic.json"))
+    all_written = [r["path"] for r in read_log(s["log"]) if r["kind"] == "save"]   # incl. pruned ones
+    written_periodic = sorted(Path(p).stem for p in all_written if p.endswith("_periodic.json"))
     assert len(written_periodic) > 20 and periodic == written_periodic[-3:]    # the newest 3
     # every milestone save and the final save are still there
-    written = [Path(p).stem for p in s["saves"]]
+    written = [Path(p).stem for p in all_written]
     milestones = [n for n in written if "_milestone-" in n]
     assert milestones and all(m in stems for m in milestones)
     assert written[-1].endswith("_final") and written[-1] in stems
@@ -40,7 +41,8 @@ def test_only_the_newest_periodic_saves_are_kept_milestones_and_final_never(tmp_
     for p in run_dir.iterdir():
         assert p.with_suffix(".json").is_file(), p
     pruned = [r for r in read_log(s["log"]) if r["kind"] == "save_pruned"]
-    deleted = {Path(p).stem for p in s["saves"]} - set(stems)
+    deleted = {Path(p).stem for p in all_written} - set(stems)
+    assert sorted(Path(p).stem for p in s["saves"]) == stems                  # summary = what exists
     assert {Path(r["path"]).stem for r in pruned} == deleted and len(deleted) >= 20
     assert all(n.endswith("_periodic") for n in deleted)
 

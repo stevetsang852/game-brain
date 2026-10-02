@@ -201,7 +201,7 @@ GAME_BRAIN_ROM_FILE=/abs/path/firered.gba docker compose up --build
 
 ## Run log 同 replay
 
-每次 demo / dashboard 都會寫 `runs/<timestamp>/run.jsonl`（gitignored；可以用 `--out` 改目錄）。一行一筆：
+每次 demo / dashboard 都會寫 `runs/<run_id>/run.jsonl`（`run_id` = UTC 開始時間，例如 `20261002T083408Z`）（gitignored；可以用 `--out` 改目錄）。一行一筆：
 
 - `header`：adapter、brains、mode、seed
 - `step`：`step`、`frame`、`mode`、`observation`（RAM 摘要，唔包截圖）、`decision`（包括 `actor`）、`proposed_action`、`executed_action`、`frames_advanced`、`notes`
@@ -240,6 +240,7 @@ python -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 1000 
 - `<save_dir>/latest` 記住最新存檔**相對 save dir 嘅路徑**，所以將存檔目錄搬走 / 喺 Docker（`/saves`）同 host（`~/.game-brain/saves`）之間用都可以 `--resume latest`；舊嘅絕對路徑 pointer 照讀。
 
 - 每個存檔：`.state`（mGBA save state，主要）＋`.json` sidecar（step、frame、地圖、座標、里程碑、HP（有先有）、ROM SHA1、brains、git commit、時間）＋`.sav`（遊戲入面自己 SAVE 過先有，只係備份）。
+- **停止：** Ctrl-C 或者 SIGTERM（`docker compose down`）會做完而家呢一步，再寫 `final` 存檔同 summary，exit 0。**第二次** Ctrl-C / SIGTERM 即刻強制停（例如一步卡死咗）：冇 `final` 存檔（遊戲可能停喺一步中間），用返最後一個里程碑 / 定期存檔續玩，exit code 128 + 訊號（SIGINT 130、SIGTERM 143）。
 - **存檔目錄唔可以喺 repo 入面**（repo 係 public）：會直接拒絕。`--no-save` 唔存。
 - 續玩：檢查 ROM SHA1 → 載入 state → 還原里程碑 → step / frame 由存檔嗰度繼續；log header 有 `resumed_from`，`replay()` 會自動由同一個 state 開始。
 - Dashboard（`live.py`）用同一套旗標自動存檔 / 續玩（`--resume latest` 等）。`compose.yaml` 將 host 嘅 `${GAME_BRAIN_SAVE_DIR_HOST:-<home>/.game-brain/saves}` mount 去 container 嘅 `/saves`（`--save-dir /saves`）；Linux 要先 `mkdir -p ~/.game-brain/saves`（container 用戶係 uid 1000 `brain`，唔係就會變 root 擁有、寫唔到），`start.bat` 會自動開 `%USERPROFILE%\.game-brain\saves`。未喺 Docker 實測（box 上 docker daemon 用唔到）。

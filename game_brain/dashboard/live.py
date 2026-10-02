@@ -27,7 +27,7 @@ from typing import Optional
 from .. import savestate
 from ..arbiter import Arbiter
 from ..runlog import RunLogWriter
-from ..setup import FULL_BRAINS, Session, StopSignals, add_run_args, save_dir_from_args
+from ..setup import FULL_BRAINS, ForcedStop, Session, StopSignals, add_run_args, save_dir_from_args
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from .pacing import FrameAck, Pacer, ViewConfig
 from .server import DashboardServer
@@ -157,6 +157,9 @@ def main(argv=None) -> int:
         except (ValueError, FileNotFoundError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+        except ForcedStop as exc:
+            print(f"{exc.args[0]} again: forced stop (no final save; resume from the last save)", file=sys.stderr)
+            return 128 + exc.signum
     print(s)
     return 0
 

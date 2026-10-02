@@ -154,10 +154,11 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
 
 ### `save_id` / `ai_status_id`：只係名，唔係路徑
 
-* `save_id` = `<run_id>_<sidecar 檔名去 .json>`，例如 `20261002-150604_0003268_milestone-oaks_parcel`。
-  必須 full-match `^(\d{8}-\d{6}(?:-\d+)?)_(\d{7}_[A-Za-z0-9_-]{1,64})$`；對應檔案係
+* `save_id` = `<run_id>_<sidecar 檔名去 .json>`，例如 `20261002T070604Z_0003268_milestone-oaks_parcel`。
+  `run_id` 係 **UTC**、ISO 8601 basic 加 `Z`（`20261002T070604Z`）；舊 run 用本地時間 `20261002-150604`，照樣接受。
+  必須 full-match `^(\d{8}(?:T\d{6}Z|-\d{6})(?:-\d+)?)_(\d{7}_[A-Za-z0-9_-]{1,64})$`；對應檔案係
   `<save_dir>/<group1>/<group2>.json`。v1 同 v2 存檔用同一個規則（目錄結構冇變）。
-* `ai_status_id` 必須 full-match `^ai_\d{8}-\d{6}_\d{7}(?:-\d+)?$`；檔案係 `<save_dir>/ai_status/<id>.ai.json`。
+* `ai_status_id` 必須 full-match `^ai_\d{8}(?:T\d{6}Z|-\d{6})_\d{7}(?:-\d+)?$`（新嘅用 UTC `…T…Z`）；檔案係 `<save_dir>/ai_status/<id>.ai.json`。
 * 解析步驟（全部要過，否則 `invalid_id`／`not_found`）：
   1. 唔可以有 `/`、`\`、`..`、NUL；要 full-match 上面嘅 regex。
   2. 拼出路徑之後 `Path.resolve()`，結果一定要喺 `save_dir.resolve()` 入面（`is_relative_to`），
