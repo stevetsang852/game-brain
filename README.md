@@ -1,59 +1,50 @@
 # game-brain
 
-一個**唔綁定特定遊戲嘅「AI 大腦」**，用嚟自動玩遊戲。
+遊戲唔綁死嘅 AI 自動遊玩框架。第一個目標係用 mGBA 自動玩 **Pokémon FireRed 美版**。
 
-- **Adapter** 將運行中嘅遊戲轉成 `Observation`。
-- **Brain** 睇 `Observation`，決定 `Action`，再附一個人睇得明嘅 `Decision`。
-- **Arbiter** 決定邊個大腦話事、個動作係咪真係執行，有四個模式：Auto / Assist / Manual / Shadow。
-- 每一步都寫入 JSONL run log，可以 replay。
-- 跨次運行嘅 SQLite 經驗／探索記憶放喺 repo 外；可以由人手操作紀錄訓練保守嘅 imitation policy，但模型唔會推斷未示範嘅狀態。
+大腦可以換：而家係規則＋尋路＋戰鬥規則，之後可以接小模型或者 LLM。操作層固定係按鍵、A* 同四種模式。人手可以隨時接手。
 
-第一個目標遊戲：**Pokémon FireRed（美版）on mGBA**。
+- **Adapter**：把遊戲變成 `Observation`（畫面、RAM、地圖）。
+- **Brain**：睇 observation，出 `Action` 同人睇得明嘅 `Decision`。
+- **Arbiter**：決定邊個大腦話事、動作執唔執行。模式係 Auto / Assist / Manual / Shadow。
+- 每步寫入 JSONL，可以 replay。跨次記憶放喺 repo 外面。
 
-> **ROM 不包括在內。** 請自備合法 dump 嘅 ROM。ROM、存檔（`.sav`）、savestate、遊戲截圖同 `runs/` 全部已經寫入 `.gitignore`，**永遠唔好 commit**。
-
-## 目前狀態（老實講）
-
-> **最後更新：2026-10-02 12:50，main 已 merge 到 PR #18。** YIN 已確認開工做下一個 task（勁敵戰），分工如下：
+> **ROM 唔包含在內。** 請自備合法 dump。ROM、`.sav`、savestate、截圖同 `runs/` 已寫入 `.gitignore`，唔好 commit。
 >
-> | 負責 | Task | 狀態 |
-> |---|---|---|
-> | Backend | 驗證 `ram["battle"]`：選單/游標、雙方 HP、等級、招式、PP；試埋輸咗劇情係咪照行 | 🔄 進行中（初步：戰鬥寵物資料由 `0x02023BE4` 起、每隻 `0x58`；主選單游標 `0x02023FF8`，0–3 = FIGHT/BAG/POKéMON/RUN，**未 merge 前當未驗證**） |
-> | Fullstack | RuleBattleBrain＋PokeAPI 靜態表，先用 mock，`ram["battle"]` merge 後接真 ROM | 🔄 進行中 |
-> | Frontend | 戰鬥面板（`intent`、`battle` 等欄位） | ⏳ 等上面兩個 merge |
->
-> ⚠️ 呢隻 ROM 嘅御三家**只識 METRONOME（揮指）**，所以勁敵戰結果係隨機；RuleBattleBrain 唔可以假設識咩招，要由 `ram["battle"]` 讀。
->
-> **進度一句講晒**：AI 已經可以喺真 ROM 上由開機自己行到研究所、攞到妙蛙種子（M1 ✅、M2 前半 ✅）。**下一步**係第一場勁敵戰：要先驗證戰鬥 RAM（`ram["battle"]`），再寫 RuleBattleBrain。
+> **請用美版 FireRed（header `BPRE`）。** 坊間中文版多數係美版打翻譯補丁，畫面可以係中文，但字庫或劇本一改，RAM 位址就可能對唔上。中文 ROM 唔當通關基準。我哋驗證過嗰隻 SHA1 係 `e0194282c427689768f8e618a285552f264524a4`，唔係乾淨 US 1.0（`41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`），所以位址都係逐個驗證，唔係照抄 pokefirered。
+
+## 點樣開
+
+開完之後瀏覽器去 http://127.0.0.1:8765/ 。Dashboard 只綁本機，唔好改成對外。
+
+| 你部機 | 點做 |
+|---|---|
+| Windows，想用 Docker | 雙擊 `start_in_docker.bat`。第一次輸入 **美版** `.gba` 路徑，之後會記住 `%USERPROFILE%\.game-brain\rom-path.txt` |
+| Windows，唔用 Docker | 先裝 Python 3.10+ 同 mGBA bindings，或者先跑 `setup_local_wsl.bat`，再雙擊 `start_local.bat` |
+| 已有 Python／mGBA | `export GAME_BRAIN_ROM=<美版 FireRed 路徑>`，然後 `python -m game_brain.dashboard --adapter mgba` |
+| 冇 ROM，只想睇流程 | `python -m game_brain.demo --adapter mock --steps 60 --mode auto` |
+
+預設大腦係 `battle,path,rule`。模式可以喺網頁切：Auto 全自動、Assist 人手可插隊、Manual 只人手、Shadow 只提議。
+
+## 目前進度（2026-10-04）
+
+已喺真 ROM 由開機行到：主角屋 → 真新鎮 → 研究所攞御三家 → 勁敵戰 → 1 號道路 → 常磐市，再返研究所攞圖鑑。Wild／勁敵戰鬥交俾 RuleBattleBrain。輸咗會喺屋企醒，可以再行出去。
 
 | 項目 | 狀態 |
 |---|---|
-| 模擬器 | ✅ 用 mGBA 0.10.5 Python bindings **headless** 行真 FireRed（`--adapter mgba`）；決定性 act + replay 已驗證（見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)） |
-| RuleBrain | ⚠️ 只係**狂按 A 過開場**，入到主角房間之後**行固定圖案亂行**；而家主要做 PathBrain 嘅後備 |
-| PathBrain | ✅ **A\* 尋路**（4 方向）＋目標清單：真 ROM 上由主角房 2F → 1F → 真新鎮 → 北面出口觸發 Oak 劇情 → 研究所 → **攞到妙蛙種子（Bulbasaur，`party_count` 1）**；會避開 NPC、會按 A/B 過劇情。攞完之後行向出口，勁敵喺 (7,8) 截停 → 交俾戰鬥大腦；打完（贏輸都得）返到 (7,8)。**M3**：出研究所 → 行出真新鎮北面邊界（map connection，唔係 warp）→ 1 號道路 3/19（草叢野生戰交俾戰鬥大腦）→ 行出北面邊界 → **常磐市 3/1**。**Oak 包裹**：入常磐市友好商店 5/3（店員劇情自動俾包裹）→ 經 1 號道路行返南面（跳台當牆，A\* 行冇跳台嗰條路）→ 研究所交俾 Oak → **攞到圖鑑**（真 ROM 由開機 step 3944）。下一個目標（往尼比市）係 placeholder，對白完咗原地等。**輸咗（whiteout）**：喺屋企 1F (8,5) 醒返，媽媽補返血，AI 會自己再行出去、行返去常磐市（真 ROM 驗證，見 `notes/nav.md`「Whiteout」） |
-| RandomBrain | ✅ 有 seed、可重現嘅隨機按鍵（baseline / 後備） |
-| LLMBrain | ⛔ **stub**：未接任何 LLM provider、無 API key、唔會打任何 API；呼叫時會回報 unavailable，arbiter 自動 fallback |
-| RAM 位址 | 只有 [`notes/mgba-bridge.md`](notes/mgba-bridge.md) 表入面嗰啲係**喺呢隻 ROM 上驗證過**：`vblank_counter`、`held_keys`、`callback2`/`scene`、`player_x`/`player_y`、`map_bank`/`map_id`、`facing`、`map_w`/`map_h`/`collision`/`warps`（PR #7）；`npcs`、`party_count`（M2，暫放喺 `adapters/gba_mgba/firered_extra.py`，驗證方法見 [`notes/nav.md`](notes/nav.md)，**等 Backend 接手**）。`in_battle`（`gMain+0x439` bit1，PR #15，喺勁敵戰驗證：對戰期間 True，完咗返 False；入戰前約 20 步過場仍然係 False）。`npcs` 用碰撞法 8 個只驗到 1 個，當**部分驗證** |
-| ROM | 我哋手上嗰隻 SHA1 係 `e0194282c427689768f8e618a285552f264524a4`，**唔係**乾淨 FireRed US 1.0（`41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`），亦唔係 Rev 1（`dd5945db…`），應該係改過嘅 image。所以 pokefirered 嘅位址全部要自己逐個驗證 |
-| Dashboard | ✅ 本機網頁：即時畫面、計劃、最近步驟（顯示邊個做）、模式切換、Manual/Assist 手動按鍵；目標、里程碑進度條、小地圖（碰撞格、出入口、規劃路徑、紫色 NPC）、隊伍數量；新增跨次記憶總覽（操作／新奇獎勵／低訪問格子）及遊戲／探索存檔、續玩路徑 |
-| Docker | ✅ 本機 image（PR #13）：ROM 以唯讀 `-v` 掛入、唔會 COPY 入 image；只開 `127.0.0.1:8765` |
-| Run log | ✅ 去重（PR #9/#11/#14）：每張地圖嘅碰撞格只記一次、`milestones`/`npcs`/`executed_action` 有變先記；1500 步 log 約 1.35 MB，replay 照樣 0 mismatch |
-| 戰鬥大腦 | ✅ **RuleBattleBrain**（`--brains battle,path,rule`）：讀 `ram["battle"]`（PR #20），用 PokeAPI 靜態表（`game_brain/data/`，BSD-3，見 `NOTICE.md`）估傷害揀招，逐步閉環撳掣（睇選單同游標）。真 ROM：由開機打完勁敵戰（揮指，今次贏）、返到研究所 (7,8)，replay 0 mismatch。信心低過門檻（預設 0.6，`--battle-confidence`）喺 Assist 會 `handoff` 等人。未做：換隻、用道具（隊伍/背包未讀到）；RUN 預設唔用 |
-| 學習 | ✅ 第一版 Go-Explore 式自主探索：sticky random 探索、cell archive + savestate、跨次續跑；戰鬥預設用 RuleBattleBrain。另有獨立的人手 imitation policy。未做 PPO；全遊戲通關條件及 Route 2/森林資料未驗證 |
-| CI | ⛔ 未有（現有 token 無 `workflow` scope，推唔到 `.github/workflows`） |
-| License | 未揀（等 YIN 決定；repo 目前係 public） |
+| 模擬器 | ✅ mGBA 0.10.5 headless bindings；act 可重現，replay 0 mismatch |
+| PathBrain | ✅ A* 尋路、避 NPC、過劇情、跳台當牆。下一個目標（尼比市）仍係 placeholder |
+| RuleBattleBrain | ✅ 讀 `ram["battle"]`，用 PokeAPI 靜態表揀招。勁敵戰已打完並返到研究所。未做換寵、道具；RUN 預設唔用 |
+| RuleBrain / RandomBrain | ✅ 後備。RuleBrain 過開場後只會亂行 |
+| LLMBrain | ⛔ stub，未接 provider。呼叫會 fallback |
+| 學習 | ✅ 第一版 Go-Explore 同人手 imitation。未做 PPO，未驗證森林以後 |
+| Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、存檔／續玩 |
+| Docker / 本機啟動 | ✅ `start_in_docker.bat`、`start_local.bat`。ROM 只讀掛入，唔會 COPY 入 image |
+| CI / License | ⛔ 未有 CI。License 未揀，repo 係 public |
 
-實測（2026-10-02，共用 box）：
+呢隻驗證 ROM 嘅御三家只識 METRONOME（揮指），勁敵戰結果係隨機。戰鬥邏輯要讀 RAM，唔好假設識邊招。
 
-- **RuleBrain 單獨跑**：`--adapter mgba --steps 700 --mode auto` 跑 6744 frames，約 4.5 秒。喺 frame 4456（step 557）進入 overworld，主角出現喺 map 4/1（真新鎮主角屋 2F）嘅 (6,6)，之後喺房入面亂行。
-- **PathBrain（M1）**：`--adapter mgba --brains path,rule --steps 700` 喺 step 575（frame 4832）落到 1F（4/0），step 594（frame 5244）出到**真新鎮 3/0**。
-- **PathBrain（M2）**：`--steps 1500` 由開機跑到：
-  - step 618（frame 5708）行到北面出口 (12,1)，Oak 劇情開始；
-  - step 699（frame 6996）被帶入研究所（4/3）；
-  - step 923（frame 9238）對白完可以郁，行去 (8,5) 面向左邊個波；
-  - step 963（frame 9890）`party_count` 變 1（攞到妙蛙種子）；
-  - step 1050（frame 11018）對白完（改名問題答「唔要」），之後企定喺 (8,5) 等。
-- 所有 log 用 `replay()` 都係 0 mismatch。
+詳細位址、實測 step 同架構見下面。
 
 ## 架構
 
