@@ -39,7 +39,7 @@
 | Docker | ✅ 本機 image（PR #13）：ROM 以唯讀 `-v` 掛入、唔會 COPY 入 image；只開 `127.0.0.1:8765` |
 | Run log | ✅ 去重（PR #9/#11/#14）：每張地圖嘅碰撞格只記一次、`milestones`/`npcs`/`executed_action` 有變先記；1500 步 log 約 1.35 MB，replay 照樣 0 mismatch |
 | 戰鬥大腦 | ✅ **RuleBattleBrain**（`--brains battle,path,rule`）：讀 `ram["battle"]`（PR #20），用 PokeAPI 靜態表（`game_brain/data/`，BSD-3，見 `NOTICE.md`）估傷害揀招，逐步閉環撳掣（睇選單同游標）。真 ROM：由開機打完勁敵戰（揮指，今次贏）、返到研究所 (7,8)，replay 0 mismatch。信心低過門檻（預設 0.6，`--battle-confidence`）喺 Assist 會 `handoff` 等人。未做：換隻、用道具（隊伍/背包未讀到）；RUN 預設唔用 |
-| 學習 | ✅ 第一版行為複製：只由 Manual/Assist 人手紀錄訓練，exact-state 多數決；綁定 adapter/ROM namespace，未見過狀態就 fallback。未做 Go-Explore controller／PPO |
+| 學習 | ✅ 第一版 Go-Explore 式自主探索：sticky random 探索、cell archive + savestate、跨次續跑；戰鬥預設用 RuleBattleBrain。另有獨立的人手 imitation policy。未做 PPO；全遊戲通關條件及 Route 2/森林資料未驗證 |
 | CI | ⛔ 未有（現有 token 無 `workflow` scope，推唔到 `.github/workflows`） |
 | License | 未揀（等 YIN 決定；repo 目前係 public） |
 
@@ -244,7 +244,18 @@ python -m game_brain.demo --adapter mgba --brains battle,imitation,path,rule \
   --imitation-model ~/.game-brain/memory/firered-imitation.json --steps 3000
 ```
 
-呢個第一版只複製精確示範過的狀態；未示範或動作票數分歧就 fallback，唔會估路線。模型綁定 namespace，避免跨 ROM 錯用。佢可以接續人手已帶到的劇情／地圖，但唔會代替 Route 2、常青森林地圖驗證；Go-Explore controller 同 PPO 仍屬後續方法，詳見 [`notes/ml-decision.md`](notes/ml-decision.md)。
+呢個第一版只複製精確示範過的狀態；未示範或動作票數分歧就 fallback，唔會估路線。模型綁定 namespace，避免跨 ROM 錯用。佢可以接續人手已帶到的劇情／地圖，但唔會代替 Route 2、常青森林地圖驗證。無人手示範的探索模式另見下節；PPO 仍屬後續方法，詳見 [`notes/ml-decision.md`](notes/ml-decision.md)。
+
+### 無人手示範 → 自主探索
+
+Go-Explore runner 會用 sticky random actions 探索，將新地圖／格子嘅 mGBA savestate 留入 archive，再按新奇度和已量度劇情進度抽取存檔繼續探索。GoalPlanner 只用嚟計分 cell，唔會提供路線或選動作。Archive 同 ROM 綁定，存喺 repo 外，可重複執行指令續跑：
+
+```bash
+python -m game_brain.go_explore --adapter mgba \
+  --memory-dir ~/.game-brain/go-explore --steps 2000000 --hours 8
+```
+
+`--steps` 係 archive 累積的總步數上限（續跑要提高上限）；`--hours 0` 可取消單次 wall-time 上限。可用 `--stop-map BANK/ID` 設定自訂停止地圖，但到達該地圖唔代表通關。現時 adapter 未提供通用遊戲結束旗標，FireRed 改版 ROM 的 Route 2／常青森林地圖亦未量度；因此 runner 會按步數／時間停止或等外部 `game_completed=true` 訊號，**唔會宣稱可自行完成整個 Pokémon 遊戲**。Archive 大小會隨探索 cell 數增長，請留意磁碟空間。
 
 ```bash
 # 查看記憶統計、少探索 cell 同可 --resume 嘅 save 路徑
