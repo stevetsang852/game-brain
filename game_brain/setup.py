@@ -365,6 +365,19 @@ class Session:
             if p in self.saves:                         # the summary lists only saves that still exist
                 self.saves.remove(p)
 
+    def save_game(self, steps_done: int, milestones: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+        """Write an on-demand resumable game snapshot."""
+        if not self.saving:
+            raise RuntimeError("game save states are not enabled for this run")
+        reason = "manual"
+        suffix = 1
+        while (self.saver.dir / f"{steps_done:07d}_{reason}.json").exists():
+            suffix += 1
+            reason = f"manual-{suffix}"
+        saved = self.saver.save(steps_done, milestones, reason=reason)
+        self.saves.append(saved["_path"])
+        return saved
+
     def finish(self, log, steps_done: int, result, reason: str = "run_end") -> None:
         """End of run: the ``final`` save."""
         if self.memory:

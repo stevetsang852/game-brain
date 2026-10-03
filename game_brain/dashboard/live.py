@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import sqlite3
 import sys
 import tempfile
 import time
@@ -30,7 +31,7 @@ from ..runlog import RunLogWriter
 from ..setup import FULL_BRAINS, ForcedStop, Session, StopSignals, add_run_args, save_dir_from_args
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from .pacing import FrameAck, Pacer, ViewConfig
-from .server import DashboardServer
+from .server import DashboardServer, PersistenceCommand
 from .roms import use_remembered_rom
 
 
@@ -42,7 +43,7 @@ def _screenshot_b64(adapter, tmpdir: Path) -> Optional[str]:
 
 
 def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: int = 0, frame: int = 0,
-                   pacer: Optional[Pacer] = None):
+                   pacer: Optional[Pacer] = None, session=None, milestones=None):
     """Feed dashboard input into the arbiter. Returns a list of human-readable outcomes."""
     outcomes = []
     for msg in server.poll():
@@ -58,6 +59,38 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
         elif isinstance(msg, FrameAck):
             if pacer:
                 pacer.ack(msg)
+        elif isinstance(msg, PersistenceCommand):
+            if msg.kind == "save_game":
+                try:
+                    if session is None:
+                        raise RuntimeError("game save is unavailable")
+                    saved = session.save_game(step, milestones)
+                except (OSError, ValueError, RuntimeError) as exc:
+                    reason = f"error: 遊戲存檔失敗：{exc}"
+                    outcomes.append(reason)
+                    if log:
+                        log.event("save_error", step=step, frame=frame, save_kind="game", error=str(exc))
+                else:
+                    outcomes.append(f"已保存遊戲 · step {step}")
+                    if log:
+                        log.event("save", step=step, frame=saved["frame"], reason=saved["reason"],
+                                  path=saved["_path"])
+            elif msg.kind == "save_learning":
+                try:
+                    if session is None:
+                        raise RuntimeError("AI learning memory is unavailable")
+                    if session.memory is None:
+                        raise RuntimeError("AI 學習記憶未啟用")
+                    session.memory.save()
+                except (OSError, RuntimeError, sqlite3.Error) as exc:
+                    reason = f"error: AI 學習資料保存失敗：{exc}"
+                    outcomes.append(reason)
+                    if log:
+                        log.event("save_error", step=step, frame=frame, save_kind="learning", error=str(exc))
+                else:
+                    outcomes.append(f"已保存 AI 學習資料 · {session.memory.path}")
+                    if log:
+                        log.event("learning_save", step=step, frame=frame, path=str(session.memory.path))
         elif isinstance(msg, Action):
             ok = arbiter.submit_manual(msg, origin="dashboard")
             buttons = "+".join(p.button for p in msg.presses) or "(empty)"
@@ -95,7 +128,8 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
         # the stop flag (SIGTERM / Ctrl-C) is checked only here, after a step completed in full
         while (not steps or step < sess.start_step + steps) and not stop.requested:
             started = pacer.clock()
-            outcomes = apply_commands(server, arbiter, log, step, obs.frame, pacer)
+            outcomes = apply_commands(server, arbiter, log, step, obs.frame, pacer, sess,
+                                      result.decision.milestones if result is not None else None)
             obs = adapter.observe()
             if pacer.want_screenshot(step, getattr(server, "client_count", 1) > 0):
                 obs.screenshot_b64 = _screenshot_b64(adapter, tmp)

@@ -291,6 +291,13 @@ class ExperienceMemory:
     def close(self) -> None:
         self.db.close()
 
+    def save(self) -> None:
+        """Flush the experience database and checkpoint committed learning data to its main file."""
+        self.db.commit()
+        busy, _wal_frames, _checkpointed = self.db.execute("PRAGMA wal_checkpoint(FULL)").fetchone()
+        if busy:
+            raise RuntimeError(f"could not checkpoint learning data at {self.path}: database is busy")
+
     def dashboard_status(self) -> Dict[str, Any]:
         """Bounded live summary; never sends game snapshots or full local paths."""
         totals = dict(self._dashboard_totals or {})

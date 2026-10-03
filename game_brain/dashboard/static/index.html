@@ -475,6 +475,9 @@ tbody tr:hover { background: rgba(167,139,250,0.05); }
 .persist-path { color:var(--fg-dim); font:11px/1.45 ui-monospace,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
 .persist-save { padding:8px 0; border-bottom:1px solid var(--line); }
 .persist-save:last-child { border-bottom:0; }
+.persist-actions { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 12px; }
+.persist-actions button { padding:7px 12px; border:1px solid var(--line-strong); border-radius:8px; background:var(--gba-purple); color:white; font:inherit; cursor:pointer; }
+.persist-actions button:disabled { opacity:.45; cursor:not-allowed; }
 .reward-positive { color:var(--gba-green); } .reward-negative { color:var(--gba-red); }
 .persist-reason { color:var(--fg-mute); font-size:11px; }
 .rom-picker { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; align-items:center; }
@@ -782,6 +785,10 @@ tr.actor-row-human td { color: var(--gba-amber); }
     <section class="gb-card">
       <h2>跨次經驗記憶</h2>
       <div id="memoryMeta" class="persist-meta">等待記憶資料…</div>
+      <div class="persist-actions">
+        <button id="saveLearningNow" type="button" disabled>保存 AI 學習資料</button>
+      </div>
+      <div class="persist-subhead">經驗記錄會逐步自動寫入；按鈕會立即同步保存學習資料庫。</div>
       <div id="memoryStats" class="persist-stats"></div>
       <div class="persist-subhead">最近實際操作（分數係新奇／劇情指標，唔係學習成績）</div>
       <table id="experienceRecords">
@@ -795,6 +802,9 @@ tr.actor-row-human td { color: var(--gba-amber); }
     <section class="gb-card">
       <h2>遊戲存檔</h2>
       <div id="saveMeta" class="persist-meta">等待存檔資料…</div>
+      <div class="persist-actions">
+        <button id="saveGameNow" type="button" disabled>保存遊戲</button>
+      </div>
       <div id="gameSaves"><div class="persist-empty">尚未建立遊戲存檔</div></div>
       <div class="persist-subhead">探索位置代表存檔</div>
       <div id="explorationSaves"><div class="persist-empty">尚無探索存檔</div></div>
@@ -1073,6 +1083,8 @@ function renderPersistence(p) {
   const meta = $("memoryMeta"), statsBox = $("memoryStats"), records = $("experienceRecords").tBodies[0];
   const cellsBox = $("memoryCells"), savesBox = $("gameSaves"), exploreBox = $("explorationSaves");
   const memory = p?.memory || { enabled: false }, totals = memory.totals || {};
+  $("saveGameNow").disabled = !p?.saving;
+  $("saveLearningNow").disabled = !memory.enabled;
   meta.textContent = !memory.enabled ? "經驗記錄已關閉"
     : `${memory.namespace || "遊戲"} · Run ${memory.run_id || p.run_id || "–"} · Episode ${memory.episode_id || "–"}`;
   statsBox.replaceChildren();
@@ -1284,8 +1296,14 @@ function sendPress(button) {
          payload: { v: 1, source: "manual", presses: [{ button, frames, release_frames: release }] } });
 }
 
+function sendPersistenceCommand(kind) {
+  send({ type: kind, frame: state.lastObs?.frame ?? 0, ts: Date.now() / 1000, payload: {} });
+}
+
 document.querySelectorAll("#modes button").forEach(b => b.onclick = () => sendMode(b.dataset.mode));
 document.querySelectorAll("#pad button").forEach(b => b.onclick = () => sendPress(b.dataset.btn));
+$("saveGameNow").addEventListener("click", () => sendPersistenceCommand("save_game"));
+$("saveLearningNow").addEventListener("click", () => sendPersistenceCommand("save_learning"));
 const KEYS = { ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT",
                z: "A", Z: "A", x: "B", X: "B", Enter: "START", Shift: "SELECT", a: "L", s: "R" };
 document.addEventListener("keydown", e => {

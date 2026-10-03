@@ -99,6 +99,52 @@ def test_server_queues_view_messages_and_refuses_bad_ones():
         c.close()
 
 
+def test_server_queues_save_commands_and_validates_payloads():
+    from game_brain.dashboard.server import PersistenceCommand
+    with DashboardServer("127.0.0.1", 0) as server:
+        c = Client(server.port)
+        c.send({"type": "save_game", "frame": 1, "ts": 0, "payload": {}})
+        c.send({"type": "save_learning", "frame": 1, "ts": 0, "payload": {}})
+        c.send({"type": "save_game", "frame": 1, "ts": 0, "payload": {"path": "unsafe"}})
+        err = c.recv_until(lambda e: e["type"] == "error")
+        assert "payload must be an empty object" in err["payload"]["reason"]
+        got = []
+        assert wait_for(lambda: got.extend(server.poll()) or len(got) >= 2)
+        assert got == [PersistenceCommand("save_game"), PersistenceCommand("save_learning")]
+        c.close()
+
+
+def test_dashboard_manual_game_and_learning_saves(tmp_path):
+    with DashboardServer("127.0.0.1", 0) as server:
+        c = Client(server.port)
+        result = {}
+        t = threading.Thread(target=lambda: result.update(run(
+            server, "mock-house", steps=80, step_delay=0.03, out_dir=str(tmp_path / "runs"), quiet=True,
+            save_dir=str(tmp_path / "saves"), save_every=0, memory_dir=str(tmp_path / "memory"))))
+        t.start()
+        c.recv_until(lambda e: e["type"] == "status" and e["payload"]["step"] >= 2)
+        c.send({"type": "save_game", "frame": 2, "ts": 0, "payload": {}})
+        c.send({"type": "save_learning", "frame": 2, "ts": 0, "payload": {}})
+        seen_game = seen_learning = False
+        while not (seen_game and seen_learning):
+            status = c.recv_until(lambda e: e["type"] == "status")
+            notes = status["payload"]["notes"]
+            seen_game |= any(note.startswith("已保存遊戲") for note in notes)
+            seen_learning |= any(note.startswith("已保存 AI 學習資料") for note in notes)
+        saves = status["payload"]["persistence"]["game_saves"]
+        assert any(save["reason"] == "manual" for save in saves)
+        c.close()
+        t.join(timeout=10)
+        assert not t.is_alive()
+
+    events = [json.loads(line) for line in open(result["log"], encoding="utf-8") if '"kind"' in line]
+    assert any(event["kind"] == "save" and event.get("reason") == "manual" for event in events)
+    assert any(event["kind"] == "learning_save" for event in events)
+    from game_brain.memory import inspect_memory
+    memory = inspect_memory(tmp_path / "memory")
+    assert memory["transitions"] > 0
+
+
 def _steps(log):
     steps = []
     for s in iter_steps(log):
@@ -180,4 +226,11 @@ def test_page_asks_for_24_fps_by_default_only_while_the_run_is_on_cli_pacing():
     assert 'id="fpsNum" type="number" min="1" max="60" step="1" value="24"' in html
     # sent once per connection, and only when no tab has chosen a speed yet (mode "cli")
     assert 'if (d.mode === "cli") { $("fpsMode").value = "manual"; $("fpsNum").value = DEFAULT_FPS; sendDisplay(); }' in html
+
+
+def test_page_has_separate_game_and_learning_save_buttons():
+    from pathlib import Path
+    html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
+    for needle in ('id="saveGameNow"', 'id="saveLearningNow"', '"save_game"', '"save_learning"'):
+        assert needle in html
     assert "state.displayChecked = false;" in html
