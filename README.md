@@ -32,32 +32,15 @@
 
 | 項目 | 狀態 |
 |---|---|
-<<<<<<< HEAD
-| 模擬器 | ✅ 用 mGBA 0.10.5 Python bindings **headless** 行真 FireRed（`--adapter mgba`）；決定性 act + replay 已驗證（見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)） |
-| RuleBrain | ⚠️ 只係**狂按 A 過開場**，入到主角房間之後**行固定圖案亂行**；而家主要做 PathBrain 嘅後備 |
-| PathBrain | ✅ **A\* 尋路**（4 方向）＋目標清單：真 ROM 上由主角房 2F → 1F → 真新鎮 → 北面出口觸發 Oak 劇情 → 研究所 → **攞到妙蛙種子（Bulbasaur，`party_count` 1）**；會避開 NPC、會按 A/B 過劇情。攞完之後行向出口，勁敵喺 (7,8) 截停 → 交俾戰鬥大腦；打完（贏輸都得）返到 (7,8)。**M3**：出研究所 → 行出真新鎮北面邊界（map connection，唔係 warp）→ 1 號道路 3/19（草叢野生戰交俾戰鬥大腦）→ 行出北面邊界 → **常磐市 3/1**。**Oak 包裹**：入常磐市友好商店 5/3（店員劇情自動俾包裹）→ 經 1 號道路行返南面（跳台當牆，A\* 行冇跳台嗰條路）→ 研究所交俾 Oak → **攞到圖鑑**（真 ROM 由開機 step 3944）。下一個目標（往尼比市）係 placeholder，對白完咗原地等。**輸咗（whiteout）**：喺屋企 1F (8,5) 醒返，媽媽補返血，AI 會自己再行出去、行返去常磐市（真 ROM 驗證，見 `notes/nav.md`「Whiteout」） |
-| RandomBrain | ✅ 有 seed、可重現嘅隨機按鍵（baseline / 後備） |
-| LLMBrain | ⛔ **stub**：未接任何 LLM provider、無 API key、唔會打任何 API；呼叫時會回報 unavailable，arbiter 自動 fallback |
-| RAM 位址 | 只有 [`notes/mgba-bridge.md`](notes/mgba-bridge.md) 表入面嗰啲係**喺呢隻 ROM 上驗證過**：`vblank_counter`、`held_keys`、`callback2`/`scene`、`player_x`/`player_y`、`map_bank`/`map_id`、`facing`、`map_w`/`map_h`/`collision`/`warps`（PR #7）；`npcs`、`party_count`（M2，暫放喺 `adapters/gba_mgba/firered_extra.py`，驗證方法見 [`notes/nav.md`](notes/nav.md)，**等 Backend 接手**）。`in_battle`（`gMain+0x439` bit1，PR #15，喺勁敵戰驗證：對戰期間 True，完咗返 False；入戰前約 20 步過場仍然係 False）。`npcs` 用碰撞法 8 個只驗到 1 個，當**部分驗證** |
-| ROM | 我哋手上嗰隻 SHA1 係 `e0194282c427689768f8e618a285552f264524a4`，**唔係**乾淨 FireRed US 1.0（`41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`），亦唔係 Rev 1（`dd5945db…`），應該係改過嘅 image。所以 pokefirered 嘅位址全部要自己逐個驗證 |
-| Dashboard | ✅ 本機網頁：即時畫面、計劃、最近步驟（顯示邊個做）、模式切換、Manual/Assist 手動按鍵；目標、里程碑進度條、小地圖（碰撞格、出入口、規劃路徑、紫色 NPC）、隊伍數量；新增跨次記憶總覽（操作／新奇獎勵／低訪問格子）及遊戲／探索存檔、續玩路徑 |
-| Docker | ✅ 本機 image（PR #13）：ROM 以唯讀 `-v` 掛入、唔會 COPY 入 image；只開 `127.0.0.1:8765` |
-| Run log | ✅ 去重（PR #9/#11/#14）：每張地圖嘅碰撞格只記一次、`milestones`/`npcs`/`executed_action` 有變先記；1500 步 log 約 1.35 MB，replay 照樣 0 mismatch |
-| 戰鬥大腦 | ✅ **RuleBattleBrain**（`--brains battle,path,rule`）：讀 `ram["battle"]`（PR #20），用 PokeAPI 靜態表（`game_brain/data/`，BSD-3，見 `NOTICE.md`）估傷害揀招，逐步閉環撳掣（睇選單同游標）。真 ROM：由開機打完勁敵戰（揮指，今次贏）、返到研究所 (7,8)，replay 0 mismatch。信心低過門檻（預設 0.6，`--battle-confidence`）喺 Assist 會 `handoff` 等人。未做：換隻、用道具（隊伍/背包未讀到）；RUN 預設唔用 |
-| 學習 | ✅ Go-Explore 式自主探索：持久化 tabular Q-learning、cell archive + savestate、跨次續跑；戰鬥預設用 RuleBattleBrain。另有獨立的人手 imitation policy。未做 PPO；全遊戲通關條件及 Route 2/森林資料未驗證 |
-| CI | ⛔ 未有（現有 token 無 `workflow` scope，推唔到 `.github/workflows`） |
-| License | 未揀（等 YIN 決定；repo 目前係 public） |
-=======
 | 模擬器 | ✅ mGBA 0.10.5 headless bindings；act 可重現，replay 0 mismatch |
 | PathBrain | ✅ A* 尋路、避 NPC、過劇情、跳台當牆。下一個目標（尼比市）仍係 placeholder |
 | RuleBattleBrain | ✅ 讀 `ram["battle"]`，用 PokeAPI 靜態表揀招。勁敵戰已打完並返到研究所。未做換寵、道具；RUN 預設唔用 |
 | RuleBrain / RandomBrain | ✅ 後備。RuleBrain 過開場後只會亂行 |
 | LLMBrain | ⛔ stub，未接 provider。呼叫會 fallback |
-| 學習 | ✅ 第一版 Go-Explore 同人手 imitation。未做 PPO，未驗證森林以後 |
+| 學習 | ✅ Go-Explore 式自主探索：持久化 tabular Q-learning、cell archive + savestate、跨次續跑；另有人手 imitation。未做 PPO，未驗證森林以後 |
 | Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、存檔／續玩 |
 | Docker / 本機啟動 | ✅ `start_in_docker.bat`、`start_local.bat`。ROM 只讀掛入，唔會 COPY 入 image |
 | CI / License | ⛔ 未有 CI。License 未揀，repo 係 public |
->>>>>>> origin/main
 
 呢隻驗證 ROM 嘅御三家只識 METRONOME（揮指），勁敵戰結果係隨機。戰鬥邏輯要讀 RAM，唔好假設識邊招。
 
