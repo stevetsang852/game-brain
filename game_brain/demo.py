@@ -38,13 +38,14 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
         screenshot_every: int = 0, quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
         resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
-        starter: Optional[str] = None, memory_dir: Optional[str] = None, no_memory: bool = False) -> dict:
+        starter: Optional[str] = None, memory_dir: Optional[str] = None, no_memory: bool = False,
+        imitation_model: Optional[str] = None) -> dict:
     """``save_dir``: write save states there (None = no saves). ``resume``: "latest" (in
     ``save_dir``, default ~/.game-brain/saves) or a sidecar/state path; the run continues from it.
     Adapter / brains / saves are built by :class:`game_brain.setup.Session` (shared with the dashboard)."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
                    quiet=quiet, keep_periodic=keep_periodic, starter=starter,
-                   memory_dir=memory_dir, no_memory=no_memory)
+                   memory_dir=memory_dir, no_memory=no_memory, imitation_model=imitation_model)
     adapter, arbiter = sess.adapter, sess.arbiter
     switches = switches or {}
     start_step = sess.start_step

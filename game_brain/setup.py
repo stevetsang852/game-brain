@@ -89,6 +89,8 @@ def add_run_args(ap: argparse.ArgumentParser, *, adapter_default: str, brains_de
                          f"Default {brains_default}")
     ap.add_argument("--battle-confidence", type=float, default=None, metavar="X",
                     help="RuleBattleBrain confidence threshold 0-1 (default 0.6); below it hands off in assist")
+    ap.add_argument("--imitation-model", default=None, metavar="PATH",
+                    help="offline behavior-cloning JSON model (train with python -m game_brain.learning)")
     ap.add_argument("--seed", type=int, default=None,
                     help="RNG seed (random brain, --starter random). Default: with --starter random a seed is "
                          "drawn at random and recorded (log header, status, saves); otherwise 0. "
@@ -196,7 +198,7 @@ class Session:
                  resume: Optional[str] = None, quiet: bool = False,
                  keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
                  starter: Optional[str] = None, memory_dir: Optional[str] = None,
-                 no_memory: bool = False):
+                 no_memory: bool = False, imitation_model: Optional[str] = None):
         self.quiet = quiet
         self.battle_confidence = battle_confidence
         self.save_dir, self.save_every = save_dir, save_every
@@ -247,7 +249,9 @@ class Session:
             self.starter = resolve_starter(requested, seed)
             self.starter_info = {"requested": requested, "picked": None, "seed": seed}
             self.starter_source = "random" if requested == "random" else "flag"
-        self.brains = make_brains(brains, seed=seed, battle_confidence=battle_confidence, starter=self.starter)
+        namespace = f"{self.adapter.name}:{getattr(self.adapter, 'rom_sha1', None) or 'synthetic'}"
+        self.brains = make_brains(brains, seed=seed, battle_confidence=battle_confidence, starter=self.starter,
+                                  imitation_model=imitation_model, namespace=namespace)
         self.arbiter = Arbiter(self.brains, mode=mode)
         self.sidecar_extra = {"starter": self.starter_info, "seed": self.seed}   # live: copied at each save
         self.arbiter.reset()
@@ -287,7 +291,7 @@ class Session:
         return cls(a.adapter, a.brains, a.mode, a.seed, a.battle_confidence, a.out, save_dir_from_args(a),
                    a.save_every, a.resume, quiet=a.quiet if quiet is None else quiet,
                    keep_periodic=a.keep_periodic, starter=a.starter,
-                   memory_dir=a.memory_dir, no_memory=a.no_memory)
+                   memory_dir=a.memory_dir, no_memory=a.no_memory, imitation_model=a.imitation_model)
 
     # ------------------------------------------------------------------ run-loop hooks
     def header_info(self, **extra: Any) -> Dict[str, Any]:
