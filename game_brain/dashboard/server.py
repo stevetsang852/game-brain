@@ -21,6 +21,7 @@ import os
 import queue
 import socket
 import threading
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -35,10 +36,15 @@ log = logging.getLogger(__name__)
 STATIC = Path(__file__).with_name("static")
 
 #: envelope types the page may send. Everything else is refused.
-INBOUND_TYPES = ("mode_command", "action", "view_config", "frame_ack")
+INBOUND_TYPES = ("mode_command", "action", "view_config", "frame_ack", "save_game", "save_learning")
 #: dashboard-only display messages, never part of the game schema (see pacing.py)
 _VIEW_TYPES = {"view_config": ViewConfig.from_envelope, "frame_ack": FrameAck.from_envelope}
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+@dataclass(frozen=True)
+class PersistenceCommand:
+    kind: str
 
 
 def _is_loopback(host: str) -> bool:
@@ -248,6 +254,11 @@ class DashboardServer:
                 raise SchemaError(f"type {t!r} may not be sent by the dashboard (allowed: {INBOUND_TYPES})")
             if t in _VIEW_TYPES:
                 self._inbox.put(_VIEW_TYPES[t](env))
+                return
+            if t in ("save_game", "save_learning"):
+                if not isinstance(env.get("payload"), dict) or env["payload"]:
+                    raise SchemaError(f"{t} payload must be an empty object")
+                self._inbox.put(PersistenceCommand(t))
                 return
             msg = from_envelope(env)
             if isinstance(msg, Action):  # the page can never claim to be a brain
