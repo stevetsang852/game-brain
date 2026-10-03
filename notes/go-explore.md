@@ -5,6 +5,8 @@
 > 作者：Research Manager，2026-10-02。這份只是規格，沒有程式碼。實作由 Fullstack 負責，使用 Backend 的 `GameBrainEnv`（`game_brain/gym_env.py`）。
 > 參考：Ecoffet et al., *Go-Explore*（2019 / Nature 2021）；PWhiddy *PokemonRedExperiments* 與 pokemonred_puffer 的「新格子」探索獎勵（見 `notes/references.md`、`notes/ml-decision.md`）。
 
+> **2026-10-03 實作狀態：** `game_brain/memory.py` 已有跨 run SQLite 經驗／探索索引、精確格子（G=1）、進度維度、首次代表存檔及實際動作軌跡匯出，CLI／Dashboard 共用。這是記憶基礎，**不是以下完整 Go-Explore 演算法**：尚無 `GameBrainEnv`、cell 自動選擇、sticky action 探索段、分數替換、cell 淘汰或訓練。現有 planner 只在記憶模組評分，不由記憶模組選動作；原本 PathBrain 行為不變。實際格式／指令見 README「跨次運行記憶」；以下 archive.json／G=2／Go-Explore 旗標仍是未實作規格。
+
 ## 0. 目標與界線
 
 | 項目 | 內容 |

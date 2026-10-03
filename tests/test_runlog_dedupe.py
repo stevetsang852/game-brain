@@ -156,14 +156,16 @@ def test_live_dashboard_envelopes_keep_full_decision_and_actions(tmp_path):
                  screenshot_every=0, out_dir=str(tmp_path), quiet=True)
     decisions = [e["payload"] for e in srv.sent if e["type"] == "decision"]
     statuses = [e["payload"] for e in srv.sent if e["type"] == "status"]
-    assert len(decisions) == len(statuses) == 120
+    step_statuses = [s for s in statuses if not s.get("finished")]
+    assert len(decisions) == len(step_statuses) == 120
+    assert statuses[-1]["finished"] is True
     assert sum(d["brain"] == "path" for d in decisions) > 100
     for d in decisions:
         assert "type" not in d and not ({"milestones_same", "executed_same"} & d.keys())
         # every decision (PathBrain's, and RuleBrain's fallback via the arbiter) carries the full list
         assert len(d["milestones"]) == 17 and all({"id", "label", "done"} <= m.keys() for m in d["milestones"])
         Decision.from_dict({**d, "type": "decision"})
-    for st in statuses:
+    for st in step_statuses:
         assert {"proposed_action", "executed_action"} <= st.keys()
         assert st["executed_action"] is not None and st["proposed_action"] is not None
         assert "executed_same" not in st
@@ -174,7 +176,7 @@ def test_live_dashboard_envelopes_keep_full_decision_and_actions(tmp_path):
     restored = list(iter_steps(s["log"]))
     assert [{**r["decision"], "type": None} for r in restored] == [{**d, "type": None} for d in decisions]
     assert [(r["proposed_action"], r["executed_action"]) for r in restored] == \
-        [(st["proposed_action"], st["executed_action"]) for st in statuses]
+        [(st["proposed_action"], st["executed_action"]) for st in step_statuses]
 
 
 def test_writer_does_not_mutate_live_objects(tmp_path):

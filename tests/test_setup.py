@@ -25,6 +25,7 @@ class _CaptureServer:
 
 SHARED = {"--adapter", "--mode", "--brains", "--battle-confidence", "--seed", "--starter", "--out", "--save-dir", "--keep-periodic",
           "--save-every", "--no-save", "--resume"}
+SHARED |= {"--memory-dir", "--no-memory"}
 
 
 def _flags(ap):
@@ -97,10 +98,33 @@ def test_dashboard_run_uses_milestones_saves_and_resume(tmp_path):
     assert replay(r["log"], make_adapter("mock-house")) == []
 
 
+def test_dashboard_status_includes_experience_and_resumable_saves(tmp_path):
+    srv = _CaptureServer()
+    result = live.run(srv, "mock-house", "auto", steps=12, step_delay=0, screenshot_every=0,
+                      out_dir=str(tmp_path / "runs"), save_dir=str(tmp_path / "saves"),
+                      save_every=0, quiet=True)
+    statuses = [e["payload"] for e in srv.sent if e["type"] == "status"]
+    first = statuses[0]["persistence"]
+    final = statuses[-1]
+    assert final["finished"] is True
+    assert first["memory"]["enabled"] and first["memory"]["totals"]["transitions"] == 1
+    assert first["memory"]["recent"][0]["step"] == 0
+    assert first["saving"] and first["save_dir"]
+    assert final["persistence"]["memory"]["totals"]["transitions"] == 12
+    assert final["persistence"]["game_saves"][-1]["reason"] == "final"
+    assert final["persistence"]["game_saves"][-1]["path"] in result["saves"]
+    assert final["persistence"]["memory"]["least_visited_cells"]
+
+
 def test_cli_and_dashboard_logs_match_step_for_step(tmp_path):
     """Same setup + same (no) input -> the dashboard plays exactly what the CLI plays."""
-    a = demo.run("mock-house", steps=200, brains="battle,path,rule", out_dir=str(tmp_path / "cli"), quiet=True)
+    a = demo.run("mock-house", steps=200, brains="battle,path,rule", out_dir=str(tmp_path / "cli"), quiet=True,
+                 memory_dir=str(tmp_path / "cli-memory"))
     b = live.run(_CaptureServer(), "mock-house", "auto", brains="battle,path,rule", steps=200, step_delay=0,
-                 screenshot_every=0, out_dir=str(tmp_path / "live"), quiet=True)
-    strip = lambda r: {k: v for k, v in r.items() if k != "ts"}   # noqa: E731
+                 screenshot_every=0, out_dir=str(tmp_path / "live"), quiet=True,
+                 memory_dir=str(tmp_path / "live-memory"))
+    def strip(r):
+        r = {k: v for k, v in r.items() if k != "ts"}
+        r["experience"] = {k: v for k, v in r["experience"].items() if k not in ("run_id", "episode_id")}
+        return r
     assert [strip(r) for r in iter_steps(a["log"])] == [strip(r) for r in iter_steps(b["log"])]

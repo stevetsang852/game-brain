@@ -38,12 +38,13 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
         screenshot_every: int = 0, quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
         resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
-        starter: Optional[str] = None) -> dict:
+        starter: Optional[str] = None, memory_dir: Optional[str] = None, no_memory: bool = False) -> dict:
     """``save_dir``: write save states there (None = no saves). ``resume``: "latest" (in
     ``save_dir``, default ~/.game-brain/saves) or a sidecar/state path; the run continues from it.
     Adapter / brains / saves are built by :class:`game_brain.setup.Session` (shared with the dashboard)."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
-                   quiet=quiet, keep_periodic=keep_periodic, starter=starter)
+                   quiet=quiet, keep_periodic=keep_periodic, starter=starter,
+                   memory_dir=memory_dir, no_memory=no_memory)
     adapter, arbiter = sess.adapter, sess.arbiter
     switches = switches or {}
     start_step = sess.start_step
@@ -55,7 +56,7 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
 
     steps_done = 0
     stopped_by = None
-    with RunLogWriter(sess.log_path) as log, StopSignals() as stop:
+    with sess, RunLogWriter(sess.log_path) as log, StopSignals() as stop:
         log.header(**sess.header_info(steps=steps))
         obs = sess.start(log)
         for step in range(start_step, start_step + steps):
@@ -69,7 +70,7 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
             advanced = adapter.act(result.executed) if result.executed else 0
             by_brain[result.decision.brain] += 1
             executed_count += int(result.decision.executed)
-            log.step(step, obs, result, advanced)
+            sess.record_step(log, step, obs, result, advanced)
             steps_done += 1
             sess.after_step(log, step + 1, result)
             if screenshot_every and step % screenshot_every == 0:
@@ -85,7 +86,7 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
             # stderr, even with -q: say why the run ended early
             print(f"{stopped_by}: stopping after step {start_step + steps_done} (final save + summary)",
                   file=sys.stderr)
-        sess.finish(log, start_step + steps_done, result)
+        sess.finish(log, start_step + steps_done, result, reason=stopped_by or "step_limit")
         final = adapter.observe()
         summary = {
             "steps": steps_done, "final_frame": final.frame, "final_ram": final.ram,
@@ -94,9 +95,9 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
             "screenshots": shots, "wall_seconds": round(time.time() - t0, 3),
             "saves": sess.saves, "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None,
             "stopped_by": stopped_by, "starter": dict(sess.starter_info), "seed": sess.seed,
+            "memory": str(sess.memory.path) if sess.memory else None,
         }
         log.event("summary", **summary)
-    adapter.close()
     return summary
 
 
@@ -119,7 +120,8 @@ def main(argv=None) -> int:
         s = run(a.adapter, a.steps, a.mode, a.brains, a.seed, a.out, _parse_switches(a.switch),
                 a.screenshot_every, a.quiet, battle_confidence=a.battle_confidence,
                 save_dir=save_dir, save_every=a.save_every,
-                resume=a.resume, keep_periodic=a.keep_periodic, starter=a.starter)
+                resume=a.resume, keep_periodic=a.keep_periodic, starter=a.starter,
+                memory_dir=a.memory_dir, no_memory=a.no_memory)
     except (ValueError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

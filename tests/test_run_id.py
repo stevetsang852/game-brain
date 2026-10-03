@@ -8,7 +8,7 @@ from pathlib import Path
 from game_brain import demo, savestate, setup
 from game_brain.runlog import iter_steps, read_log
 
-RUN_ID = re.compile(r"^\d{8}T\d{6}Z$")
+RUN_ID = re.compile(r"^\d{8}T\d{6}Z(?:-[0-9a-f]{12})?$")
 
 
 def _run(tmp_path, out, steps, **kw):

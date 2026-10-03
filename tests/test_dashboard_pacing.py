@@ -100,20 +100,28 @@ def test_server_queues_view_messages_and_refuses_bad_ones():
 
 
 def _steps(log):
-    return [{k: v for k, v in s.items() if k != "ts"} for s in iter_steps(log)]
+    steps = []
+    for s in iter_steps(log):
+        s.pop("ts", None)
+        if "experience" in s:
+            s["experience"] = {k: v for k, v in s["experience"].items() if k not in ("run_id", "episode_id")}
+        steps.append(s)
+    return steps
 
 
 def test_live_fps_change_takes_effect_and_log_is_unchanged(tmp_path):
     """Same seed, same steps: a run whose FPS is changed mid-way logs exactly what a plain run logs."""
     with DashboardServer("127.0.0.1", 0) as server:
-        base = run(server, "mock", "auto", steps=40, step_delay=0, out_dir=str(tmp_path / "a"), quiet=True)
+        base = run(server, "mock", "auto", steps=40, step_delay=0, out_dir=str(tmp_path / "a"), quiet=True,
+                   memory_dir=str(tmp_path / "a-memory"))
     with DashboardServer("127.0.0.1", 0) as server:
         c = Client(server.port)
         assert wait_for(lambda: server.client_count == 1)
         result = {}
         t = threading.Thread(target=lambda: result.update(
             # 0.05 s CLI delay: slow enough that the run cannot finish before view_config arrives
-            run(server, "mock", "auto", steps=40, step_delay=0.05, out_dir=str(tmp_path / "b"), quiet=True)))
+            run(server, "mock", "auto", steps=40, step_delay=0.05, out_dir=str(tmp_path / "b"), quiet=True,
+                memory_dir=str(tmp_path / "b-memory"))))
         t.start()
         c.recv_until(lambda e: e["type"] == "status" and e["payload"]["step"] >= 2)
         c.send({"type": "view_config", "frame": -1, "ts": 0, "payload": {"mode": "manual", "fps": 20}})

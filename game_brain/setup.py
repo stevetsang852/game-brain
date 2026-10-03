@@ -28,6 +28,7 @@ import signal
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -35,7 +36,8 @@ from . import savestate
 from .adapters import make_adapter
 from .arbiter import Arbiter
 from .brain import make_brains
-from .brain.goals import FR_STARTER, FR_STARTER_BALLS
+from .brain.goals import FR_STARTER, FR_STARTER_BALLS, GoalPlanner, firered_milestones
+from .memory import ExperienceMemory, default_memory_dir
 from .schema import Mode
 
 #: brains that get the full FireRed stack (battle in battle, A* + milestones outside, A-mash fallback)
@@ -95,6 +97,10 @@ def add_run_args(ap: argparse.ArgumentParser, *, adapter_default: str, brains_de
                     help="starter Pokemon to pick in Oak's lab: random (default, or $GAME_BRAIN_STARTER) = chosen "
                          "from --seed; or a fixed one. On --resume the save's recorded choice is used (no re-roll)")
     ap.add_argument("--out", default="runs")
+    ap.add_argument("--memory-dir", default=None, metavar="DIR",
+                    help="persistent SQLite experience + exploration states (default ~/.game-brain/memory "
+                         "or $GAME_BRAIN_MEMORY_DIR; must be outside the repo)")
+    ap.add_argument("--no-memory", action="store_true", help="disable experience and exploration recording")
     ap.add_argument("--save-dir", default=None, metavar="DIR",
                     help="save states go here (default ~/.game-brain/saves or $GAME_BRAIN_SAVE_DIR; "
                          "refused if inside the repo)")
@@ -111,7 +117,8 @@ def add_run_args(ap: argparse.ArgumentParser, *, adapter_default: str, brains_de
 
 def new_run_id(now: Optional[float] = None) -> str:
     """Run id = UTC start time, ISO 8601 basic format with ``Z``: ``20261002T083408Z``. Same on the
-    host and in the container (no local time zone), and sorting by name is chronological. Older
+    host and in the container (no local time zone), and sorting by name is chronological. Session
+    appends a random suffix so simultaneous runs never overwrite logs or saves. Older
     runs used local time (``20261002-163408``); nothing parses run ids, so their saves / logs still
     resume and replay (they sort before every new id of the same UTC date or later)."""
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
@@ -188,10 +195,13 @@ class Session:
                  save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
                  resume: Optional[str] = None, quiet: bool = False,
                  keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
-                 starter: Optional[str] = None):
+                 starter: Optional[str] = None, memory_dir: Optional[str] = None,
+                 no_memory: bool = False):
         self.quiet = quiet
         self.battle_confidence = battle_confidence
         self.save_dir, self.save_every = save_dir, save_every
+        self.memory_root = None if no_memory else savestate.check_save_dir(memory_dir or default_memory_dir())
+        self.memory: Optional[ExperienceMemory] = None
         adapter_name = resolve_adapter(adapter_name)
         self.side: Optional[Dict[str, Any]] = None
         kw: Dict[str, Any] = {}
@@ -258,7 +268,7 @@ class Session:
                                  "state_sha1": side["state_sha1"], "step": self.start_step, "frame": side["frame"],
                                  "adapter_state": side.get("adapter_state"), "sav": side.get("_sav_path"),
                                  "milestone": side.get("milestone")}
-        self.run_id = new_run_id()
+        self.run_id = new_run_id() + "-" + uuid.uuid4().hex[:12]
         self.run_dir = Path(out_dir) / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.run_dir / "run.jsonl"
@@ -276,13 +286,16 @@ class Session:
     def from_args(cls, a: argparse.Namespace, quiet: Optional[bool] = None) -> "Session":
         return cls(a.adapter, a.brains, a.mode, a.seed, a.battle_confidence, a.out, save_dir_from_args(a),
                    a.save_every, a.resume, quiet=a.quiet if quiet is None else quiet,
-                   keep_periodic=a.keep_periodic, starter=a.starter)
+                   keep_periodic=a.keep_periodic, starter=a.starter,
+                   memory_dir=a.memory_dir, no_memory=a.no_memory)
 
     # ------------------------------------------------------------------ run-loop hooks
     def header_info(self, **extra: Any) -> Dict[str, Any]:
         info = {"adapter": self.adapter.name, "brains": [b.name for b in self.brains],
                 "mode": self.arbiter.mode.value, "starter": dict(self.starter_info), **extra,
-                "seed": self.seed, "seed_source": self.seed_source}
+                "seed": self.seed, "seed_source": self.seed_source, "run_id": self.run_id,
+                "rom_hash": getattr(self.adapter, "rom_sha1", None),
+                "memory_dir": str(self.memory_root) if self.memory_root else None}
         if self.resumed_from:
             info["resumed_from"] = self.resumed_from
         return info
@@ -300,7 +313,31 @@ class Session:
             if not self.quiet:
                 print(f"resumed from {side['_path']} (step {self.start_step}, frame {side['frame']}, "
                       f"map {side.get('map_bank')}/{side.get('map_id')} at ({side.get('x')}, {side.get('y')}))")
+        if self.memory_root is not None:
+            planner = next((GoalPlanner(b.planner.milestones) for b in self.brains if hasattr(b, "planner")), None)
+            if planner is None and self.adapter.name in ("gba_mgba/firered", "mock-house"):
+                planner = GoalPlanner(firered_milestones(self.starter))
+            if planner and side:
+                planner.restore(side.get("milestones_done"))
+            self.memory = ExperienceMemory(self.memory_root, self.adapter, self.run_id, savestate.git_commit(),
+                                           [b.name for b in self.brains], self.log_path, planner, side,
+                                           save_cells=self.saving)
+            self.memory.cell_saver.extra.update(self.sidecar_extra)
+            self.memory.start(obs, self.start_step)
+            self.sidecar_extra["memory"] = self.memory.cursor(self.start_step)
+            log.event("episode_start", **self.sidecar_extra["memory"])
         return obs
+
+    def record_step(self, log, step: int, obs, result, advanced: int) -> None:
+        """Observe immediately after act(), including the run's final action."""
+        after = self.adapter.observe()
+        previous_episode = self.memory.episode_id if self.memory else None
+        experience = self.memory.record(step, obs, result, after, advanced) if self.memory else None
+        if self.memory and self.memory.episode_id != previous_episode:
+            log.event("episode_start", **self.memory.cursor(step))
+        log.step(step, obs, result, advanced, observation_after=after, experience=experience)
+        if self.memory:
+            self.sidecar_extra["memory"] = self.memory.cursor(step + 1)
 
     @property
     def saving(self) -> bool:
@@ -328,13 +365,48 @@ class Session:
             if p in self.saves:                         # the summary lists only saves that still exist
                 self.saves.remove(p)
 
-    def finish(self, log, steps_done: int, result) -> None:
+    def finish(self, log, steps_done: int, result, reason: str = "run_end") -> None:
         """End of run: the ``final`` save."""
+        if self.memory:
+            end = self.memory.finish(reason)
+            log.event("episode_end", **end)
         if not self.saving:
             return
         sv = self.saver.save(steps_done, result.decision.milestones if result is not None else None, reason="final")
         self.saves.append(sv["_path"])
         log.event("save", step=steps_done, frame=sv["frame"], reason="final", path=sv["_path"])
+
+    def dashboard_status(self) -> Dict[str, Any]:
+        saves = []
+        if self.saver:
+            existing = set(self.saves)
+            for sv in reversed(self.saver.saved):
+                if sv.get("_path") in existing:
+                    path = Path(sv["_path"])
+                    saves.append({"name": path.name, "reason": sv.get("reason"), "step": sv.get("step"),
+                                  "frame": sv.get("frame"), "path": str(path),
+                                  "battery_save": bool(sv.get("sav_file"))})
+                if len(saves) == 8:
+                    break
+        return {
+            "run_id": self.run_id, "adapter": self.adapter.name,
+            "rom_hash": getattr(self.adapter, "rom_sha1", None),
+            "log": str(self.log_path), "save_dir": str(self.saver.root) if self.saver else None,
+            "saving": self.saving, "save_every": self.saver.every if self.saver else None,
+            "memory_dir": str(self.memory.root) if self.memory else None,
+            "memory": self.memory.dashboard_status() if self.memory else {"enabled": False},
+            "game_saves": list(reversed(saves)),
+        }
+
+    def __enter__(self) -> "Session":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        try:
+            if self.memory:
+                self.memory.close()
+        finally:
+            self.adapter.close()
 
     def config(self) -> Dict[str, Any]:
         """What was built (tests compare the CLI and the dashboard with this)."""
@@ -342,6 +414,7 @@ class Session:
                "brains": [(b.name, type(b).__name__) for b in self.brains], "mode": self.arbiter.mode.value,
                "seed": self.seed, "battle_confidence": None, "milestones": None, "starter": dict(self.starter_info),
                "starter_plan": self.starter,
+               "memory_dir": str(self.memory_root) if self.memory_root else None,
                "save_dir": str(self.saver.root) if self.saver else None,
                "save_every": self.saver.every if self.saver else None, "saving": self.saving,
                "keep_periodic": self.saver.keep_periodic if self.saver else None,

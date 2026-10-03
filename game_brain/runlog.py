@@ -9,6 +9,9 @@ Line kinds:
   change); step lines then omit those keys from ``observation.ram`` and carry
   ``observation.map_ref`` instead. :func:`iter_steps` puts them back.
 * ``{"kind": "mode_change", ...}`` and ``{"kind": "summary", ...}``
+* New live runs also write ``observation_after`` on steps and optional ``experience``.
+  ``episode_end`` finalizes the last transition's truncation; ``iter_steps`` restores it.
+  Post-action map keys share the map dictionary, but dynamic RAM is stored without deltas.
 
 Step-line ``decision`` dedupe (same idea as the map records above: write on change, the
 reader puts it back). Only the *written log* is affected; live dashboard envelopes always
@@ -163,7 +166,8 @@ class RunLogWriter:
         self._write({"kind": "header", "schema_v": SCHEMA_VERSION, "ts": time.time(), **info})
 
     def step(self, step: int, obs: Observation, result, frames_advanced: int,
-             ts: Optional[float] = None) -> None:
+             ts: Optional[float] = None, *, observation_after: Optional[Observation] = None,
+             experience: Optional[Dict[str, Any]] = None) -> None:
         summary = obs.summary()
         self._dedupe_map(step, obs.frame, summary)
         self._dedupe_npcs(summary)
@@ -182,6 +186,12 @@ class RunLogWriter:
             "frames_advanced": frames_advanced,
             "notes": list(result.notes),
         }
+        if observation_after is not None:
+            after = observation_after.summary()
+            self._dedupe_map(step, observation_after.frame, after)
+            rec["observation_after"] = after
+        if experience is not None:
+            rec["experience"] = experience
         # ``to_dict()`` builds fresh dicts, so popping keys here never touches the live
         # Decision/Action objects the dashboard broadcasts after this call.
         self._dedupe_decision(rec)
@@ -218,10 +228,14 @@ def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
     last_npcs: Optional[List[Dict[str, Any]]] = None
     last_battle: Optional[Dict[str, Any]] = None
     last_party: Optional[List[Dict[str, Any]]] = None
+    pending: Optional[Dict[str, Any]] = None
     for rec in read_log(path):
         kind = rec.get("kind")
         if kind == "map":
             maps[rec["map_ref"]] = rec["ram"]
+        elif kind == "episode_end" and pending is not None and rec.get("step_id") == pending["step"]:
+            if "experience" in pending:
+                pending["experience"].update({k: rec[k] for k in ("terminated", "truncated")})
         elif kind == "step":
             obs = rec["observation"]
             ref = obs.pop("map_ref", None)
@@ -263,7 +277,16 @@ def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
                 last_ms = dec.get("milestones")
             if rec.pop("executed_same", False):
                 rec["executed_action"] = json.loads(json.dumps(rec["proposed_action"]))
-            yield rec
+            after = rec.get("observation_after")
+            if after is not None:
+                ref = after.pop("map_ref", None)
+                if ref is not None:
+                    after["ram"] = {**after.get("ram", {}), **json.loads(json.dumps(maps[ref]))}
+            if pending is not None:
+                yield pending
+            pending = rec
+    if pending is not None:
+        yield pending
 
 
 def replay(path: "str | Path", adapter) -> List[str]:
@@ -275,6 +298,9 @@ def replay(path: "str | Path", adapter) -> List[str]:
     mismatches: List[str] = []
     adapter.reset()
     head = next(read_log(path), {})
+    rom_hash = head.get("rom_hash")
+    if rom_hash and rom_hash != getattr(adapter, "rom_sha1", None):
+        return ["ROM hash does not match the log header"]
     res = head.get("resumed_from") if head.get("kind") == "header" else None
     if res:   # the run continued from a save state (game_brain.savestate): start from the same one
         import hashlib
@@ -290,4 +316,10 @@ def replay(path: "str | Path", adapter) -> List[str]:
             mismatches.append(f"step {rec['step']}: ram differs")
         if rec.get("executed_action"):
             adapter.act(Action.from_dict(rec["executed_action"]))
+        if rec.get("observation_after"):
+            after = adapter.observe().summary()
+            if after["frame"] != rec["observation_after"]["frame"]:
+                mismatches.append(f"step {rec['step']}: post-action frame differs")
+            if after["ram"] != rec["observation_after"]["ram"]:
+                mismatches.append(f"step {rec['step']}: post-action ram differs")
     return mismatches

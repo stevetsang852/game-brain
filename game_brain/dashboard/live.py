@@ -69,11 +69,12 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
         out_dir: str = "runs", quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
         resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
-        starter: Optional[str] = None) -> dict:
+        starter: Optional[str] = None, memory_dir: Optional[str] = None, no_memory: bool = False) -> dict:
     """Adapter / brains (battle, path + FireRed milestones, rule) / saves come from
     :class:`game_brain.setup.Session`, the same setup the CLI uses. ``save_dir`` None = no saves."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
-                   quiet=quiet, keep_periodic=keep_periodic, starter=starter)
+                   quiet=quiet, keep_periodic=keep_periodic, starter=starter,
+                   memory_dir=memory_dir, no_memory=no_memory)
     adapter, arbiter = sess.adapter, sess.arbiter
     if not quiet:
         c = sess.config()
@@ -87,7 +88,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
     step = sess.start_step
     result = None
     t0 = time.time()
-    with RunLogWriter(sess.log_path) as log, StopSignals() as stop:
+    with sess, RunLogWriter(sess.log_path) as log, StopSignals() as stop:
         log.header(**sess.header_info(steps=steps, dashboard=server.url))
         obs = sess.start(log)
         # the stop flag (SIGTERM / Ctrl-C) is checked only here, after a step completed in full
@@ -99,7 +100,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                 obs.screenshot_b64 = _screenshot_b64(adapter, tmp)
             result = arbiter.step(obs)
             advanced = adapter.act(result.executed) if result.executed else 0
-            log.step(step, obs, result, advanced)
+            sess.record_step(log, step, obs, result, advanced)
             sess.after_step(log, step + 1, result)
             server.broadcast(to_envelope(obs, obs.frame))
             if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
@@ -112,6 +113,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                 "frames_advanced": advanced, "pending_manual": arbiter.pending_manual,
                 "notes": list(result.notes) + outcomes, "display": pacer.status(),
                 "starter": dict(sess.starter_info),
+                "persistence": sess.dashboard_status(),
             }})
             if not quiet and outcomes:
                 print(f"step {step} frame {obs.frame}: " + "; ".join(outcomes))
@@ -124,14 +126,20 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
             log.event("stopped", signal=stop.name, step=step)
             # stderr, even with -q: say why the run ended early
             print(f"{stop.name}: stopping after step {step} (final save + summary)", file=sys.stderr)
-        sess.finish(log, step, result)     # final save (also on Ctrl-C / SIGTERM)
+        sess.finish(log, step, result, reason=stop.name or "step_limit")
         summary = {"steps": step - sess.start_step, "final_frame": adapter.frame, "mode_final": arbiter.mode.value,
                    "log": str(sess.log_path), "saves": sess.saves,
                    "resumed_from": sess.resumed_from["sidecar"] if sess.resumed_from else None,
                    "wall_seconds": round(time.time() - t0, 3), "stopped_by": stop.name,
-                   "starter": dict(sess.starter_info), "seed": sess.seed}
+                   "starter": dict(sess.starter_info), "seed": sess.seed,
+                   "memory": str(sess.memory.path) if sess.memory else None}
         log.event("summary", **summary)
-    adapter.close()
+        server.broadcast({"type": "status", "frame": adapter.frame, "ts": time.time(), "payload": {
+            "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,
+            "pending_manual": arbiter.pending_manual, "notes": [], "display": pacer.status(),
+            "starter": dict(sess.starter_info), "persistence": sess.dashboard_status(),
+            "finished": True,
+        }})
     return summary
 
 
@@ -157,7 +165,8 @@ def main(argv=None) -> int:
             s = run(server, a.adapter, a.mode, a.brains, a.seed, a.steps, a.step_delay,
                     a.screenshot_every, a.out, a.quiet, battle_confidence=a.battle_confidence,
                     save_dir=save_dir_from_args(a), save_every=a.save_every, resume=a.resume,
-                    keep_periodic=a.keep_periodic, starter=a.starter)
+                    keep_periodic=a.keep_periodic, starter=a.starter,
+                    memory_dir=a.memory_dir, no_memory=a.no_memory)
         except (ValueError, FileNotFoundError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2

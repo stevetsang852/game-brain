@@ -6,6 +6,7 @@
 - **Brain** 睇 `Observation`，決定 `Action`，再附一個人睇得明嘅 `Decision`。
 - **Arbiter** 決定邊個大腦話事、個動作係咪真係執行，有四個模式：Auto / Assist / Manual / Shadow。
 - 每一步都寫入 JSONL run log，可以 replay。
+- 跨次運行嘅 SQLite 經驗／探索記憶放喺 repo 外；記錄實際動作前後狀態，**唔等於模型已學會玩**。
 
 第一個目標遊戲：**Pokémon FireRed（美版）on mGBA**。
 
@@ -34,7 +35,7 @@
 | LLMBrain | ⛔ **stub**：未接任何 LLM provider、無 API key、唔會打任何 API；呼叫時會回報 unavailable，arbiter 自動 fallback |
 | RAM 位址 | 只有 [`notes/mgba-bridge.md`](notes/mgba-bridge.md) 表入面嗰啲係**喺呢隻 ROM 上驗證過**：`vblank_counter`、`held_keys`、`callback2`/`scene`、`player_x`/`player_y`、`map_bank`/`map_id`、`facing`、`map_w`/`map_h`/`collision`/`warps`（PR #7）；`npcs`、`party_count`（M2，暫放喺 `adapters/gba_mgba/firered_extra.py`，驗證方法見 [`notes/nav.md`](notes/nav.md)，**等 Backend 接手**）。`in_battle`（`gMain+0x439` bit1，PR #15，喺勁敵戰驗證：對戰期間 True，完咗返 False；入戰前約 20 步過場仍然係 False）。`npcs` 用碰撞法 8 個只驗到 1 個，當**部分驗證** |
 | ROM | 我哋手上嗰隻 SHA1 係 `e0194282c427689768f8e618a285552f264524a4`，**唔係**乾淨 FireRed US 1.0（`41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`），亦唔係 Rev 1（`dd5945db…`），應該係改過嘅 image。所以 pokefirered 嘅位址全部要自己逐個驗證 |
-| Dashboard | ✅ 本機網頁：即時畫面、計劃、最近步驟（顯示邊個做）、模式切換、Manual/Assist 手動按鍵；目標、里程碑進度條、小地圖（碰撞格、出入口、規劃路徑、紫色 NPC）、隊伍數量 |
+| Dashboard | ✅ 本機網頁：即時畫面、計劃、最近步驟（顯示邊個做）、模式切換、Manual/Assist 手動按鍵；目標、里程碑進度條、小地圖（碰撞格、出入口、規劃路徑、紫色 NPC）、隊伍數量；新增跨次記憶總覽（操作／新奇獎勵／低訪問格子）及遊戲／探索存檔、續玩路徑 |
 | Docker | ✅ 本機 image（PR #13）：ROM 以唯讀 `-v` 掛入、唔會 COPY 入 image；只開 `127.0.0.1:8765` |
 | Run log | ✅ 去重（PR #9/#11/#14）：每張地圖嘅碰撞格只記一次、`milestones`/`npcs`/`executed_action` 有變先記；1500 步 log 約 1.35 MB，replay 照樣 0 mismatch |
 | 戰鬥大腦 | ✅ **RuleBattleBrain**（`--brains battle,path,rule`）：讀 `ram["battle"]`（PR #20），用 PokeAPI 靜態表（`game_brain/data/`，BSD-3，見 `NOTICE.md`）估傷害揀招，逐步閉環撳掣（睇選單同游標）。真 ROM：由開機打完勁敵戰（揮指，今次贏）、返到研究所 (7,8)，replay 0 mismatch。信心低過門檻（預設 0.6，`--battle-confidence`）喺 Assist 會 `handoff` 等人。未做：換隻、用道具（隊伍/背包未讀到）；RUN 預設唔用 |
@@ -154,7 +155,7 @@ Dashboard 可以控制遊戲，所以**只會 bind 嗰部機嘅 127.0.0.1**。�
 
 Image 入面會由 source build mGBA 0.10.5（開 Python bindings 同 `USE_FFMPEG`），再裝 game-brain；mGBA build 同最終 image 共用執行期套件層，避免重複安裝。測試檔同測試用範例會保留（可用 `docker run ... python3 -m pytest`），設計文件唔會放入 image。**ROM 同 save state 唔會 COPY 入 image**，淨係喺行嘅時候用 `-v ...:ro` 唯讀掛入去。Image 只喺本機用，唔好 push 去任何 registry。
 
-喺 Windows 用 `start.bat` 啟動時，首次會輸入 ROM 路徑並儲存到 `%USERPROFILE%\.game-brain\rom-path.txt`；之後會自動沿用。若檔案搬走或刪除，啟動時會要求輸入新路徑。ROM 路徑只保存在本機，唔會加入 repo 或 Docker image。
+喺 Windows 用 `start_in_docker.bat` 啟動時，首次會輸入 ROM 路徑並儲存到 `%USERPROFILE%\.game-brain\rom-path.txt`；之後會自動沿用。若檔案搬走或刪除，啟動時會要求輸入新路徑。ROM 路徑只保存在本機，唔會加入 repo 或 Docker image。想直接喺 Windows 行、唔用 Docker，請用 `start_local.bat`；本機 Python 要已安裝 mGBA 0.10.x bindings，設定方法見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)。
 
 ```bash
 docker build -t game-brain:local .        # 第一次大約幾分鐘（要 build mGBA）
@@ -176,6 +177,7 @@ GAME_BRAIN_ROM_FILE=/abs/path/firered.gba docker compose up --build
 
 - `./runs` 要畀 uid 1000 寫得到（container 用非 root 嘅 `brain` user 行）。
 - 想由某個 state 開始：加 `-v /abs/path/x.state:/data/start.state:ro -e GAME_BRAIN_START_STATE=/data/start.state`。
+- Compose 會將經驗 SQLite 同探索存檔放喺 `brain-memory` named volume（container 內 `/memory`）；重建 image、重啟或普通 `docker compose down` 唔會清除。**`docker compose down -v` 會刪除記憶 volume。** 直接 `docker run --rm` 請另加 `-v game-brain-memory:/memory`，否則 container 刪除時記憶亦會消失。
 
 **點解 container 入面要 bind `0.0.0.0`：** `-p` 會將 host 嘅 port 轉去 container 嘅網卡，唔係 container 自己嘅 loopback。如果 container 入面只 bind 127.0.0.1，host 就連唔到。所以 image 設咗 `GAME_BRAIN_IN_CONTAINER=1`，dashboard 只會喺**同時**有呢個 env 同埋有 `/.dockerenv` 或 `/run/.containerenv` 嘅時候先接受 `0.0.0.0`；其他位址（LAN IP、`::`）照樣拒絕，喺普通機設咗 env 都冇用。
 
@@ -202,12 +204,42 @@ GAME_BRAIN_ROM_FILE=/abs/path/firered.gba docker compose up --build
 - Arbiter 有大腦優先次序，例如 `--brains llm,rule,random`。前面嘅大腦 unavailable 或者出錯，就自動 fallback 去下一個。
 - 設計細節見 [`notes/design.md`](notes/design.md)。
 
+## 跨次運行記憶（第一版，唔係模型訓練）
+
+CLI 同 Dashboard 預設累積記憶，儲存喺 `~/.game-brain/memory`（Windows：`%USERPROFILE%\.game-brain\memory`）。可用 `--memory-dir DIR` 或 `GAME_BRAIN_MEMORY_DIR` 更改，repo 內目錄會被拒絕；`--no-memory` 關閉 SQLite 同探索存檔，JSONL 仍記錄動作前後狀態。`--no-save` 關閉普通及探索存檔，但唔會關閉經驗記錄。
+
+| 資料 | 保存內容 |
+|---|---|
+| `experience.sqlite3` | `runs`、`episodes`、`transitions`、`discoveries`、`cells`；每個已完成動作獨立 transaction，存 before / **實際** action / after、reward 分項、actor、mode、policy/git 版本、ROM SHA1、schema/reward 版本 |
+| `exploration/<run_id>/` | 每個新 cell 嘅第一個代表 `.state` + `.json`（可有 `.sav`）；同普通 `--save-dir` 分開，唔影響普通 `--resume latest` |
+| JSONL | 保留原始提議同實際動作、RAM 摘要、停止／存檔事件；無權重、無 PPO 更新 |
+
+Cell 用精確 `(map_bank, map_id, x, y, party_count, milestones_done)`，不計 facing；戰鬥、無座標或非 overworld 唔建立 cell。`cells.visits` 跨 run 累積，可查少探索位置，再用代表存檔 `--resume <save>` 出發。第一版**唔會自動選 cell／改變大腦決策**，亦未做完整 Go-Explore controller、最短路徑替換或模型訓練。存檔數隨 cell 數增長，未設淘汰上限；探索時間長時要留意磁碟容量。
+
+首次新格 +1、新地圖 +5、planner 判定新里程碑 +10、隊伍首次達到新數量 +10。新奇獎勵按 adapter + **ROM SHA1** 跨 run 去重，來回行、讀檔、重新開機唔會重新領取；起點已存在嘅進度只做基線、唔加分。戰鬥只計明確 `outcome` 變化：同地圖／對手首次勝利 +5、明確 `lose` -10（唔用單隻 HP=0 猜全滅）；重複補血唔加分。對白／選單可唔郁，暫不猜測「卡住」或未驗證嘅 RAM 劇情旗標。呢啲係版本化嘅記錄指標，**唔係評估成績**。
+
+Shadow 寫入實際 `NONE` 等待，experience 嘅 actor 為 `none`，唔將 AI 提議當成已執行；Manual／Assist 接管記人手動作。每次開機／`--resume` 都開新 episode，sidecar 保存父 run、episode、恢復步數。第一個任務終點為「有御三家並到達常磐市 3/1」（`terminated`）；普通結束／步數上限／訊號停止為 `truncated`。到達任務後可繼續原本運行，但後續操作屬新 episode。強制中斷／崩潰未完成步驟唔會冒充完整經驗；未正常結束嘅 run 在 SQLite 保持 `ended_at = NULL`。
+
+```bash
+# 查看記憶統計、少探索 cell 同可 --resume 嘅 save 路徑
+python -m game_brain.memory
+# 多個 adapter / ROM 共用同一目錄時，要選輸出列出嘅 namespace
+python -m game_brain.memory --namespace "gba_mgba/firered:<ROM_SHA1>"
+# 匯出 cell 資料顯示嘅 run_id / step_id 到該位置嘅實際軌跡
+python -m game_brain.memory --route "<run_id>:<step_id>"
+# Docker Compose volume 內檢查
+docker compose exec dashboard python3 -m game_brain.memory
+```
+
+`--route` 只接父軌跡至**讀檔點之前**，唔接被放棄嘅舊 run 尾段。由外來／舊存檔開始而冇父經驗時，路徑只由該 episode 起點開始，唔聲稱由開機到達；如果 sidecar 指向其他已遺失嘅記憶庫，匯出會明確報錯。備份時停程式後複製成個 memory 目錄（包含 SQLite 同探索存檔）；普通 saves 要另行備份，JSONL 仍喺 `--out`。
+
 ## Run log 同 replay
 
-每次 demo / dashboard 都會寫 `runs/<run_id>/run.jsonl`（`run_id` = UTC 開始時間，例如 `20261002T083408Z`）（gitignored；可以用 `--out` 改目錄）。一行一筆：
+每次 demo / dashboard 都會寫 `runs/<run_id>/run.jsonl`（`run_id` = UTC 開始時間加隨機識別尾碼，例如 `20261002T083408Z-012345abcdef`，避免同秒運行覆蓋記憶／存檔）（gitignored；可以用 `--out` 改目錄）。舊 ID 照樣可以續玩。一行一筆：
 
 - `header`：adapter、brains、mode、seed
-- `step`：`step`、`frame`、`mode`、`observation`（RAM 摘要，唔包截圖）、`decision`（包括 `actor`）、`proposed_action`、`executed_action`、`frames_advanced`、`notes`
+- `step`：`step`、`frame`、`mode`、`observation`（動作前 RAM 摘要，唔包截圖）、`observation_after`（執行後重新觀察，包括最後一步）、`decision`（包括 `actor`）、`proposed_action`、`executed_action`、`frames_advanced`、`notes`；開啟記憶時亦有 `experience`（episode、獎勵分項、版本、終止旗標）
+- `episode_end`：正常結束／步數上限／停止訊號嘅軌跡邊界；`iter_steps()` 將最後一步嘅 `truncated` 還原，`replay()` 亦會核對動作後狀態。舊 log 冇動作後資料仍可 replay。
 - `mode_change`、`summary`
 
 為咗慳位，log 檔入面有啲嘢只係「有變先寫」（dashboard live 收到嘅 envelope 永遠係完整，唔受影響）：

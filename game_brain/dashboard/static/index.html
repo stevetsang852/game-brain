@@ -463,6 +463,20 @@ tbody tr:hover { background: rgba(167,139,250,0.05); }
   background: #1a1235;
 }
 #ram td:first-child { color: var(--fg-mute); width: 40%; }
+#experienceRecords, #gameSaves { display:block; max-height:250px; overflow:auto; font-size:12px; }
+#experienceRecords th, #gameSaves th { position:sticky; top:0; z-index:1; background:#1a1235; }
+.persist-meta { color:var(--fg-dim); font-size:12px; margin:-4px 0 12px; overflow-wrap:anywhere; }
+.persist-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(95px,1fr)); gap:8px; margin-bottom:12px; }
+.persist-stat { padding:9px; border:1px solid var(--line); border-radius:var(--radius-sm); background:rgba(0,0,0,.16); }
+.persist-stat b { display:block; color:var(--gba-cyan); font-size:17px; font-variant-numeric:tabular-nums; }
+.persist-stat span { color:var(--fg-mute); font-size:10px; }
+.persist-subhead { color:var(--fg-dim); font-size:11px; margin:10px 0 5px; }
+.persist-empty { color:var(--fg-mute); font-size:12px; padding:8px 0; }
+.persist-path { color:var(--fg-dim); font:11px/1.45 ui-monospace,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+.persist-save { padding:8px 0; border-bottom:1px solid var(--line); }
+.persist-save:last-child { border-bottom:0; }
+.reward-positive { color:var(--gba-green); } .reward-negative { color:var(--gba-red); }
+.persist-reason { color:var(--fg-mute); font-size:11px; }
 
 /* ======================= MISC LISTS ======================= */
 dl { display:grid; grid-template-columns: 90px 1fr; gap: 6px 12px; margin: 0; }
@@ -746,6 +760,27 @@ tr.actor-row-human td { color: var(--gba-amber); }
     </section>
 
     <section class="gb-card">
+      <h2>跨次經驗記憶</h2>
+      <div id="memoryMeta" class="persist-meta">等待記憶資料…</div>
+      <div id="memoryStats" class="persist-stats"></div>
+      <div class="persist-subhead">最近實際操作（分數係新奇／劇情指標，唔係學習成績）</div>
+      <table id="experienceRecords">
+        <thead><tr><th>步數</th><th>操作／執行者</th><th>位置</th><th>獎勵</th></tr></thead>
+        <tbody><tr><td colspan="4" class="persist-empty">尚無經驗記錄</td></tr></tbody>
+      </table>
+      <div class="persist-subhead">較少到訪的探索位置</div>
+      <div id="memoryCells"><div class="persist-empty">尚無探索位置存檔</div></div>
+    </section>
+
+    <section class="gb-card">
+      <h2>遊戲存檔</h2>
+      <div id="saveMeta" class="persist-meta">等待存檔資料…</div>
+      <div id="gameSaves"><div class="persist-empty">尚未建立遊戲存檔</div></div>
+      <div class="persist-subhead">探索位置代表存檔</div>
+      <div id="explorationSaves"><div class="persist-empty">尚無探索存檔</div></div>
+    </section>
+
+    <section class="gb-card">
       <h2>最近步驟</h2>
       <table id="steps">
         <thead>
@@ -773,6 +808,7 @@ const $ = (id) => document.getElementById(id);
 const MAX_STEPS = 60, MAX_EVENTS = 40;
 const HUMAN_MODES = ["manual", "assist"];
 const ACTOR_LABEL = { brain: "大腦", human: "人手", none: "等待" };
+const REWARD_LABEL = { new_tile: "新格", new_map: "新地圖", milestone: "劇情", party: "隊伍", battle_win: "勝利", whiteout: "落敗" };
 const state = { mode: null, lastDecision: null, lastObs: null, ws: null };
 const canvas = $("screen"), ctx = canvas.getContext("2d");
 const img = new Image();
@@ -961,6 +997,73 @@ function onDecision(env) {
                                        : '<span class="badge no">只提議（未執行）</span>';
 }
 
+function renderPersistence(p) {
+  const meta = $("memoryMeta"), statsBox = $("memoryStats"), records = $("experienceRecords").tBodies[0];
+  const cellsBox = $("memoryCells"), savesBox = $("gameSaves"), exploreBox = $("explorationSaves");
+  const memory = p?.memory || { enabled: false }, totals = memory.totals || {};
+  meta.textContent = !memory.enabled ? "經驗記錄已關閉"
+    : `${memory.namespace || "遊戲"} · Run ${memory.run_id || p.run_id || "–"} · Episode ${memory.episode_id || "–"}`;
+  statsBox.replaceChildren();
+  const metric = (label, value) => {
+    const el = document.createElement("div"); el.className = "persist-stat";
+    const number = document.createElement("b"); number.textContent = value;
+    const caption = document.createElement("span"); caption.textContent = label;
+    el.append(number, caption); statsBox.appendChild(el);
+  };
+  if (memory.enabled) {
+    metric("累積操作", String(totals.transitions ?? 0));
+    metric("探索位置", String(totals.cells ?? 0));
+    metric("發現項目", String(totals.discoveries ?? 0));
+    metric("新奇／劇情指標", Number(totals.reward ?? 0).toFixed(1));
+  }
+  records.replaceChildren();
+  const recent = memory.enabled && Array.isArray(memory.recent) ? memory.recent : [];
+  if (!recent.length) {
+    const row = records.insertRow(), cell = row.insertCell(); cell.colSpan = 4;
+    cell.className = "persist-empty"; cell.textContent = memory.enabled ? "尚無經驗記錄" : "經驗記錄已關閉";
+  }
+  for (const item of recent.slice(-8).reverse()) {
+    const row = records.insertRow(), loc = item.map?.every(Number.isInteger)
+      ? `${item.map[0]}/${item.map[1]} · ${item.position?.join(",") ?? "–"}` : (item.scene || "–");
+    row.insertCell().textContent = String(item.step ?? "–");
+    row.insertCell().textContent = `${item.action || "等待"} · ${ACTOR_LABEL[item.actor] || item.actor || "–"}`;
+    row.insertCell().textContent = loc;
+    const reward = row.insertCell(); reward.className = item.reward < 0 ? "reward-negative" : item.reward > 0 ? "reward-positive" : "";
+    const parts = Object.entries(item.reward_parts || {}).filter(([, v]) => v)
+      .map(([k, v]) => `${REWARD_LABEL[k] || k} ${v > 0 ? "+" : ""}${v}`);
+    reward.textContent = `${item.reward > 0 ? "+" : ""}${Number(item.reward || 0).toFixed(1)}${parts.length ? ` (${parts.join("、")})` : ""}`;
+  }
+  cellsBox.replaceChildren();
+  const cells = memory.enabled && Array.isArray(memory.least_visited_cells) ? memory.least_visited_cells : [];
+  if (!cells.length) { const empty = document.createElement("div"); empty.className = "persist-empty"; empty.textContent = "尚無探索位置"; cellsBox.appendChild(empty); }
+  for (const cell of cells) {
+    const line = document.createElement("div"); line.className = "persist-save";
+    const title = document.createElement("div");
+    title.textContent = `地圖 ${cell.map?.join("/") || "?"} · 座標 ${cell.position?.join(",") || "?"} · 到訪 ${cell.visits} 次 · 隊伍 ${cell.party_count ?? "–"} 隻`;
+    line.appendChild(title);
+    if (cell.save) { const path = document.createElement("div"); path.className = "persist-path"; path.textContent = cell.save; line.appendChild(path); }
+    cellsBox.appendChild(line);
+  }
+  $("saveMeta").textContent = p.saving
+    ? `自動存檔中 · ${p.save_dir || "存檔目錄未提供"} · ${p.save_every ? `每 ${p.save_every} 步` : "里程碑／結束時存檔"}`
+    : p.save_dir ? `未建立可續玩的遊戲存檔 · ${p.save_dir}` : "此執行未啟用遊戲存檔";
+  const renderSaves = (box, items, emptyText, explorer = false) => {
+    box.replaceChildren();
+    if (!items?.length) { const empty = document.createElement("div"); empty.className = "persist-empty"; empty.textContent = emptyText; box.appendChild(empty); return; }
+    for (const save of items.slice(-8).reverse()) {
+      const line = document.createElement("div"); line.className = "persist-save";
+      const title = document.createElement("div");
+      title.textContent = `${save.reason || "探索位置"} · step ${save.step ?? save.step_id ?? "–"} · frame ${save.frame ?? "–"}${save.visits !== undefined ? ` · 到訪 ${save.visits} 次` : ""}`;
+      line.appendChild(title);
+      const path = document.createElement("div"); path.className = "persist-path";
+      path.textContent = explorer ? (save.save || "未建立 save state") : `${save.name || "save state"}${save.battery_save ? " · 含遊戲電池存檔備份" : ""}\n${save.path || ""}`;
+      line.appendChild(path); box.appendChild(line);
+    }
+  };
+  renderSaves(savesBox, p.game_saves, p.saving ? "等待首次自動存檔…" : "沒有啟用遊戲存檔");
+  renderSaves(exploreBox, cells, "尚無探索位置存檔", true);
+}
+
 // ------------------------------------------------------------------ battle panel
 // HP and menu come from ram.battle (every observation); names, options, confidence and handoff
 // from the battle brain's Decision (only while it is the one deciding).
@@ -1049,6 +1152,7 @@ function onStatus(env) {
     tr.insertCell().textContent = v;
   while (tb.rows.length > MAX_STEPS) tb.deleteRow(-1);
   for (const n of s.notes || []) event(n, /REJECTED|error|unavailable/.test(n));
+  if (s.persistence) renderPersistence(s.persistence);
   if (s.display) onDisplay(s.display);
 }
 

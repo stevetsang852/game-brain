@@ -367,3 +367,48 @@ def test_page_shows_party_count_and_npcs():
     from pathlib import Path
     html = (Path(__file__).parents[1] / "game_brain/dashboard/static/index.html").read_text(encoding="utf-8")
     assert 'id="party"' in html and "party_count" in html and "ram.npcs" in html
+
+
+NODE_PERSISTENCE_HARNESS = NODE_HARNESS.split("const out = {};")[0] + r"""
+const body = { rows: [], replaceChildren() { this.rows = []; },
+  insertRow() { const r = { cells: [], insertCell() { const c = { textContent: "", className: "" }; this.cells.push(c); return c; } }; this.rows.push(r); return r; } };
+els.experienceRecords = { tBodies: [body] };
+for (const id of ["memoryStats", "memoryCells", "gameSaves", "explorationSaves"]) {
+  els[id] = { children: [], replaceChildren() { this.children = []; },
+    appendChild(c) { this.children.push(c); }, append(...c) { this.children.push(...c); } };
+}
+const createElement = document.createElement;
+document.createElement = () => { const e = createElement(); e.append = (...c) => e.children.push(...c); return e; };
+const ACTOR_LABEL = { brain: "大腦", human: "人手", none: "等待" };
+const REWARD_LABEL = { milestone: "劇情" };
+eval(grab("renderPersistence"));
+renderPersistence({ run_id: "run-1", saving: true, save_every: 50, save_dir: "/local/saves",
+  game_saves: [{ name: "0000010_final.json", reason: "final", step: 10, frame: 120, path: "/local/saves/final.json", battery_save: true }],
+  memory: { enabled: true, namespace: "gba:rom", run_id: "run-1", episode_id: "episode-1",
+    totals: { transitions: 12, cells: 4, discoveries: 5, reward: 16 },
+    recent: [{ step: 11, action: "UP", actor: "human", reward: 10, reward_parts: { milestone: 10 },
+      map: [3, 1], position: [4, 5] }],
+    least_visited_cells: [{ map: [3, 1], position: [4, 5], visits: 1, party_count: 1, save: "cell.state" }] } });
+const text = box => box.children.map(c => c.children.map(x => x.textContent).join(" ")).join("|");
+console.log(JSON.stringify({
+  meta: els.memoryMeta.textContent, stats: els.memoryStats.children.map(x => x.children[0].textContent),
+  row: body.rows[0].cells.map(c => c.textContent), cell: text(els.memoryCells),
+  save: text(els.gameSaves), explorer: text(els.explorationSaves), saveMeta: els.saveMeta.textContent
+}));
+"""
+
+
+def test_page_renders_experience_and_game_saves():
+    import shutil, subprocess
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", NODE_PERSISTENCE_HARNESS], input=_page_js(), capture_output=True,
+                       text=True, timeout=20)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert "gba:rom" in out["meta"] and "episode-1" in out["meta"]
+    assert out["stats"] == ["12", "4", "5", "16.0"]
+    assert out["row"] == ["11", "UP · 人手", "3/1 · 4,5", "+10.0 (劇情 +10)"]
+    assert "cell.state" in out["cell"] and "到訪 1 次" in out["cell"]
+    assert "0000010_final.json" in out["save"] and "含遊戲電池存檔備份" in out["save"]
+    assert "cell.state" in out["explorer"] and "每 50 步" in out["saveMeta"]
