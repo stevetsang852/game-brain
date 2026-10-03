@@ -311,7 +311,8 @@ def test_page_nav_rendering_logic_in_node():
     import shutil, subprocess
     if not shutil.which("node"):
         pytest.skip("node not installed")
-    r = subprocess.run(["node", "-e", NODE_HARNESS], input=_page_js(), capture_output=True, text=True, timeout=20)
+    r = subprocess.run(["node", "-e", NODE_HARNESS], input=_page_js(), capture_output=True, text=True,
+                       encoding="utf-8", timeout=20)
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout)
     assert out["withRows"] is True and out["lines"] == 1 and out["strokeRects"] == 1
@@ -355,7 +356,8 @@ def test_page_npc_rendering_logic_in_node():
     import shutil, subprocess
     if not shutil.which("node"):
         pytest.skip("node not installed")
-    r = subprocess.run(["node", "-e", NODE_NPC_HARNESS], input=_page_js(), capture_output=True, text=True, timeout=20)
+    r = subprocess.run(["node", "-e", NODE_NPC_HARNESS], input=_page_js(), capture_output=True, text=True,
+                       encoding="utf-8", timeout=20)
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout)
     assert out["drawn"] == [3, 5]          # off-map / malformed entries are skipped
@@ -403,7 +405,7 @@ def test_page_renders_experience_and_game_saves():
     if not shutil.which("node"):
         pytest.skip("node not installed")
     r = subprocess.run(["node", "-e", NODE_PERSISTENCE_HARNESS], input=_page_js(), capture_output=True,
-                       text=True, timeout=20)
+                       text=True, encoding="utf-8", timeout=20)
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout)
     assert "gba:rom" in out["meta"] and "episode-1" in out["meta"]

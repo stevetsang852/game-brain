@@ -307,6 +307,7 @@ python -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 1000 
 - **存檔目錄唔可以喺 repo 入面**（repo 係 public）：會直接拒絕。`--no-save` 唔存。
 - 續玩：檢查 ROM SHA1 → 載入 state → 還原里程碑 → step / frame 由存檔嗰度繼續；log header 有 `resumed_from`，`replay()` 會自動由同一個 state 開始。
 - Dashboard（`live.py`）用同一套旗標自動存檔 / 續玩（`--resume latest` 等）。`compose.yaml` 將 host 嘅 `${GAME_BRAIN_SAVE_DIR_HOST:-<home>/.game-brain/saves}` mount 去 container 嘅 `/saves`（`--save-dir /saves`）；Linux 要先 `mkdir -p ~/.game-brain/saves`（container 用戶係 uid 1000 `brain`，唔係就會變 root 擁有、寫唔到），`start.bat` 會自動開 `%USERPROFILE%\.game-brain\saves`。未喺 Docker 實測（box 上 docker daemon 用唔到）。
+- Dashboard「遊戲存檔」面板可按「載入本機 JSON 存檔」，一次揀 game-brain `.json` sidecar、sidecar 指定嘅同名 `.state`，以及（如有）`.sav`。確認後會喺下一個遊戲步驟即時取代目前遊戲狀態；adapter 同 ROM SHA1 會核對，腦會 reset 並還原 sidecar 嘅里程碑。資料只傳到本機 Dashboard，唔會寫入 repo；載入事件會記入目前 run log。
 - 格式：[`notes/savestate-format.md`](notes/savestate-format.md)。
 
 ## PathBrain（自動尋路）

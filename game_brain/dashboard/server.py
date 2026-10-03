@@ -14,6 +14,8 @@ in your browser from driving the game). Inbound frames are capped at 64 KiB.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
 import json
 import logging
@@ -22,11 +24,13 @@ import queue
 import socket
 import threading
 from dataclasses import dataclass
+from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from .. import savestate
 from ..schema import Action, ModeCommand, SchemaError, from_envelope
 from . import ws
 from .pacing import FrameAck, ViewConfig
@@ -40,11 +44,82 @@ INBOUND_TYPES = ("mode_command", "action", "view_config", "frame_ack", "save_gam
 #: dashboard-only display messages, never part of the game schema (see pacing.py)
 _VIEW_TYPES = {"view_config": ViewConfig.from_envelope, "frame_ack": FrameAck.from_envelope}
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+MAX_IMPORTED_SAVE_BYTES = 32 * 1024 * 1024
+MAX_SAVE_UPLOAD_BYTES = 48 * 1024 * 1024
 
 
 @dataclass(frozen=True)
 class PersistenceCommand:
     kind: str
+
+
+@dataclass(frozen=True)
+class LoadSaveCommand:
+    sidecar: Dict[str, Any]
+    state: bytes
+    battery: Optional[bytes]
+    source_name: str
+
+
+def imported_save_command(payload: Any) -> LoadSaveCommand:
+    if not isinstance(payload, dict) or not isinstance(payload.get("sidecar"), dict):
+        raise ValueError("sidecar must be a JSON object")
+    sidecar = payload["sidecar"]
+    if sidecar.get("format") != savestate.FORMAT:
+        raise ValueError("not a game-brain save sidecar")
+    version = sidecar.get("format_version")
+    if (not isinstance(version, int) or isinstance(version, bool) or
+            not 1 <= version <= savestate.FORMAT_VERSION):
+        raise ValueError("unsupported save format version")
+    if not isinstance(sidecar.get("adapter"), str) or not sidecar["adapter"]:
+        raise ValueError("sidecar is missing its adapter")
+    if "adapter_state" in sidecar and not isinstance(sidecar["adapter_state"], dict):
+        raise ValueError("adapter_state must be a JSON object")
+    milestones = sidecar.get("milestones_done", [])
+    if not isinstance(milestones, list) or any(not isinstance(item, str) for item in milestones):
+        raise ValueError("milestones_done must be a list of strings")
+    if sidecar.get("rom_sha1") is not None and not isinstance(sidecar["rom_sha1"], str):
+        raise ValueError("rom_sha1 must be a string")
+    for field in ("step", "frame"):
+        value = sidecar.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{field} must be a non-negative integer")
+    if not isinstance(sidecar.get("state_file"), str) or not sidecar["state_file"]:
+        raise ValueError("state_file is required")
+    for field in ("state_file", "sav_file"):
+        name = sidecar.get(field)
+        if name is not None and (not isinstance(name, str) or not name or
+                                 name in (".", "..") or Path(name).name != name or
+                                 "/" in name or "\\" in name):
+            raise ValueError(f"{field} must be a file name, not a path")
+    if not sidecar["state_file"].lower().endswith(".state"):
+        raise ValueError("state_file must use the .state extension")
+    if sidecar.get("sav_file") and not sidecar["sav_file"].lower().endswith(".sav"):
+        raise ValueError("sav_file must use the .sav extension")
+    state_encoded = payload.get("state")
+    if not isinstance(state_encoded, str):
+        raise ValueError("state data is required")
+    state = base64.b64decode(state_encoded, validate=True)
+    if not state or len(state) > MAX_IMPORTED_SAVE_BYTES:
+        raise ValueError("state must be between 1 byte and 32 MiB")
+    if sidecar.get("state_sha1") != sha1(state).hexdigest():
+        raise ValueError("state SHA1 does not match the sidecar")
+    battery_encoded = payload.get("battery")
+    battery = base64.b64decode(battery_encoded, validate=True) if battery_encoded is not None else None
+    if sidecar.get("sav_file") and battery is None:
+        raise ValueError("sidecar references a .sav file; select it with the JSON and .state files")
+    if battery is not None:
+        if not battery or len(battery) > 2 * 1024 * 1024:
+            raise ValueError("battery save must be between 1 byte and 2 MiB")
+        if sidecar.get("sav_sha1") != sha1(battery).hexdigest():
+            raise ValueError("battery SHA1 does not match the sidecar")
+    source_name = payload.get("source_name")
+    if (not isinstance(source_name, str) or Path(source_name).name != source_name or
+            not source_name.lower().endswith(".json")):
+        raise ValueError("source_name must be a JSON file name")
+    # Do not trust browser-supplied paths or derived fields in a sidecar.
+    sidecar = {key: value for key, value in sidecar.items() if not key.startswith("_")}
+    return LoadSaveCommand(sidecar, state, battery, source_name)
 
 
 def _is_loopback(host: str) -> bool:
@@ -150,7 +225,11 @@ class DashboardServer:
             def do_POST(self):
                 # Custom header + same-origin check prevents cross-site form uploads.
                 self.close_connection = True
-                if urlparse(self.path).path != "/api/rom":
+                path = urlparse(self.path).path
+                if path == "/api/save":
+                    self.post_save()
+                    return
+                if path != "/api/rom":
                     self.send_json(404, {"error": "Not found"})
                     return
                 origin = urlparse(self.headers.get("Origin", ""))
@@ -185,6 +264,46 @@ class DashboardServer:
                     self.send_json(500, {"error": f"Could not save ROM locally: {exc}"})
                     return
                 self.send_json(200, result)
+
+            def post_save(self):
+                origin = urlparse(self.headers.get("Origin", ""))
+                if (not _is_loopback(origin.hostname or "") or origin.scheme != "http"
+                        or origin.netloc != self.headers.get("Host")
+                        or self.headers.get("X-Game-Brain-Upload") != "save"
+                        or self.headers.get("Content-Type") != "application/json"):
+                    # Consume small rejected bodies before closing, avoiding a TCP reset
+                    # that can hide the 403 from browser fetch on Windows.
+                    try:
+                        length = int(self.headers.get("Content-Length", ""))
+                        if not self.headers.get("Transfer-Encoding") and 0 <= length <= 64 * 1024:
+                            self.connection.settimeout(1)
+                            self.rfile.read(length)
+                    except (OSError, ValueError):
+                        pass
+                    self.send_json(403, {"error": "Save uploads require a same-origin Dashboard request"})
+                    return
+                if self.headers.get("Transfer-Encoding"):
+                    self.send_json(400, {"error": "Chunked save uploads are not supported"})
+                    return
+                try:
+                    size = int(self.headers.get("Content-Length", ""))
+                except ValueError:
+                    self.send_json(411, {"error": "Save upload requires Content-Length"})
+                    return
+                if not 0 < size <= MAX_SAVE_UPLOAD_BYTES:
+                    self.send_json(413, {"error": "Save upload is too large"})
+                    return
+                try:
+                    self.connection.settimeout(30)
+                    data = self.rfile.read(size)
+                    if len(data) != size:
+                        raise ValueError("Save upload was incomplete")
+                    command = imported_save_command(json.loads(data))
+                except (ValueError, TypeError, KeyError, binascii.Error) as exc:
+                    self.send_json(400, {"error": f"Invalid save upload: {exc}"})
+                    return
+                server._inbox.put(command)
+                self.send_json(202, {"queued": True, "source_name": command.source_name})
 
         self._httpd = ThreadingHTTPServer((host, port), Handler)
         self._httpd.daemon_threads = True

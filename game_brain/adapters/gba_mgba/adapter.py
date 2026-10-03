@@ -29,6 +29,7 @@ def keymask(button: str) -> int:
 class MgbaFireRedAdapter(Adapter):
     name = "gba_mgba/firered"
     supports_save_state = True
+    supports_battery_save = True
 
     def __init__(self, rom: Optional[str] = None, start_state: Optional[str] = None,
                  core=None, image=None, battery: Optional[bytes] = None,
@@ -197,6 +198,22 @@ class MgbaFireRedAdapter(Adapter):
         if not data or data.count(0xFF) == len(data) or data.count(0) == len(data):
             return None   # blank flash: the game was never saved
         return data
+
+    def load_battery_save(self, data: Optional[bytes]) -> None:
+        vf = self._battery_vf
+        if vf is None:
+            raise RuntimeError("mGBA battery save storage is unavailable")
+        previous = self.battery_save()
+        if data is None:
+            data = b"\xff" * len(previous or b"")
+            if not data:
+                return
+        elif previous and len(previous) != len(data):
+            raise ValueError("battery save size does not match the active ROM")
+        vf.seek(0, 0)
+        written = vf.write(data, len(data))
+        if written != len(data):
+            raise OSError("mGBA could not load the complete battery save")
 
     def screenshot(self, path: str) -> Optional[str]:
         if self._image is None or not hasattr(self._image, "save_png"):

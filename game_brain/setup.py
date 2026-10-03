@@ -382,6 +382,35 @@ class Session:
         self.saves.append(saved["_path"])
         return saved
 
+    def load_imported_save(self, command, log, step: int) -> None:
+        """Load a browser-imported sidecar and emulator state into the active run."""
+        side = command.sidecar
+        if not self.adapter.supports_save_state:
+            raise RuntimeError(f"adapter {self.adapter.name} does not support save states")
+        if side["adapter"] != self.adapter.name:
+            raise ValueError(f"save is for adapter {side['adapter']!r}, not {self.adapter.name!r}")
+        rom = getattr(self.adapter, "rom_sha1", None)
+        if side.get("rom_sha1") and rom and side["rom_sha1"] != rom:
+            raise ValueError("save was made with a different ROM")
+        if command.battery is not None and not self.adapter.supports_battery_save:
+            raise RuntimeError(f"adapter {self.adapter.name} cannot load a battery save")
+        if self.adapter.supports_battery_save:
+            self.adapter.load_battery_save(command.battery)
+        obs = self.adapter.load_state(command.state, frame=side["frame"],
+                                      adapter_state=side.get("adapter_state"))
+        self.arbiter.reset()
+        for brain in self.brains:
+            if hasattr(brain, "planner"):
+                brain.planner.restore(side.get("milestones_done"))
+        if self.memory:
+            end = self.memory.finish("local_save_loaded")
+            log.event("episode_end", **end)
+            self.memory.start(obs, step)
+            self.sidecar_extra["memory"] = self.memory.cursor(step)
+            log.event("episode_start", **self.sidecar_extra["memory"])
+        log.event("local_save_loaded", step=step, save_step=side["step"], frame=side["frame"],
+                  source=command.source_name, milestones_done=side.get("milestones_done", []))
+
     def finish(self, log, steps_done: int, result, reason: str = "run_end") -> None:
         """End of run: the ``final`` save."""
         if self.memory:
@@ -407,6 +436,7 @@ class Session:
                     break
         return {
             "run_id": self.run_id, "adapter": self.adapter.name,
+            "save_state_supported": bool(self.adapter.supports_save_state),
             "rom_hash": getattr(self.adapter, "rom_sha1", None),
             "log": str(self.log_path), "save_dir": str(self.saver.root) if self.saver else None,
             "saving": self.saving, "save_every": self.saver.every if self.saver else None,

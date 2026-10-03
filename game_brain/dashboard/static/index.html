@@ -472,6 +472,7 @@ tbody tr:hover { background: rgba(167,139,250,0.05); }
 .persist-stat span { color:var(--fg-mute); font-size:10px; }
 .persist-subhead { color:var(--fg-dim); font-size:11px; margin:10px 0 5px; }
 .persist-empty { color:var(--fg-mute); font-size:12px; padding:8px 0; }
+.persist-subhead.bad { color:var(--gba-red); }
 .persist-path { color:var(--fg-dim); font:11px/1.45 ui-monospace,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
 .persist-save { padding:8px 0; border-bottom:1px solid var(--line); }
 .persist-save:last-child { border-bottom:0; }
@@ -804,7 +805,10 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <div id="saveMeta" class="persist-meta">等待存檔資料…</div>
       <div class="persist-actions">
         <button id="saveGameNow" type="button" disabled>保存遊戲</button>
+        <button id="loadLocalSave" type="button" disabled>載入本機 JSON 存檔</button>
+        <input id="localSaveFiles" type="file" accept=".json,.state,.sav" multiple hidden>
       </div>
+      <div id="localSaveMessage" class="persist-subhead">選擇 game-brain 存檔的 JSON sidecar、同名 .state，以及 sidecar 有列出時的 .sav。</div>
       <div id="gameSaves"><div class="persist-empty">尚未建立遊戲存檔</div></div>
       <div class="persist-subhead">探索位置代表存檔</div>
       <div id="explorationSaves"><div class="persist-empty">尚無探索存檔</div></div>
@@ -1084,6 +1088,7 @@ function renderPersistence(p) {
   const cellsBox = $("memoryCells"), savesBox = $("gameSaves"), exploreBox = $("explorationSaves");
   const memory = p?.memory || { enabled: false }, totals = memory.totals || {};
   $("saveGameNow").disabled = !p?.saving;
+  $("loadLocalSave").disabled = !p?.save_state_supported;
   $("saveLearningNow").disabled = !memory.enabled;
   meta.textContent = !memory.enabled ? "經驗記錄已關閉"
     : `${memory.namespace || "遊戲"} · Run ${memory.run_id || p.run_id || "–"} · Episode ${memory.episode_id || "–"}`;
@@ -1235,8 +1240,17 @@ function onStatus(env) {
                    (d.executed === false ? "(提議) " : "") + fmtAction(act), d.reason ?? ""])
     tr.insertCell().textContent = v;
   while (tb.rows.length > MAX_STEPS) tb.deleteRow(-1);
-  for (const n of s.notes || []) event(n, /REJECTED|error|unavailable/.test(n));
-  if (s.persistence) renderPersistence(s.persistence);
+  for (const n of s.notes || []) {
+    event(n, /REJECTED|error|unavailable/.test(n));
+    if (n.startsWith("已載入本機存檔")) {
+      $("localSaveMessage").className = "persist-subhead";
+      $("localSaveMessage").textContent = n;
+    } else if (n.includes("遊戲存檔載入失敗")) {
+      $("localSaveMessage").className = "persist-subhead bad";
+      $("localSaveMessage").textContent = n;
+    }
+  }
+  if (s.persistence) { state.persistence = s.persistence; renderPersistence(s.persistence); }
   if (s.display) onDisplay(s.display);
 }
 
@@ -1304,6 +1318,67 @@ document.querySelectorAll("#modes button").forEach(b => b.onclick = () => sendMo
 document.querySelectorAll("#pad button").forEach(b => b.onclick = () => sendPress(b.dataset.btn));
 $("saveGameNow").addEventListener("click", () => sendPersistenceCommand("save_game"));
 $("saveLearningNow").addEventListener("click", () => sendPersistenceCommand("save_learning"));
+$("loadLocalSave").addEventListener("click", () => $("localSaveFiles").click());
+$("localSaveFiles").addEventListener("change", async () => {
+  const files = Array.from($("localSaveFiles").files || []);
+  if (files.length) await uploadLocalSave(files);
+});
+
+function fileBase64(file) {
+  return file.arrayBuffer().then(buffer => {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000)
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    return btoa(binary);
+  });
+}
+
+async function uploadLocalSave(files) {
+  const status = $("localSaveMessage"), button = $("loadLocalSave");
+  const sidecars = files.filter(file => /\.json$/i.test(file.name));
+  if (sidecars.length !== 1) {
+    status.className = "persist-subhead bad";
+    status.textContent = "請一次選擇一個 JSON sidecar，以及它要求的同名 .state／可選 .sav 檔案。";
+    $("localSaveFiles").value = "";
+    return;
+  }
+  button.disabled = true;
+  try {
+    const sidecarFile = sidecars[0];
+    const sidecar = JSON.parse(await sidecarFile.text());
+    const filesByName = new Map(files.map(file => [file.name, file]));
+    const stateFile = filesByName.get(sidecar.state_file);
+    const batteryFile = sidecar.sav_file ? filesByName.get(sidecar.sav_file) : null;
+    if (!stateFile || (sidecar.sav_file && !batteryFile))
+      throw new Error("未同時選擇 sidecar 指定的 .state／.sav 檔案。");
+    if (files.length !== 1 + 1 + (sidecar.sav_file ? 1 : 0))
+      throw new Error("只可選擇 sidecar、指定的 .state，以及可選的 .sav。");
+    if (!window.confirm(`載入 ${sidecarFile.name} 會取代目前遊戲狀態，確定繼續？`)) return;
+    status.className = "persist-subhead";
+    status.textContent = "正在把存檔安全地傳到本機 Dashboard…";
+    const payload = {
+      source_name: sidecarFile.name,
+      sidecar,
+      state: await fileBase64(stateFile),
+      battery: batteryFile ? await fileBase64(batteryFile) : null,
+    };
+    const response = await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Game-Brain-Upload": "save" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "存檔匯入失敗");
+    status.textContent = "存檔已送到本機，會在下一個遊戲步驟載入；請查看事件訊息確認結果。";
+  } catch (error) {
+    status.className = "persist-subhead bad";
+    status.textContent = `存檔未載入：${error.message}`;
+  } finally {
+    $("localSaveFiles").value = "";
+    button.disabled = !state.persistence?.save_state_supported;
+  }
+}
 const KEYS = { ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT",
                z: "A", Z: "A", x: "B", X: "B", Enter: "START", Shift: "SELECT", a: "L", s: "R" };
 document.addEventListener("keydown", e => {

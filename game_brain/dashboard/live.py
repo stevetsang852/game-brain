@@ -31,7 +31,7 @@ from ..runlog import RunLogWriter
 from ..setup import FULL_BRAINS, ForcedStop, Session, StopSignals, add_run_args, save_dir_from_args
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from .pacing import FrameAck, Pacer, ViewConfig
-from .server import DashboardServer, PersistenceCommand
+from .server import DashboardServer, LoadSaveCommand, PersistenceCommand
 from .roms import use_remembered_rom
 
 
@@ -59,6 +59,17 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
         elif isinstance(msg, FrameAck):
             if pacer:
                 pacer.ack(msg)
+        elif isinstance(msg, LoadSaveCommand):
+            try:
+                if session is None:
+                    raise RuntimeError("game save loading is unavailable")
+                session.load_imported_save(msg, log, step)
+            except (OSError, RuntimeError, ValueError) as exc:
+                outcomes.append(f"error: 遊戲存檔載入失敗：{exc}")
+                if log:
+                    log.event("resume_error", step=step, frame=frame, source=msg.source_name, error=str(exc))
+            else:
+                outcomes.append(f"已載入本機存檔 {msg.source_name} · step {msg.sidecar['step']}")
         elif isinstance(msg, PersistenceCommand):
             if msg.kind == "save_game":
                 try:
