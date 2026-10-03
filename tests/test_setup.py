@@ -23,8 +23,8 @@ class _CaptureServer:
         return []
 
 
-SHARED = {"--adapter", "--mode", "--brains", "--battle-confidence", "--seed", "--starter", "--out", "--save-dir", "--keep-periodic",
-          "--save-every", "--no-save", "--resume"}
+SHARED = {"--adapter", "--mode", "--brains", "--battle-confidence", "--imitation-model", "--seed", "--starter",
+          "--out", "--save-dir", "--keep-periodic", "--save-every", "--no-save", "--resume"}
 SHARED |= {"--memory-dir", "--no-memory"}
 
 

@@ -6,7 +6,7 @@
 - **Brain** 睇 `Observation`，決定 `Action`，再附一個人睇得明嘅 `Decision`。
 - **Arbiter** 決定邊個大腦話事、個動作係咪真係執行，有四個模式：Auto / Assist / Manual / Shadow。
 - 每一步都寫入 JSONL run log，可以 replay。
-- 跨次運行嘅 SQLite 經驗／探索記憶放喺 repo 外；記錄實際動作前後狀態，**唔等於模型已學會玩**。
+- 跨次運行嘅 SQLite 經驗／探索記憶放喺 repo 外；可以由人手操作紀錄訓練保守嘅 imitation policy，但模型唔會推斷未示範嘅狀態。
 
 第一個目標遊戲：**Pokémon FireRed（美版）on mGBA**。
 
@@ -39,6 +39,7 @@
 | Docker | ✅ 本機 image（PR #13）：ROM 以唯讀 `-v` 掛入、唔會 COPY 入 image；只開 `127.0.0.1:8765` |
 | Run log | ✅ 去重（PR #9/#11/#14）：每張地圖嘅碰撞格只記一次、`milestones`/`npcs`/`executed_action` 有變先記；1500 步 log 約 1.35 MB，replay 照樣 0 mismatch |
 | 戰鬥大腦 | ✅ **RuleBattleBrain**（`--brains battle,path,rule`）：讀 `ram["battle"]`（PR #20），用 PokeAPI 靜態表（`game_brain/data/`，BSD-3，見 `NOTICE.md`）估傷害揀招，逐步閉環撳掣（睇選單同游標）。真 ROM：由開機打完勁敵戰（揮指，今次贏）、返到研究所 (7,8)，replay 0 mismatch。信心低過門檻（預設 0.6，`--battle-confidence`）喺 Assist 會 `handoff` 等人。未做：換隻、用道具（隊伍/背包未讀到）；RUN 預設唔用 |
+| 學習 | ✅ 第一版 Go-Explore 式自主探索：sticky random 探索、cell archive + savestate、跨次續跑；戰鬥預設用 RuleBattleBrain。另有獨立的人手 imitation policy。未做 PPO；全遊戲通關條件及 Route 2/森林資料未驗證 |
 | CI | ⛔ 未有（現有 token 無 `workflow` scope，推唔到 `.github/workflows`） |
 | License | 未揀（等 YIN 決定；repo 目前係 public） |
 
@@ -212,7 +213,7 @@ GAME_BRAIN_ROM_FILE=/abs/path/firered.gba docker compose up --build
 - Arbiter 有大腦優先次序，例如 `--brains llm,rule,random`。前面嘅大腦 unavailable 或者出錯，就自動 fallback 去下一個。
 - 設計細節見 [`notes/design.md`](notes/design.md)。
 
-## 跨次運行記憶（第一版，唔係模型訓練）
+## 跨次運行記憶與第一個學習 policy
 
 CLI 同 Dashboard 預設累積記憶，儲存喺 `~/.game-brain/memory`（Windows：`%USERPROFILE%\.game-brain\memory`）。可用 `--memory-dir DIR` 或 `GAME_BRAIN_MEMORY_DIR` 更改，repo 內目錄會被拒絕；`--no-memory` 關閉 SQLite 同探索存檔，JSONL 仍記錄動作前後狀態。`--no-save` 關閉普通及探索存檔，但唔會關閉經驗記錄。
 
@@ -222,11 +223,39 @@ CLI 同 Dashboard 預設累積記憶，儲存喺 `~/.game-brain/memory`（Window
 | `exploration/<run_id>/` | 每個新 cell 嘅第一個代表 `.state` + `.json`（可有 `.sav`）；同普通 `--save-dir` 分開，唔影響普通 `--resume latest` |
 | JSONL | 保留原始提議同實際動作、RAM 摘要、停止／存檔事件；無權重、無 PPO 更新 |
 
-Cell 用精確 `(map_bank, map_id, x, y, party_count, milestones_done)`，不計 facing；戰鬥、無座標或非 overworld 唔建立 cell。`cells.visits` 跨 run 累積，可查少探索位置，再用代表存檔 `--resume <save>` 出發。第一版**唔會自動選 cell／改變大腦決策**，亦未做完整 Go-Explore controller、最短路徑替換或模型訓練。存檔數隨 cell 數增長，未設淘汰上限；探索時間長時要留意磁碟容量。
+Cell 用精確 `(map_bank, map_id, x, y, party_count, milestones_done)`，不計 facing；戰鬥、無座標或非 overworld 唔建立 cell。`cells.visits` 跨 run 累積，可查少探索位置，再用代表存檔 `--resume <save>` 出發。記憶索引本身唔會自動選 cell；完整 Go-Explore controller、最短路徑替換同 PPO 仲未實作。存檔數隨 cell 數增長，未設淘汰上限；探索時間長時要留意磁碟容量。
 
 首次新格 +1、新地圖 +5、planner 判定新里程碑 +10、隊伍首次達到新數量 +10。新奇獎勵按 adapter + **ROM SHA1** 跨 run 去重，來回行、讀檔、重新開機唔會重新領取；起點已存在嘅進度只做基線、唔加分。戰鬥只計明確 `outcome` 變化：同地圖／對手首次勝利 +5、明確 `lose` -10（唔用單隻 HP=0 猜全滅）；重複補血唔加分。對白／選單可唔郁，暫不猜測「卡住」或未驗證嘅 RAM 劇情旗標。呢啲係版本化嘅記錄指標，**唔係評估成績**。
 
 Shadow 寫入實際 `NONE` 等待，experience 嘅 actor 為 `none`，唔將 AI 提議當成已執行；Manual／Assist 接管記人手動作。每次開機／`--resume` 都開新 episode，sidecar 保存父 run、episode、恢復步數。第一個任務終點為「有御三家並到達常磐市 3/1」（`terminated`）；普通結束／步數上限／訊號停止為 `truncated`。到達任務後可繼續原本運行，但後續操作屬新 episode。強制中斷／崩潰未完成步驟唔會冒充完整經驗；未正常結束嘅 run 在 SQLite 保持 `ended_at = NULL`。
+
+### 人手示範 → 模仿學習
+
+Manual 或 Assist 接管時，實際執行的人手動作會以 `actor=human` 記錄。訓練器只讀指定 adapter／ROM namespace 的人手 transitions，按精確觀察狀態對動作做多數決，輸出本機 JSON policy；不需要額外套件或 GPU：
+
+```bash
+# 先用 `python -m game_brain.memory` 查 namespace，再訓練
+python -m game_brain.learning --memory-dir ~/.game-brain/memory \
+  --namespace 'gba_mgba/firered:<ROM_SHA1>' \
+  --output ~/.game-brain/memory/firered-imitation.json
+
+# imitation 放喺 PathBrain 前：示範過的狀態重播人手選擇，其他狀態交返 PathBrain／RuleBrain
+python -m game_brain.demo --adapter mgba --brains battle,imitation,path,rule \
+  --imitation-model ~/.game-brain/memory/firered-imitation.json --steps 3000
+```
+
+呢個第一版只複製精確示範過的狀態；未示範或動作票數分歧就 fallback，唔會估路線。模型綁定 namespace，避免跨 ROM 錯用。佢可以接續人手已帶到的劇情／地圖，但唔會代替 Route 2、常青森林地圖驗證。無人手示範的探索模式另見下節；PPO 仍屬後續方法，詳見 [`notes/ml-decision.md`](notes/ml-decision.md)。
+
+### 無人手示範 → 自主探索
+
+Go-Explore runner 會用 sticky random actions 探索，將新地圖／格子嘅 mGBA savestate 留入 archive，再按新奇度和已量度劇情進度抽取存檔繼續探索。GoalPlanner 只用嚟計分 cell，唔會提供路線或選動作。Archive 同 ROM 綁定，存喺 repo 外，可重複執行指令續跑：
+
+```bash
+python -m game_brain.go_explore --adapter mgba \
+  --memory-dir ~/.game-brain/go-explore --steps 2000000 --hours 8
+```
+
+`--steps` 係 archive 累積的總步數上限（續跑要提高上限）；`--hours 0` 可取消單次 wall-time 上限。可用 `--stop-map BANK/ID` 設定自訂停止地圖，但到達該地圖唔代表通關。現時 adapter 未提供通用遊戲結束旗標，FireRed 改版 ROM 的 Route 2／常青森林地圖亦未量度；因此 runner 會按步數／時間停止或等外部 `game_completed=true` 訊號，**唔會宣稱可自行完成整個 Pokémon 遊戲**。Archive 大小會隨探索 cell 數增長，請留意磁碟空間。
 
 ```bash
 # 查看記憶統計、少探索 cell 同可 --resume 嘅 save 路徑
@@ -298,7 +327,7 @@ python -m game_brain.demo --adapter mgba --brains path,rule --steps 1100  # 真 
 - **目標清單**（`game_brain/brain/goals.py`）：
   - M1：過開場（RuleBrain 狂按 A）→ 離開睡房（2F 樓梯）→ 離開屋企（1F 門口地氈）→ 企喺真新鎮。
   - M2：行去真新鎮北面出口（(12,1)，Oak 會截住你）→ Oak 劇情帶你入研究所（狂按 A）→ 揀**妙蛙種子**（左邊個波 (8,4)：企 (8,5)、面向上、撳 A、答 YES）→ `party_count` 1。
-  - 之後係第一場勁敵戰：PathBrain 先用 **B** 過埋剩低嘅對白（改名問題 B = 唔要，唔會入改名畫面），再行向出口；勁敵截停之後，`in_battle` 期間由 RuleBattleBrain 打（冇 `battle` brain 就由 RuleBrain 狂撳 A）。打完返到 (7,8)，下一個目標（1 號道路）係 placeholder，原地等。
+  - 之後係第一場勁敵戰：PathBrain 先用 **B** 過埋剩低嘅對白（改名問題 B = 唔要，唔會入改名畫面），再行向出口；勁敵截停之後，`in_battle` 期間由 RuleBattleBrain 打。完成 Oak 包裹同圖鑑後，第 17 個目標係往尼比市；Route 2／常青森林地圖尚未喺呢隻改版 ROM 驗證，所以 PathBrain 暫停喺 placeholder。可用 imitation policy 接續已有人手示範過的狀態。
   - 戰鬥期間 PathBrain 冇被問，但 arbiter 會俾佢 `observe` 每個 observation，所以里程碑照更新，每一步都有 `milestones`。
   - 點解揀妙蛙種子：對頭兩個道館（小剛、小霞）都有屬性優勢，最易練。改 `firered_milestones("CHARMANDER")` 就可以揀第二隻。
 - **地圖**：由 `Observation.ram` 嘅 `map_w`/`map_h`/`collision`/`warps` 讀（`RamMapProvider`），每張 map 只 parse 一次。

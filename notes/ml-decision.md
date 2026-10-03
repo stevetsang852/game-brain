@@ -2,6 +2,17 @@
 
 > Credit: written by **Research Manager**, 2026-10-02. Copied into this repo unchanged.
 
+## Implementation status (2026-10-03)
+
+The repository now includes a stdlib-only supervised behavior-cloning baseline:
+`python -m game_brain.learning` trains from `actor='human'` transitions in one exact
+adapter/ROM namespace. `ImitationBrain` reproduces only exact observed states and falls
+through to the next brain for unknown or ambiguous states. It is suitable for replaying
+human-demonstrated segments, including after the current route placeholder, but does not
+generalize to unseen tiles or infer Route 2 / Viridian Forest map IDs. Those route goals
+must wait for observations from the modified ROM. Go-Explore cell selection and PPO remain
+future work; the current SQLite exploration archive is not a Go-Explore controller.
+
 # game-brain 學習型決策參考（2026-10-02，Research Manager）
 ## TypeSafe Jev（https://typesafe.ai/blog/introducing-system-one-models-and-jev，2026-09-15）
 - 快速結構化決策模型：輸入狀態，輸出預先定義選項＋校準機率；官方稱 70–500ms、input $0.042/MTok、output 免費、不會出 schema 錯誤。
