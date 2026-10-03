@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 from ..schema import Action, ModeCommand, SchemaError, from_envelope
 from . import ws
 from .pacing import FrameAck, ViewConfig
+from .roms import MAX_ROM_BYTES, MIN_ROM_BYTES, RomSelection
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).with_name("static")
@@ -105,6 +106,7 @@ class DashboardServer:
         self._inbox: "queue.Queue[Any]" = queue.Queue()
         self._snapshot: Dict[str, str] = {}  # latest envelope per type, replayed to new tabs
         self.refused: List[str] = []  # audit trail of refused inbound messages
+        self.rom_selection = RomSelection()
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -125,8 +127,58 @@ class DashboardServer:
                     self.wfile.write(body)
                 elif path == "/ws":
                     server._upgrade(self)
+                elif path == "/api/rom":
+                    self.send_json(200, server.rom_selection.status())
                 else:
                     self.send_error(404)
+
+            def send_json(self, status, payload):
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                # Custom header + same-origin check prevents cross-site form uploads.
+                self.close_connection = True
+                if urlparse(self.path).path != "/api/rom":
+                    self.send_json(404, {"error": "Not found"})
+                    return
+                origin = urlparse(self.headers.get("Origin", ""))
+                if (not _is_loopback(origin.hostname or "") or origin.scheme != "http"
+                        or origin.netloc != self.headers.get("Host")
+                        or self.headers.get("X-Game-Brain-Upload") != "rom"
+                        or self.headers.get("Content-Type") != "application/octet-stream"):
+                    self.send_json(403, {"error": "ROM uploads require a same-origin Dashboard request"})
+                    return
+                if self.headers.get("Transfer-Encoding"):
+                    self.send_json(400, {"error": "Chunked ROM uploads are not supported"})
+                    return
+                try:
+                    size = int(self.headers.get("Content-Length", ""))
+                except ValueError:
+                    self.send_json(411, {"error": "ROM upload requires Content-Length"})
+                    return
+                if not MIN_ROM_BYTES <= size <= MAX_ROM_BYTES:
+                    self.send_json(413, {"error": "ROM must be between 192 bytes and 32 MiB"})
+                    return
+                try:
+                    self.connection.settimeout(30)
+                    data = self.rfile.read(size)
+                    if len(data) != size:
+                        raise ValueError("ROM upload was incomplete")
+                    result = server.rom_selection.store(data)
+                except ValueError as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                except OSError as exc:
+                    log.error("ROM upload failed: %s", exc)
+                    self.send_json(500, {"error": f"Could not save ROM locally: {exc}"})
+                    return
+                self.send_json(200, result)
 
         self._httpd = ThreadingHTTPServer((host, port), Handler)
         self._httpd.daemon_threads = True
