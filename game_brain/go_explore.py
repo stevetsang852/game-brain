@@ -22,6 +22,7 @@ from .schema import Action, ButtonPress, Observation
 
 ARCHIVE_VERSION = 1
 _DIRECTIONS = ("UP", "DOWN", "LEFT", "RIGHT")
+_BUTTONS = (*_DIRECTIONS, "A", "B", "NONE")
 
 
 def cell_key(obs: Observation, progress, grid: int = 2) -> Optional[str]:
@@ -77,7 +78,19 @@ class GoExploreArchive:
         else:
             self.data = {"format_version": ARCHIVE_VERSION, "namespace": self.namespace, "grid": grid,
                          "seed": seed, "steps": 0, "iterations": 0, "cells": {}, "boot_save": None,
-                         "completed": False}
+                         "completed": False, "q_values": {}, "q_updates": 0}
+        self.data.setdefault("q_values", {})
+        self.data.setdefault("q_updates", 0)
+        if not isinstance(self.data["q_values"], dict) or any(
+                not isinstance(state, str) or not isinstance(values, dict)
+                or any(action not in _BUTTONS or isinstance(value, bool)
+                       or not isinstance(value, (int, float)) or not math.isfinite(value)
+                       for action, value in values.items())
+                for state, values in self.data["q_values"].items()):
+            raise ValueError("Go-Explore archive has invalid Q-values")
+        updates = self.data["q_updates"]
+        if not isinstance(updates, int) or isinstance(updates, bool) or updates < 0:
+            raise ValueError("Go-Explore archive has an invalid Q-update count")
         self.saver = SaveManager(self.root, adapter, ["go-explore"], "go-explore",
                                  every=0, on_milestone=False)
 
@@ -89,6 +102,28 @@ class GoExploreArchive:
             os.replace(temporary, self.path)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def best_action(self, state: Optional[str]) -> Optional[str]:
+        """Return a seeded-random greedy action for a learned state, if one exists."""
+        values = self.data["q_values"].get(state) if state is not None else None
+        if not values:
+            return None
+        best = max(values.values())
+        return self.rng.choice([action for action, value in values.items() if value == best])
+
+    def learn(self, state: Optional[str], action: str, next_state: Optional[str],
+              reward: float, terminal: bool, alpha: float = 0.2, gamma: float = 0.95) -> None:
+        """Persist one tabular Q-learning update for an executed overworld action."""
+        if state is None:
+            return
+        if action not in _BUTTONS or not math.isfinite(reward):
+            raise ValueError("invalid Go-Explore learning transition")
+        values = self.data["q_values"].setdefault(state, {})
+        old_value = values.get(action, 0.0)
+        future_values = self.data["q_values"].get(next_state, {}) if next_state else {}
+        future_value = max(future_values.values(), default=0.0) if not terminal else 0.0
+        values[action] = old_value + alpha * (reward + gamma * future_value - old_value)
+        self.data["q_updates"] += 1
 
     def save_boot(self, obs: Observation, planner: GoalPlanner) -> Dict[str, Any]:
         sidecar = self.saver.save(self.data["steps"], planner.summary(), reason="go-explore-boot")
@@ -187,26 +222,28 @@ class GoExploreArchive:
 
 
 class GoExploreRunner:
-    """Novelty-driven exploration using saved-cell selection and sticky random actions."""
+    """Novelty-driven exploration with a persistent tabular Q-learning action policy."""
 
     def __init__(self, adapter, archive: GoExploreArchive, seed: int = 0, segment_steps: int = 100,
                  stuck_steps: int = 40, battle_policy: str = "rule",
-                 stop_map: Optional[Tuple[int, int]] = None):
+                 stop_map: Optional[Tuple[int, int]] = None, epsilon: float = 0.15):
         if segment_steps < 1 or stuck_steps < 1:
             raise ValueError("segment and stuck limits must be positive")
         if battle_policy not in ("rule", "random"):
             raise ValueError("battle policy must be 'rule' or 'random'")
+        if not math.isfinite(epsilon) or not 0 <= epsilon <= 1:
+            raise ValueError("epsilon must be in [0, 1]")
         self.adapter, self.archive = adapter, archive
         self.rng = random.Random(seed)
         self.segment_steps, self.stuck_steps = segment_steps, stuck_steps
-        self.battle_policy, self.stop_map = battle_policy, stop_map
+        self.battle_policy, self.stop_map, self.epsilon = battle_policy, stop_map, epsilon
         self.planner = GoalPlanner(firered_milestones())
         self.battle_brain = RuleBattleBrain()
         self.previous_button: Optional[str] = None
         self._last_cell: Optional[str] = None
         self._stuck = 0
 
-    def _button(self, obs: Observation) -> str:
+    def _button(self, obs: Observation, state: Optional[str]) -> str:
         if obs.in_battle is True and self.battle_policy == "rule":
             try:
                 action, _decision = self.battle_brain.decide(obs)
@@ -214,10 +251,13 @@ class GoExploreRunner:
                     return action.presses[0].button
             except BrainUnavailable:
                 pass
+        learned_action = self.archive.best_action(state)
+        if learned_action is not None and self.rng.random() >= self.epsilon:
+            return learned_action
         if self.previous_button is not None and self.rng.random() < 0.9:
             return self.previous_button
         return self.rng.choices(
-            ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "NONE"],
+            list(_BUTTONS),
             weights=[0.175, 0.175, 0.175, 0.175, 0.2, 0.08, 0.02], k=1)[0]
 
     def _complete(self, obs: Observation) -> bool:
@@ -250,7 +290,7 @@ class GoExploreRunner:
             return {"steps": self.archive.data["steps"], "iterations": self.archive.data["iterations"],
                     "cells": len(self.archive.data["cells"]), "completed": True,
                     "reason": "already_completed", "namespace": self.archive.namespace,
-                    "archive": str(self.archive.path)}
+                    "archive": str(self.archive.path), "q_updates": self.archive.data["q_updates"]}
         reason = "step_budget"
         while self.archive.data["steps"] < max_steps:
             obs = self.adapter.observe()
@@ -265,13 +305,22 @@ class GoExploreRunner:
                     reason = "time_budget"
                     break
                 self.planner.update(obs)
-                button = self._button(obs)
+                progress_before = [m["id"] for m in self.planner.summary() if m["done"]]
+                state_before = cell_key(obs, progress_before, self.archive.grid)
+                button = self._button(obs, state_before)
                 action = explorer_action(button)
                 self.adapter.act(action)
                 obs_after = self.adapter.observe()
                 self.archive.data["steps"] += 1
                 self.planner.update(obs_after)
+                progress_after = [m["id"] for m in self.planner.summary() if m["done"]]
+                state_after = cell_key(obs_after, progress_after, self.archive.grid)
+                new_cell = state_after is not None and state_after not in self.archive.data["cells"]
                 cell = self.archive.observe(obs_after, self.planner)
+                newly_completed = [mid for mid in progress_after if mid not in progress_before]
+                completed = obs_after.ram.get("game_completed") is True
+                reward = float(new_cell) + 5.0 * len(newly_completed) + 100.0 * completed
+                self.archive.learn(state_before, button, state_after, reward, completed)
                 if cell is None or cell == self._last_cell:
                     self._stuck += 1
                 else:
@@ -279,7 +328,7 @@ class GoExploreRunner:
                 self._last_cell = cell
                 self.previous_button = button
                 obs = obs_after
-                if obs.ram.get("game_completed") is True:
+                if completed:
                     self.archive.data["completed"] = True
                     reason = "game_completed"
                     break
@@ -312,7 +361,8 @@ class GoExploreRunner:
         self.archive.flush()
         return {"steps": self.archive.data["steps"], "iterations": self.archive.data["iterations"],
                 "cells": len(self.archive.data["cells"]), "completed": self.archive.data["completed"],
-                "reason": reason, "namespace": self.archive.namespace, "archive": str(self.archive.path)}
+                "reason": reason, "namespace": self.archive.namespace, "archive": str(self.archive.path),
+                "q_updates": self.archive.data["q_updates"]}
 
 
 def _parse_map(value: Optional[str]) -> Optional[Tuple[int, int]]:
@@ -338,6 +388,8 @@ def main(argv=None) -> None:
     parser.add_argument("--segment-steps", type=int, default=100)
     parser.add_argument("--stuck-steps", type=int, default=40)
     parser.add_argument("--battle-policy", choices=("rule", "random"), default="rule")
+    parser.add_argument("--epsilon", type=float, default=0.15,
+                        help="probability of exploring instead of using a learned action")
     parser.add_argument("--stop-map", type=_parse_map, default=None,
                         help="optional map BANK/ID to stop on; reaching it is not proof of game completion")
     args = parser.parse_args(argv)
@@ -347,7 +399,7 @@ def main(argv=None) -> None:
             parser.error(f"adapter {adapter.name} does not support save states")
         archive = GoExploreArchive(args.memory_dir, adapter, args.cell_grid, args.seed)
         runner = GoExploreRunner(adapter, archive, args.seed, args.segment_steps, args.stuck_steps,
-                                 args.battle_policy, args.stop_map)
+                                 args.battle_policy, args.stop_map, args.epsilon)
         hours = args.hours if args.hours > 0 else None
         print(json.dumps(runner.run(args.steps, hours), indent=2))
     finally:
