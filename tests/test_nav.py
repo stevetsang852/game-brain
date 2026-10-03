@@ -179,6 +179,16 @@ def test_goal_planner_is_sticky_and_ordered():
                           "pewter_city"]
 
 
+def test_firered_milestones_accepts_lowercase_starter_names():
+    lower = firered_milestones("charmander")
+    upper = firered_milestones("CHARMANDER")
+    lower_starter = next(m for m in lower if m.id == "get_starter")
+    upper_starter = next(m for m in upper if m.id == "get_starter")
+
+    assert lower_starter.label == upper_starter.label
+    assert "(10, 4)" in lower_starter.label
+
+
 def test_goal_planner_parcel_errand_after_a_whiteout():
     # whited out at home with the parcel: back to Pallet, then the lab
     pl = GoalPlanner()
