@@ -43,6 +43,7 @@ class Adapter(ABC):
     # ------------------------------------------------------------------ save states (optional)
     #: True if save_state()/load_state() work (save/resume, notes/savestate-format.md)
     supports_save_state: bool = False
+    supports_battery_save: bool = False
 
     def save_state(self) -> bytes:
         """Emulator snapshot of the current moment (for mGBA: the raw save state)."""
@@ -59,6 +60,10 @@ class Adapter(ABC):
     def battery_save(self) -> Optional[bytes]:
         """In-game battery save (.sav) contents, or None if there is none / unsupported."""
         return None
+
+    def load_battery_save(self, data: Optional[bytes]) -> None:
+        """Replace the in-memory battery save while the adapter is running."""
+        raise NotImplementedError(f"{self.name}: battery save loading is not supported")
 
     def screenshot(self, path: str) -> Optional[str]:
         """Write a PNG of the current frame to ``path``; return it, or None if unsupported."""

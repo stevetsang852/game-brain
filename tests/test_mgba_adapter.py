@@ -54,6 +54,36 @@ class FakeCore:
         self.keys_per_frame.append(self.keys)
 
 
+class FakeBatteryFile:
+    def __init__(self, data=b""):
+        self.data = bytearray(data)
+        self.position = 0
+
+    def seek(self, position, _whence):
+        self.position = position
+
+    def write(self, data, size):
+        written = bytes(data[:size])
+        end = self.position + len(written)
+        if end > len(self.data):
+            self.data.extend(b"\0" * (end - len(self.data)))
+        self.data[self.position:end] = written
+        self.position = end
+        return len(written)
+
+    def read_all(self):
+        return bytes(self.data)
+
+
+def test_hot_loaded_battery_save_replaces_or_clears_existing_data():
+    adapter = object.__new__(MgbaFireRedAdapter)
+    adapter._battery_vf = FakeBatteryFile(b"old!")
+    adapter.load_battery_save(b"new!")
+    assert adapter.battery_save() == b"new!"
+    adapter.load_battery_save(None)
+    assert adapter.battery_save() is None
+
+
 def overworld(core, x=6, y=6, group=4, num=1, face=2):
     m = core.memory
     sb1 = 0x02025000

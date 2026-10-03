@@ -9,8 +9,11 @@ It talks to the live loop over one WebSocket: `ws://127.0.0.1:8765/ws`.
 * WebSocket upgrades with a non-local `Origin` header get `403`, so other sites open in the
   same browser cannot drive the game.
 * Inbound frames are capped at 64 KiB, must be masked, and may not be fragmented.
-* The page can only send `mode_command`, `action`, the display messages below and (planned) the save/resume messages in "存檔 / 續玩" below. Any `action` it sends is re-tagged
+* The page can only send `mode_command`, `action`, the display messages below and the implemented save commands. Any `action` it sends is re-tagged
   `source: "manual"`, so it can never pose as a brain.
+* ROM and local save uploads use same-origin HTTP POSTs with a custom header; a local save upload
+  includes its JSON sidecar and base64-encoded state (and optional battery save). The server checks
+  format/version, file-name-only sidecar references, size limits, and SHA1 before queuing it.
 * Manual actions are passed to `Arbiter.submit_manual`, which rejects them unless the mode
   is `manual` or `assist` (in `assist` they preempt the brain for that step). The rejection is shown in the page's event list and recorded in
   `arbiter.rejected`.
@@ -32,6 +35,16 @@ in `game_brain/schema/messages.py`). Durations are always frames.
 
 Order per step: `observation`, then `decision`, then `status`. A newly opened tab is sent the
 latest envelope of each type first, so it shows the current state immediately.
+
+### Loading a local game save
+
+The page posts to `POST /api/save` with `Content-Type: application/json` and
+`X-Game-Brain-Upload: save`. The body contains `source_name`, the parsed v1 game sidecar, and
+base64 `state` / optional `battery` bytes. This endpoint uses the same strict same-origin checks
+as ROM uploads and queues the request for the next live-loop step. The active adapter and ROM SHA1
+must match; loading resets brains, restores milestone progress, and replaces the active battery
+save when provided. Errors are returned as status `notes` and logged as `resume_error`; successful
+loads are recorded as `local_save_loaded`.
 
 ## Screenshots
 
