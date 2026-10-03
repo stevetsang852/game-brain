@@ -37,7 +37,7 @@
 | RuleBattleBrain | ✅ 讀 `ram["battle"]`，用 PokeAPI 靜態表揀招。勁敵戰已打完並返到研究所。未做換寵、道具；RUN 預設唔用 |
 | RuleBrain / RandomBrain | ✅ 後備。RuleBrain 過開場後只會亂行 |
 | LLMBrain | ⛔ stub，未接 provider。呼叫會 fallback |
-| 學習 | ✅ 第一版 Go-Explore 同人手 imitation。未做 PPO，未驗證森林以後 |
+| 學習 | ✅ Go-Explore 式自主探索：持久化 tabular Q-learning、cell archive + savestate、跨次續跑；另有人手 imitation。未做 PPO，未驗證森林以後 |
 | Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、存檔／續玩 |
 | Docker / 本機啟動 | ✅ `start_in_docker.bat`、`start_local.bat`。ROM 只讀掛入，唔會 COPY 入 image |
 | CI / License | ⛔ 未有 CI。License 未揀，repo 係 public |
@@ -239,14 +239,14 @@ python -m game_brain.demo --adapter mgba --brains battle,imitation,path,rule \
 
 ### 無人手示範 → 自主探索
 
-Go-Explore runner 會用 sticky random actions 探索，將新地圖／格子嘅 mGBA savestate 留入 archive，再按新奇度和已量度劇情進度抽取存檔繼續探索。GoalPlanner 只用嚟計分 cell，唔會提供路線或選動作。Archive 同 ROM 綁定，存喺 repo 外，可重複執行指令續跑：
+Go-Explore runner 會按 epsilon-greedy tabular Q-learning 選擇 overworld 動作：新格子獎勵 +1、新里程碑 +5、明確通關旗標 +100；未知狀態或探索抽樣時仍用 sticky random actions。Q 值同新地圖／格子嘅 mGBA savestate 一齊寫入 archive，按新奇度和已量度劇情進度抽取存檔繼續探索。GoalPlanner 只用嚟計分 cell，唔會提供路線或選動作。Archive 同 ROM 綁定，存喺 repo 外，可重複執行指令續跑：
 
 ```bash
 python -m game_brain.go_explore --adapter mgba \
-  --memory-dir ~/.game-brain/go-explore --steps 2000000 --hours 8
+  --memory-dir ~/.game-brain/go-explore --steps 2000000 --hours 8 --epsilon 0.15
 ```
 
-`--steps` 係 archive 累積的總步數上限（續跑要提高上限）；`--hours 0` 可取消單次 wall-time 上限。可用 `--stop-map BANK/ID` 設定自訂停止地圖，但到達該地圖唔代表通關。現時 adapter 未提供通用遊戲結束旗標，FireRed 改版 ROM 的 Route 2／常青森林地圖亦未量度；因此 runner 會按步數／時間停止或等外部 `game_completed=true` 訊號，**唔會宣稱可自行完成整個 Pokémon 遊戲**。Archive 大小會隨探索 cell 數增長，請留意磁碟空間。
+`--epsilon` 係採取隨機探索動作的機率（預設 0.15）；`--steps` 係 archive 累積的總步數上限（續跑要提高上限）；`--hours 0` 可取消單次 wall-time 上限。可用 `--stop-map BANK/ID` 設定自訂停止地圖，但到達該地圖唔代表通關。現時 adapter 未提供通用遊戲結束旗標，FireRed 改版 ROM 的 Route 2／常青森林地圖亦未量度；因此 runner 會按步數／時間停止或等外部 `game_completed=true` 訊號，**唔會宣稱可自行完成整個 Pokémon 遊戲**。Archive 大小會隨探索 cell 數增長，請留意磁碟空間。
 
 ```bash
 # 查看記憶統計、少探索 cell 同可 --resume 嘅 save 路徑

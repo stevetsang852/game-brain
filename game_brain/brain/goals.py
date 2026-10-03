@@ -121,6 +121,7 @@ def _party(obs: Observation) -> int:
 
 
 def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
+    starter = starter.upper()
     m = _map
     bx, by = FR_STARTER_BALLS[starter]
 

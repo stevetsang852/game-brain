@@ -53,6 +53,41 @@ def test_go_explore_persists_cells_and_resumes_lifetime_budget(tmp_path):
     assert resumed["cells"] >= first["cells"]
 
 
+def test_go_explore_learns_and_persists_q_values(tmp_path):
+    adapter = MockHouseAdapter(intro_presses=0)
+    root = tmp_path / "go-explore"
+    archive = GoExploreArchive(root, adapter, seed=7)
+    archive.learn("start", "RIGHT", "next", reward=1, terminal=False)
+    archive.learn("next", "A", None, reward=2, terminal=True)
+    archive.learn("start", "RIGHT", "next", reward=1, terminal=False)
+
+    assert archive.data["q_updates"] == 3
+    assert archive.data["q_values"]["start"]["RIGHT"] == pytest.approx(0.436)
+    archive.flush()
+
+    resumed = GoExploreArchive(root, adapter, seed=7)
+    assert resumed.data["q_updates"] == 3
+    assert resumed.best_action("start") == "RIGHT"
+
+
+def test_go_explore_accepts_legacy_archive_without_q_values_and_validates_epsilon(tmp_path):
+    adapter = MockHouseAdapter(intro_presses=0)
+    root = tmp_path / "go-explore"
+    archive = GoExploreArchive(root, adapter)
+    archive.flush()
+    saved = json.loads((root / "archive.json").read_text())
+    saved.pop("q_values")
+    saved.pop("q_updates")
+    (root / "archive.json").write_text(json.dumps(saved))
+
+    resumed = GoExploreArchive(root, adapter)
+    assert resumed.data["q_values"] == {}
+    with pytest.raises(ValueError, match="epsilon"):
+        GoExploreRunner(adapter, resumed, epsilon=1.1)
+    with pytest.raises(ValueError, match="epsilon"):
+        GoExploreRunner(adapter, resumed, epsilon=float("nan"))
+
+
 def test_go_explore_rejects_rom_mismatch_and_bad_budget(tmp_path):
     adapter = MockHouseAdapter(intro_presses=0)
     archive = GoExploreArchive(tmp_path / "go-explore", adapter)

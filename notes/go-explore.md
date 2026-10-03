@@ -5,7 +5,7 @@
 > 作者：Research Manager，2026-10-02。這份只是規格，沒有程式碼。實作由 Fullstack 負責，使用 Backend 的 `GameBrainEnv`（`game_brain/gym_env.py`）。
 > 參考：Ecoffet et al., *Go-Explore*（2019 / Nature 2021）；PWhiddy *PokemonRedExperiments* 與 pokemonred_puffer 的「新格子」探索獎勵（見 `notes/references.md`、`notes/ml-decision.md`）。
 
-> **2026-10-03 實作狀態：** `game_brain/go_explore.py` 提供第一版 Go-Explore 式自主探索：按 sticky-action 探索段走動、持久化 cell index 與代表 savestate、依 cell visits/frontier 加權抽樣、重新執行時從存檔繼續。`GoalPlanner` 只用於 cell progress 評分，不選探索動作；戰鬥可用 RuleBattleBrain 協助。CLI、限制及指令見 README「無人手示範 → 自主探索」。未做 score-based cell replacement、eviction、軌跡壓縮或 PPO。真 ROM 未提供；通用完成旗標及完整通關路線未驗證，所以本版只可以按步數／時間或明確 `game_completed` 訊號停止，唔保證打完整個遊戲。
+> **2026-10-03 實作狀態：** `game_brain/go_explore.py` 提供 Go-Explore 式自主探索：持久化 tabular Q-learning 以新 cell、里程碑和明確完成訊號作獎勵，探索時以 epsilon-greedy 配合 sticky random actions；持久化 cell index 與代表 savestate、依 cell visits/frontier 加權抽樣、重新執行時從存檔繼續。舊 archive 會以空 Q 表遷移。`GoalPlanner` 只用於 cell progress 評分，不選探索動作；戰鬥可用 RuleBattleBrain 協助。CLI、限制及指令見 README「無人手示範 → 自主探索」。未做 score-based cell replacement、eviction、軌跡壓縮或 PPO。真 ROM 未提供；通用完成旗標及完整通關路線未驗證，所以本版只可以按步數／時間或明確 `game_completed` 訊號停止，唔保證打完整個遊戲。
 
 ## 0. 目標與界線
 
