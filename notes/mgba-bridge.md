@@ -3,6 +3,39 @@
 `game_brain.adapters.gba_mgba.MgbaFireRedAdapter` implements `Adapter` (see
 `adapter-interface.md`) on mGBA's own Python bindings (cffi), headless, no Lua.
 
+## Setup (Windows, without Docker)
+
+`start_local.bat` uses native Python 3.10+ if its mGBA bindings import successfully.
+The mGBA desktop application does not include these bindings, and the PyPI `mgba`
+package does not provide a Windows wheel. Otherwise the launcher uses a separate
+`Ubuntu` WSL distribution, not Docker Desktop's distribution.
+
+1. In Administrator PowerShell, run `wsl --install -d Ubuntu`. Restart if requested.
+2. Run `setup_local_wsl.bat` from this repository. It installs Ubuntu build
+   dependencies and builds mGBA 0.10.5 with Python bindings and FFmpeg.
+3. Run `start_local.bat`, then open http://127.0.0.1:8765/ in your Windows browser.
+   Ctrl-C in the launcher window stops the game and writes the final save.
+
+Setup creates a dedicated, unprivileged `game-brain` Linux user. Builds and the
+Python virtual environment live in `/home/game-brain/.game-brain/` inside Ubuntu.
+It does not change Ubuntu's default user or your Windows Python installation.
+Re-running setup rebuilds the same pinned mGBA revision.
+
+The launcher remembers the Windows ROM path in `%USERPROFILE%\.game-brain\rom-path.txt`
+and translates it for WSL. Saves default to `%USERPROFILE%\.game-brain\saves`;
+WSL experience memory defaults to `/home/game-brain/.game-brain/memory`, separately
+from native Windows memory and Docker volumes. Existing databases are not migrated
+or overwritten. Explicit `GAME_BRAIN_SAVE_DIR`, `GAME_BRAIN_MEMORY_DIR`, and
+`GAME_BRAIN_START_STATE` Windows paths are translated for WSL; `GAME_BRAIN_STARTER`
+is also forwarded. Run logs remain in the repository's gitignored `runs/`.
+ROMs selected through the dashboard are remembered inside Ubuntu's
+`/home/game-brain/.game-brain/` configuration and take precedence on subsequent WSL
+dashboard runs.
+
+Keep the `.sh` scripts with LF line endings (`.gitattributes` enforces this on checkout).
+Ubuntu 26.04 / Python 3.14 requires the GCC pointer-warning flags for both the CMake
+build and the Python extension build (`CFLAGS`); the setup script supplies both.
+
 ## Setup (Linux; what the shared box uses)
 
 mGBA 0.10.5 built from source with Python bindings:

@@ -46,7 +46,7 @@ COPY game_brain/ game_brain/
 COPY tests/ tests/
 COPY examples/ examples/
 COPY pyproject.toml ./
-RUN useradd --create-home --uid 1000 brain && mkdir -p /app/runs /memory && chown brain /app/runs /memory
+RUN useradd --create-home --uid 1000 brain && mkdir -p /app/runs /memory /config && chown brain /app/runs /memory /config
 USER brain
 # GAME_BRAIN_IN_CONTAINER=1 lets the dashboard bind 0.0.0.0 *inside* the container
 # (needed for -p to reach it). Publish it on the host as 127.0.0.1:8765:8765 only.
@@ -57,6 +57,7 @@ ENV PYTHONPATH=/app:/opt/mgba/python \
     PYTEST_ADDOPTS="-p no:cacheprovider" \
     GAME_BRAIN_IN_CONTAINER=1 \
     GAME_BRAIN_MEMORY_DIR=/memory \
+    GAME_BRAIN_CONFIG_DIR=/config \
     GAME_BRAIN_ROM=/data/rom.gba
 EXPOSE 8765
 CMD ["python3", "-m", "game_brain.dashboard", "--adapter", "mgba", "--brains", "battle,path,rule", "--host", "0.0.0.0", "--port", "8765"]

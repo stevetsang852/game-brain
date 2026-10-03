@@ -45,25 +45,23 @@ if errorlevel 1 (
 
 set "GAME_BRAIN_ROM=%GAME_BRAIN_ROM_FILE%"
 if not defined GAME_BRAIN_SAVE_DIR set "GAME_BRAIN_SAVE_DIR=%GAME_BRAIN_CONFIG_DIR%\saves"
-if not defined GAME_BRAIN_MEMORY_DIR set "GAME_BRAIN_MEMORY_DIR=%GAME_BRAIN_CONFIG_DIR%\memory"
 if not exist "%GAME_BRAIN_SAVE_DIR%" mkdir "%GAME_BRAIN_SAVE_DIR%"
-if errorlevel 1 goto data_dir_error
-if not exist "%GAME_BRAIN_MEMORY_DIR%" mkdir "%GAME_BRAIN_MEMORY_DIR%"
 if errorlevel 1 goto data_dir_error
 
 python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Python 3.10 or newer is required and must be available as "python".
-    pause
-    exit /b 1
+    echo Native Python 3.10 or newer is unavailable; trying Ubuntu WSL instead.
+    goto start_wsl
 )
 python -c "import mgba.core, mgba.image, mgba.log" >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: mGBA Python bindings are not available to this Python installation.
-    echo See notes\mgba-bridge.md for setup instructions.
-    pause
-    exit /b 1
+    echo Native mGBA bindings are unavailable; trying Ubuntu WSL instead.
+    goto start_wsl
 )
+
+if not defined GAME_BRAIN_MEMORY_DIR set "GAME_BRAIN_MEMORY_DIR=%GAME_BRAIN_CONFIG_DIR%\memory"
+if not exist "%GAME_BRAIN_MEMORY_DIR%" mkdir "%GAME_BRAIN_MEMORY_DIR%"
+if errorlevel 1 goto data_dir_error
 
 echo.
 echo Starting the local dashboard at http://127.0.0.1:8765/
@@ -76,6 +74,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
+endlocal
+exit /b 0
+
+:start_wsl
+echo Starting the local dashboard at http://127.0.0.1:8765/
+echo Press Ctrl-C in this window to stop.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0local_wsl.ps1"
+if errorlevel 1 (
+    echo.
+    echo ERROR: The WSL dashboard failed. Run setup_local_wsl.bat if setup is incomplete.
+    pause
+    exit /b 1
+)
 endlocal
 exit /b 0
 

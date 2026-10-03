@@ -143,6 +143,14 @@ python -m game_brain.dashboard --adapter mgba                      # 開 http://
 
 > ⚠️ 喺共用 box 撳 **「Update Computer」** 會清走用 apt 裝嘅 libs（例如 ffmpeg dev libs），之後 mGBA 要**重新 build**，`--adapter mgba` 先會再用得。
 
+### Dashboard 選擇新 ROM（下次啟動使用）
+
+遊戲畫面下方嘅 **ROM 檔案** 面板可以選擇 `.gba`，再按「保存並於下次使用」。瀏覽器唔會提供電腦原始檔案嘅完整路徑，所以程式會將 ROM **複製到本機** `~/.game-brain/roms/<SHA1>.gba`，並將該副本路徑記喺 `~/.game-brain/rom-path.txt`；可以用 `GAME_BRAIN_CONFIG_DIR` 更改目錄，唔接受 repo 內目錄。只接受 192 bytes 至 32 MiB、通過 GBA header checksum 嘅資料；只喺本機傳送，唔會傳去外部服務或加入 git。
+
+新選擇**唔會即時切換／重置正在運行嘅遊戲**。本機請 Ctrl-C 正常停止，再啟動 Dashboard／`start_local.bat`；Dashboard 會優先用已記住嘅 ROM（包括原先由 batch file 記住嘅路徑）。`--adapter mock` 仍然係 mock，要用 `auto`／`mgba` 先會開真 ROM。新 ROM 需要相容 FireRed RAM 嘅版本；檔案 header 通過唔代表改版嘅 RAM 位址已驗證。**唔好跨 ROM 用 `--resume latest`**，原有 SHA1 校驗會拒絕唔匹配嘅存檔。
+
+Docker Compose 將上傳副本同 pointer 存喺 `brain-config` named volume（`/config`），保存後用 `docker compose restart dashboard`。第一次 Compose 啟動仍需原有 `GAME_BRAIN_ROM_FILE` 唯讀掛載；之後 GUI 選擇嘅副本優先，唔需要修改 image。直接 `docker run --rm` 請加 `-v game-brain-config:/config`。普通重啟／重建唔會清除；**`docker compose down -v` 會刪除記住嘅路徑同上傳 ROM**。原始 ROM 同舊副本唔會自動刪除。
+
 ### Dashboard 只綁 127.0.0.1（刻意設計）
 
 Dashboard 可以控制遊戲，所以**只會 bind 嗰部機嘅 127.0.0.1**。用 `--host 0.0.0.0` 會直接報錯拒絕，唔好試圖改成對外開放。唯一例外係喺 game-brain 嘅 Docker container 入面（見下面「Docker」），而且 host 嗰邊都係只開 127.0.0.1。
@@ -155,7 +163,7 @@ Dashboard 可以控制遊戲，所以**只會 bind 嗰部機嘅 127.0.0.1**。�
 
 Image 入面會由 source build mGBA 0.10.5（開 Python bindings 同 `USE_FFMPEG`），再裝 game-brain；mGBA build 同最終 image 共用執行期套件層，避免重複安裝。測試檔同測試用範例會保留（可用 `docker run ... python3 -m pytest`），設計文件唔會放入 image。**ROM 同 save state 唔會 COPY 入 image**，淨係喺行嘅時候用 `-v ...:ro` 唯讀掛入去。Image 只喺本機用，唔好 push 去任何 registry。
 
-喺 Windows 用 `start_in_docker.bat` 啟動時，首次會輸入 ROM 路徑並儲存到 `%USERPROFILE%\.game-brain\rom-path.txt`；之後會自動沿用。若檔案搬走或刪除，啟動時會要求輸入新路徑。ROM 路徑只保存在本機，唔會加入 repo 或 Docker image。想直接喺 Windows 行、唔用 Docker，請用 `start_local.bat`；本機 Python 要已安裝 mGBA 0.10.x bindings，設定方法見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)。
+喺 Windows 用 `start_in_docker.bat` 啟動時，首次會輸入 ROM 路徑並儲存到 `%USERPROFILE%\.game-brain\rom-path.txt`；之後會自動沿用。若檔案搬走或刪除，啟動時會要求輸入新路徑。ROM 路徑只保存在本機，唔會加入 repo 或 Docker image。**唔用 Docker** 請用 `start_local.bat`：優先用本機 Python + mGBA bindings，冇就用獨立 Ubuntu WSL（唔用 Docker Desktop 嘅 distro）。首次喺 Administrator PowerShell 行 `wsl --install -d Ubuntu`（需要時重啟），再雙擊 `setup_local_wsl.bat` build mGBA；完成後行 `start_local.bat`，喺 Windows 瀏覽器開 http://127.0.0.1:8765/。詳細路徑及依賴見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)。
 
 ```bash
 docker build -t game-brain:local .        # 第一次大約幾分鐘（要 build mGBA）

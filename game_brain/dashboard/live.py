@@ -31,6 +31,7 @@ from ..setup import FULL_BRAINS, ForcedStop, Session, StopSignals, add_run_args,
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from .pacing import FrameAck, Pacer, ViewConfig
 from .server import DashboardServer
+from .roms import use_remembered_rom
 
 
 def _screenshot_b64(adapter, tmpdir: Path) -> Optional[str]:
@@ -159,6 +160,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     a = build_parser().parse_args(argv)
+    try:
+        use_remembered_rom()
+    except (ValueError, OSError) as exc:
+        print(f"warning: {exc} (using configured adapter/ROM until a new file is selected)", file=sys.stderr)
     with DashboardServer(a.host, a.port) as server:
         print(f"dashboard: {server.url}  (Ctrl-C to stop)")
         try:
