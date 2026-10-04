@@ -256,20 +256,32 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
                   else Target.warp(*FR_OAKS_LAB) if m(o) == FR_PALLET_TOWN
                   else Target.edge("DOWN") if m(o) in (FR_VIRIDIAN_CITY, FR_ROUTE_1)
                   else Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART else to_pallet(o)),
+<<<<<<< HEAD
         # Goal 17: leave Viridian by the north edge only. Indoor maps and menus must not
         # complete it (that used to drop PathBrain and let RandomBrain wander).
         Milestone("pewter_city", "Leave Viridian City north toward Route 2 (speedrun probe)",
                   done=_left_viridian_north(),
+=======
+        # Goal 17: a probe, not free wander. Walk off Viridian's north edge. Done when the map
+        # changes to something that is not the route south or the mart. Forest/Pewter routes
+        # after that are still unverified, so later milestones stay unimplemented.
+        Milestone("pewter_city", "Probe north from Viridian City toward Route 2 (Pewter path)",
+                  done=lambda o: m(o) not in (None, FR_VIRIDIAN_CITY, FR_VIRIDIAN_MART, FR_ROUTE_1,
+                                              FR_PALLET_TOWN, FR_OAKS_LAB, FR_HOUSE_1F, FR_HOUSE_2F),
+>>>>>>> origin/feat/goal17-north-probe
                   target=lambda o: Target.edge("UP") if m(o) == FR_VIRIDIAN_CITY
                   else Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART
                   else Target.edge("UP") if m(o) in (FR_PALLET_TOWN, FR_ROUTE_1)
                   else to_pallet(o)),
+<<<<<<< HEAD
         # Keep a story target after the probe so the AI never falls through to free wandering.
         Milestone("advance_story", "Keep moving north toward Pewter; do not wander",
                   done=lambda o: False,
                   target=lambda o: Target.edge("UP") if m(o) not in (None, FR_VIRIDIAN_MART, FR_OAKS_LAB, FR_HOUSE_1F, FR_HOUSE_2F)
                   else Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART
                   else to_pallet(o)),
+=======
+>>>>>>> origin/feat/goal17-north-probe
     ]
 
 

@@ -179,11 +179,16 @@ class PathBrain(Brain):
                     "finish dialogue", f"could not turn {last[1]} (text box open) -> press {b}",
                     goal=milestone.label, path=[pos])
 <<<<<<< HEAD
+<<<<<<< HEAD
         if mid in self._free or self._script_n.get(mid, 0) >= self.max_placeholder_presses or not obs.ram.get("in_battle"):
             self._free.add(mid)
 =======
         if mid in self._free or self._script_n.get(mid, 0) >= self.max_placeholder_presses:
 >>>>>>> origin/feat/goal17-explore
+=======
+        if mid in self._free or self._script_n.get(mid, 0) >= self.max_placeholder_presses or not obs.ram.get("in_battle"):
+            self._free.add(mid)
+>>>>>>> origin/feat/goal17-north-probe
             return self._free_explore(obs, milestone, pos)
         d = "RIGHT" if facing == "LEFT" else "LEFT"   # horizontal: never moves a YES/NO cursor
         self._last = ("probe", d)
@@ -193,6 +198,7 @@ class PathBrain(Brain):
 
 
     def _free_explore(self, obs: Observation, milestone, pos: Tile):
+<<<<<<< HEAD
 <<<<<<< HEAD
         """After goal 17, actually walk. Same step timing as PathBrain, not a turn-only probe."""
         grid = self.maps.current_map()
@@ -236,36 +242,57 @@ class PathBrain(Brain):
             goal="自由探索（goal 17 之後）", path=[pos, nxt])
 =======
         """After the last implemented milestone (goal 17), walk toward less-visited tiles."""
+=======
+        """After goal 17, actually walk. Same step timing as PathBrain, not a turn-only probe."""
+>>>>>>> origin/feat/goal17-north-probe
         grid = self.maps.current_map()
         facing = obs.ram.get("facing")
-        key = (getattr(grid, "key", None), pos[0], pos[1])
+        map_key = grid.key if grid is not None else obs.ram.get("map_id")
+        key = (map_key, pos[0], pos[1])
         self._visits[key] = self._visits.get(key, 0) + 1
-        choices = []
-        if grid is not None:
-            for name, (dx, dy) in _DELTA.items():
-                nx, ny = pos[0] + dx, pos[1] + dy
-                if grid.is_walkable(nx, ny):
-                    choices.append((self._visits.get((grid.key, nx, ny), 0), name))
-        if not choices:
-            self._last = ("explore", None)
-            return Action.wait(self.settle_frames, source=self.src), self._dec(
-                "free explore", "goal 17 has no verified route; no walkable neighbour, waiting",
+        stuck = self._last_pos == pos and self._visits[key] > 2
+        self._last_pos = pos
+        if stuck and self._visits[key] % 4 == 0:
+            self._last = ("explore", "A")
+            return self._act("A", 2, 10), self._dec(
+                "free explore", "position unchanged, press A to clear dialogue, then keep walking",
                 goal="自由探索（goal 17 之後）", path=[pos])
+        npcs = self._npc_tiles(obs) if self.avoid_npcs else set()
+        choices = []
+        for name, (dx, dy) in _DELTA.items():
+            nx, ny = pos[0] + dx, pos[1] + dy
+            if (nx, ny) in npcs:
+                continue
+            if grid is not None and not grid.is_walkable(nx, ny):
+                continue
+            choices.append((self._visits.get((map_key, nx, ny), 0), 0 if name == self._explore_dir else 1, name))
+        if not choices:
+            for name in _DELTA:
+                choices.append((0, 1, name))
         choices.sort()
-        direction = self._explore_dir if any(name == self._explore_dir for _, name in choices[:1]) else None
-        if direction is None or self._visits[key] % 6 == 0:
-            direction = choices[0][1]
+        direction = self._explore_dir if self._explore_dir in {n for _, _, n in choices} and self._visits[key] % 5 else choices[0][2]
         self._explore_dir = direction
+        nxt = (pos[0] + _DELTA[direction][0], pos[1] + _DELTA[direction][1])
         self._last = ("explore", direction)
         cells = len(self._visits)
         if facing != direction:
+            self.stats["turns"] += 1
             return self._act(direction, self.turn_frames, self.turn_release), self._dec(
+<<<<<<< HEAD
                 "free explore", f"goal 17 not scripted; turn {direction} toward a less-visited tile ({cells} cells)",
                 goal="自由探索（goal 17 之後）", path=[pos, (pos[0] + _DELTA[direction][0], pos[1] + _DELTA[direction][1])])
         return self._act(direction, 8, 8), self._dec(
             "free explore", f"goal 17 not scripted; walk {direction} ({cells} cells seen)",
             goal="自由探索（goal 17 之後）", path=[pos, (pos[0] + _DELTA[direction][0], pos[1] + _DELTA[direction][1])])
 >>>>>>> origin/feat/goal17-explore
+=======
+                "free explore", f"turn {direction}, then step ({cells} cells)",
+                goal="自由探索（goal 17 之後）", path=[pos, nxt])
+        self.stats["steps"] += 1
+        return self._act(direction, self.step_frames, self.step_release), self._dec(
+            "free explore", f"walk {direction} ({cells} cells)",
+            goal="自由探索（goal 17 之後）", path=[pos, nxt])
+>>>>>>> origin/feat/goal17-north-probe
 
     def _wait(self, frames: int, kind: str) -> Action:
         self._last = (kind, None)
