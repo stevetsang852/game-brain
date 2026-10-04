@@ -41,7 +41,7 @@ from .memory import ExperienceMemory, default_memory_dir
 from .schema import Mode
 
 #: brains that get the full FireRed stack (battle in battle, A* + milestones outside, A-mash fallback)
-FULL_BRAINS = "battle,progress"
+FULL_BRAINS = "battle,path,rule"
 MGBA_NAMES = ("mgba", "gba_mgba", "firered")
 
 
@@ -202,6 +202,11 @@ class Session:
         self.quiet = quiet
         self.battle_confidence = battle_confidence
         self.save_dir, self.save_every = save_dir, save_every
+        self.save_root = savestate.check_save_dir(save_dir or savestate.default_save_dir())
+        self.brain_spec = brains
+        self.imitation_model = imitation_model
+        self.configured_starter = (starter or default_starter()).strip().lower()
+        self.seed_argument = seed
         self.memory_root = None if no_memory else savestate.check_save_dir(memory_dir or default_memory_dir())
         self.memory: Optional[ExperienceMemory] = None
         adapter_name = resolve_adapter(adapter_name)
@@ -215,7 +220,7 @@ class Session:
         # the seed. ``seed=None`` (CLI / dashboard without --seed): on resume the save's recorded seed;
         # with --starter random a fresh one (secrets.randbits(32)), recorded everywhere so the run
         # (random brain, starter) can be reproduced; otherwise 0. An explicit seed is used as is.
-        requested = (starter or default_starter()).strip().lower()
+        requested = self.configured_starter
         rec = None
         if self.side is not None:
             rec = self.side.get("starter")
@@ -258,6 +263,7 @@ class Session:
         self.start_step = 0
         self.resumed_from: Optional[Dict[str, Any]] = None
         side = self.side
+        self.active_save_id = None
         if side is not None:
             if side.get("adapter") != self.adapter.name:
                 raise ValueError(f"save is for adapter {side.get('adapter')!r}, not {self.adapter.name!r}")
@@ -272,6 +278,11 @@ class Session:
                                  "state_sha1": side["state_sha1"], "step": self.start_step, "frame": side["frame"],
                                  "adapter_state": side.get("adapter_state"), "sav": side.get("_sav_path"),
                                  "milestone": side.get("milestone")}
+            side_path = Path(side["_path"]).resolve()
+            try:
+                self.active_save_id = side_path.relative_to(self.save_root).as_posix()
+            except ValueError:
+                pass
         self.run_id = new_run_id() + "-" + uuid.uuid4().hex[:12]
         self.run_dir = Path(out_dir) / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -285,6 +296,7 @@ class Session:
                 print(f"warning: adapter {self.adapter.name} has no save states; --save-dir ignored",
                       file=sys.stderr)
         self.saves: List[str] = []
+        self._available_game_saves = None
 
     @classmethod
     def from_args(cls, a: argparse.Namespace, quiet: Optional[bool] = None) -> "Session":
@@ -363,6 +375,7 @@ class Session:
         n_pruned = len(self.saver.pruned)
         for sv in self.saver.after_step(steps_done, result.decision.milestones):
             self.saves.append(sv["_path"])
+            self._available_game_saves = None
             log.event("save", step=steps_done, frame=sv["frame"], reason=sv["reason"], path=sv["_path"])
         for p in self.saver.pruned[n_pruned:]:          # --keep-periodic retention
             log.event("save_pruned", step=steps_done, path=p)
@@ -380,11 +393,11 @@ class Session:
             reason = f"manual-{suffix}"
         saved = self.saver.save(steps_done, milestones, reason=reason)
         self.saves.append(saved["_path"])
+        self._available_game_saves = None
         return saved
 
-    def load_imported_save(self, command, log, step: int) -> None:
-        """Load a browser-imported sidecar and emulator state into the active run."""
-        side = command.sidecar
+    def _load_game_state(self, side: Dict[str, Any], state: bytes, battery: Optional[bytes],
+                         source_name: str, log, step: int, save_id: Optional[str] = None) -> None:
         if not self.adapter.supports_save_state:
             raise RuntimeError(f"adapter {self.adapter.name} does not support save states")
         if side["adapter"] != self.adapter.name:
@@ -392,16 +405,39 @@ class Session:
         rom = getattr(self.adapter, "rom_sha1", None)
         if side.get("rom_sha1") and rom and side["rom_sha1"] != rom:
             raise ValueError("save was made with a different ROM")
-        if command.battery is not None and not self.adapter.supports_battery_save:
+        if battery is not None and not self.adapter.supports_battery_save:
             raise RuntimeError(f"adapter {self.adapter.name} cannot load a battery save")
         if self.adapter.supports_battery_save:
-            self.adapter.load_battery_save(command.battery)
-        obs = self.adapter.load_state(command.state, frame=side["frame"],
+            self.adapter.load_battery_save(battery)
+        obs = self.adapter.load_state(state, frame=side["frame"],
                                       adapter_state=side.get("adapter_state"))
-        self.arbiter.reset()
+        mode = self.arbiter.mode
+        recorded_seed = side.get("seed")
+        if isinstance(recorded_seed, int) and not isinstance(recorded_seed, bool):
+            self.seed = recorded_seed
+        recorded_starter = side.get("starter")
+        if not isinstance(recorded_starter, dict):
+            got_starter = "get_starter" in (side.get("milestones_done") or ())
+            recorded_starter = {"requested": "bulbasaur",
+                                "picked": "bulbasaur" if got_starter else None,
+                                "seed": side.get("seed", 0)}
+        starter_seed = recorded_starter.get("seed", self.seed)
+        if not isinstance(starter_seed, int) or isinstance(starter_seed, bool):
+            starter_seed = self.seed
+        picked = recorded_starter.get("picked")
+        requested = recorded_starter.get("requested", self.configured_starter)
+        if picked not in STARTERS:
+            picked = resolve_starter(requested if requested in STARTERS + ("random",) else "random",
+                                     starter_seed)
+        self.starter = picked
+        self.starter_info = {"requested": requested, "picked": recorded_starter.get("picked"),
+                             "seed": starter_seed}
+        self._replace_brains(self.seed, self.starter, mode)
+        self.active_save_id = save_id
         for brain in self.brains:
             if hasattr(brain, "planner"):
                 brain.planner.restore(side.get("milestones_done"))
+        self.sidecar_extra.update(starter=self.starter_info, seed=self.seed)
         if self.memory:
             end = self.memory.finish("local_save_loaded")
             log.event("episode_end", **end)
@@ -409,7 +445,72 @@ class Session:
             self.sidecar_extra["memory"] = self.memory.cursor(step)
             log.event("episode_start", **self.sidecar_extra["memory"])
         log.event("local_save_loaded", step=step, save_step=side["step"], frame=side["frame"],
-                  source=command.source_name, milestones_done=side.get("milestones_done", []))
+                  source=source_name, milestones_done=side.get("milestones_done", []))
+
+    def _replace_brains(self, seed: int, starter: str, mode) -> None:
+        namespace = f"{self.adapter.name}:{getattr(self.adapter, 'rom_sha1', None) or 'synthetic'}"
+        self.brains = make_brains(self.brain_spec, seed=seed, battle_confidence=self.battle_confidence,
+                                  starter=starter, imitation_model=self.imitation_model, namespace=namespace)
+        self.arbiter = Arbiter(self.brains, mode=mode)
+
+    def load_imported_save(self, command, log, step: int) -> None:
+        """Load a browser-imported sidecar and emulator state into the active run."""
+        self._load_game_state(command.sidecar, command.state, command.battery, command.source_name, log, step)
+
+    def load_saved_game(self, save_id: str, log, step: int) -> None:
+        """Load a game save selected from the configured local save directory."""
+        parts = save_id.split("/")
+        if (len(parts) != 2 or any(not part or part in (".", "..") for part in parts)
+                or any("\\" in part for part in parts)):
+            raise ValueError("invalid game save id")
+        path = self.save_root.joinpath(*parts).resolve()
+        try:
+            path.relative_to(self.save_root)
+        except ValueError as exc:
+            raise ValueError("game save id escapes the configured save directory") from exc
+        side = savestate.load_sidecar(path)
+        if not savestate._inside(Path(side["_state_path"]), path.parent):
+            raise ValueError("save state must be stored next to its sidecar")
+        state = savestate.read_state(side)
+        battery = None
+        if side.get("_sav_path"):
+            if not savestate._inside(Path(side["_sav_path"]), path.parent):
+                raise ValueError("battery save must be stored next to its sidecar")
+            battery = Path(side["_sav_path"]).read_bytes()
+            if savestate.sha1(battery) != side.get("sav_sha1"):
+                raise ValueError("battery save SHA1 does not match its sidecar")
+        self._load_game_state(side, state, battery, path.name, log, step, save_id)
+
+    def new_game(self, log, step: int) -> None:
+        """Start a fresh game on the current ROM without stopping the live Dashboard."""
+        obs = self.adapter.reset()
+        mode = self.arbiter.mode
+        if self.seed_argument is not None:
+            seed = int(self.seed_argument)
+        elif self.configured_starter == "random":
+            seed = secrets.randbits(32)
+        else:
+            seed = 0
+        starter = resolve_starter(self.configured_starter, seed)
+        self.seed, self.seed_source = seed, "new_game"
+        self.starter = starter
+        self.starter_info = {"requested": self.configured_starter, "picked": None, "seed": seed}
+        self.starter_source = "new_game"
+        self._replace_brains(seed, starter, mode)
+        self.side = None
+        self.resumed_from = None
+        self.active_save_id = None
+        if self.saver:
+            self.saver.resumed_from = None
+            self.saver.extra.update(starter=self.starter_info, seed=self.seed)
+        self.sidecar_extra.update(starter=self.starter_info, seed=self.seed)
+        if self.memory:
+            end = self.memory.finish("new_game")
+            log.event("episode_end", **end)
+            self.memory.start(obs, step)
+            self.sidecar_extra["memory"] = self.memory.cursor(step)
+            log.event("episode_start", **self.sidecar_extra["memory"])
+        log.event("new_game", step=step, frame=obs.frame, starter=starter, seed=seed)
 
     def finish(self, log, steps_done: int, result, reason: str = "run_end") -> None:
         """End of run: the ``final`` save."""
@@ -420,9 +521,18 @@ class Session:
             return
         sv = self.saver.save(steps_done, result.decision.milestones if result is not None else None, reason="final")
         self.saves.append(sv["_path"])
+        self._available_game_saves = None
         log.event("save", step=steps_done, frame=sv["frame"], reason="final", path=sv["_path"])
 
     def dashboard_status(self) -> Dict[str, Any]:
+        if self._available_game_saves is None:
+            self._available_game_saves = savestate.list_game_saves(self.save_root)
+        available_saves = self._available_game_saves[:20]
+        if self.active_save_id and all(item["save_id"] != self.active_save_id for item in available_saves):
+            active = next((item for item in self._available_game_saves
+                           if item["save_id"] == self.active_save_id), None)
+            if active is not None:
+                available_saves.append(active)
         saves = []
         if self.saver:
             existing = set(self.saves)
@@ -443,6 +553,9 @@ class Session:
             "memory_dir": str(self.memory.root) if self.memory else None,
             "memory": self.memory.dashboard_status() if self.memory else {"enabled": False},
             "game_saves": list(reversed(saves)),
+            "save_dir": str(self.save_root),
+            "active_save_id": self.active_save_id,
+            "available_game_saves": available_saves,
         }
 
     def __enter__(self) -> "Session":

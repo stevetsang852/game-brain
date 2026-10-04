@@ -40,7 +40,8 @@ log = logging.getLogger(__name__)
 STATIC = Path(__file__).with_name("static")
 
 #: envelope types the page may send. Everything else is refused.
-INBOUND_TYPES = ("mode_command", "action", "view_config", "frame_ack", "save_game", "save_learning")
+INBOUND_TYPES = ("mode_command", "action", "view_config", "frame_ack", "save_game", "save_learning",
+                 "load_saved_game", "new_game")
 #: dashboard-only display messages, never part of the game schema (see pacing.py)
 _VIEW_TYPES = {"view_config": ViewConfig.from_envelope, "frame_ack": FrameAck.from_envelope}
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
@@ -59,6 +60,11 @@ class LoadSaveCommand:
     state: bytes
     battery: Optional[bytes]
     source_name: str
+
+
+@dataclass(frozen=True)
+class SavedGameCommand:
+    save_id: str
 
 
 def imported_save_command(payload: Any) -> LoadSaveCommand:
@@ -374,7 +380,16 @@ class DashboardServer:
             if t in _VIEW_TYPES:
                 self._inbox.put(_VIEW_TYPES[t](env))
                 return
-            if t in ("save_game", "save_learning"):
+            if t == "load_saved_game":
+                payload = env.get("payload")
+                save_id = payload.get("save_id") if isinstance(payload, dict) else None
+                parts = save_id.split("/") if isinstance(save_id, str) else []
+                if (len(parts) != 2 or any(not part or part in (".", "..") for part in parts)
+                        or any("\\" in part for part in parts)):
+                    raise SchemaError("load_saved_game requires a save id from the Dashboard")
+                self._inbox.put(SavedGameCommand(save_id))
+                return
+            if t in ("save_game", "save_learning", "new_game"):
                 if not isinstance(env.get("payload"), dict) or env["payload"]:
                     raise SchemaError(f"{t} payload must be an empty object")
                 self._inbox.put(PersistenceCommand(t))

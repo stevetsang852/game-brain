@@ -274,6 +274,47 @@ def _inside(p: Path, root: Path) -> bool:
         return False
 
 
+def list_game_saves(save_dir: "str | Path", limit: int = 100) -> List[Dict[str, Any]]:
+    """List complete game save sidecars newest-first without exposing absolute paths."""
+    root = Path(save_dir).expanduser().resolve()
+    latest = _read_latest(root)
+    latest = latest.resolve() if latest is not None else None
+    saves = []
+    if not root.is_dir():
+        return saves
+    for path in root.glob("*/*.json"):
+        try:
+            side = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(side, dict) or side.get("format") != FORMAT:
+                continue
+            state_name = side.get("state_file")
+            if not isinstance(state_name, str) or not state_name or Path(state_name).name != state_name:
+                continue
+            state_path = path.with_name(state_name)
+            if not _inside(path, root) or not _inside(state_path, root) or not state_path.is_file():
+                continue
+            saves.append({
+                "save_id": path.relative_to(root).as_posix(),
+                "reason": side.get("reason"),
+                "step": side.get("step"),
+                "frame": side.get("frame"),
+                "map": [side.get("map_bank"), side.get("map_id")]
+                    if side.get("map_bank") is not None and side.get("map_id") is not None else None,
+                "xy": [side.get("x"), side.get("y")]
+                    if side.get("x") is not None and side.get("y") is not None else None,
+                "milestone": side.get("milestone"),
+                "timestamp": side.get("timestamp"),
+                "adapter": side.get("adapter"),
+                "rom_sha1": side.get("rom_sha1"),
+                "latest": latest == path.resolve() if latest is not None else False,
+                "_mtime": path.stat().st_mtime,
+            })
+        except (OSError, ValueError, TypeError):
+            continue
+    saves.sort(key=lambda item: item["_mtime"], reverse=True)
+    return [{key: value for key, value in item.items() if key != "_mtime"} for item in saves[:limit]]
+
+
 def resolve_resume(spec: str, save_dir: "str | Path") -> Dict[str, Any]:
     """``spec`` = "latest" (newest save in ``save_dir``, via the ``latest`` pointer resolved relative to
     ``save_dir``) or a sidecar/state path."""
