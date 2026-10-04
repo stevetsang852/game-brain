@@ -32,6 +32,8 @@ in `game_brain/schema/messages.py`). Durations are always frames.
 | `error` | server → page | dashboard-only: `reason` for a refused inbound message |
 | `mode_command` | page → server | `ModeCommand`: `mode` ∈ auto / assist / manual / shadow |
 | `action` | page → server | `Action`: `presses: [{button, frames, release_frames}]` — manual and assist modes (server side; see `decision.actor`) |
+| `load_saved_game` | page → server | `{save_id}` from the current save-list status |
+| `new_game` | page → server | `{}`; reset current adapter and brain on the configured ROM |
 
 Order per step: `observation`, then `decision`, then `status`. A newly opened tab is sent the
 latest envelope of each type first, so it shows the current state immediately.
@@ -45,6 +47,14 @@ as ROM uploads and queues the request for the next live-loop step. The active ad
 must match; loading resets brains, restores milestone progress, and replaces the active battery
 save when provided. Errors are returned as status `notes` and logged as `resume_error`; successful
 loads are recorded as `local_save_loaded`.
+
+The Dashboard startup auto-resumes the newest complete save matching the active adapter and ROM,
+unless an explicit `--resume` was supplied. Status includes up to 20 recent available game saves
+with a save-directory-relative `save_id` (and the active save if it is older); the page marks the pointer's
+current latest save, and sends `load_saved_game` for a user-selected entry. The server only accepts
+a two-component relative ID, resolves it within the configured save directory, and verifies state
+and optional battery SHA1s before applying it. `new_game` starts the adapter from power-on, resets
+the brain stack, and opens a fresh experience episode without stopping the Dashboard.
 
 ## Screenshots
 

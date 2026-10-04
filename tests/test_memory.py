@@ -165,6 +165,26 @@ def test_rom_namespaces_and_newer_schema_rejected(tmp_path):
         ExperienceMemory(root, adapter, "bad", "policy", [], tmp_path / "bad.jsonl")
 
 
+def test_incompatible_existing_runs_schema_uses_separate_database(tmp_path):
+    root = tmp_path / "archive"
+    root.mkdir()
+    legacy = root / "experience.sqlite3"
+    with sqlite3.connect(legacy) as db:
+        db.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY, status TEXT NOT NULL)")
+        db.execute("INSERT INTO runs VALUES ('legacy-run', 'finished')")
+
+    memory = ExperienceMemory(root, make_adapter("mock"), "new-run", "policy", [],
+                               tmp_path / "run.jsonl")
+    try:
+        assert memory.path == root / "experience-v1.sqlite3"
+        assert inspect_memory(root)["runs"] == 1
+    finally:
+        memory.close()
+
+    with sqlite3.connect(legacy) as db:
+        assert db.execute("SELECT run_id, status FROM runs").fetchall() == [("legacy-run", "finished")]
+
+
 def test_memory_refuses_repo_and_no_memory_still_has_after_state(tmp_path):
     with pytest.raises(ValueError, match="inside the repo"):
         demo.run(steps=1, quiet=True, memory_dir=str(Path.cwd() / "memory"))

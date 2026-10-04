@@ -101,8 +101,6 @@ class PathBrain(Brain):
         self._stable = 0
         self._script_n: Dict[str, int] = {}    # milestone id -> script/interact/placeholder presses
         self._free: Set[str] = set()           # placeholder milestones whose dialogue is finished
-        self._visits: Dict[tuple, int] = {}    # (map, x, y) visits during free explore after goal 17
-        self._explore_dir: Optional[str] = None
         self.stats = {"steps": 0, "turns": 0, "bumps": 0, "a_presses": 0, "warps": 0, "replans": 0,
                       "script_presses": 0, "frozen": 0, "npc_blocked_tiles": 0}
 
@@ -178,57 +176,16 @@ class PathBrain(Brain):
                 return self._press(b, "placeholder_press", milestone), self._dec(
                     "finish dialogue", f"could not turn {last[1]} (text box open) -> press {b}",
                     goal=milestone.label, path=[pos])
-        if mid in self._free or self._script_n.get(mid, 0) >= self.max_placeholder_presses or not obs.ram.get("in_battle"):
+        if mid in self._free or self._script_n.get(mid, 0) >= self.max_placeholder_presses:
             self._free.add(mid)
-            return self._free_explore(obs, milestone, pos)
+            return self._wait(8, "placeholder"), self._dec(
+                "idle", f"milestone '{milestone.id}' not implemented yet -> idle",
+                goal=milestone.label, path=[pos])
         d = "RIGHT" if facing == "LEFT" else "LEFT"   # horizontal: never moves a YES/NO cursor
         self._last = ("probe", d)
         return self._act(d, self.turn_frames, self.turn_release), self._dec(
             "finish dialogue", f"probe: tap {d} to check whether the player can move", goal=milestone.label,
             path=[pos])
-
-
-    def _free_explore(self, obs: Observation, milestone, pos: Tile):
-        """After goal 17, actually walk. Same step timing as PathBrain, not a turn-only probe."""
-        grid = self.maps.current_map()
-        facing = obs.ram.get("facing")
-        map_key = grid.key if grid is not None else obs.ram.get("map_id")
-        key = (map_key, pos[0], pos[1])
-        self._visits[key] = self._visits.get(key, 0) + 1
-        stuck = self._last_pos == pos and self._visits[key] > 2
-        self._last_pos = pos
-        if stuck and self._visits[key] % 4 == 0:
-            self._last = ("explore", "A")
-            return self._act("A", 2, 10), self._dec(
-                "free explore", "position unchanged, press A to clear dialogue, then keep walking",
-                goal="自由探索（goal 17 之後）", path=[pos])
-        npcs = self._npc_tiles(obs) if self.avoid_npcs else set()
-        choices = []
-        for name, (dx, dy) in _DELTA.items():
-            nx, ny = pos[0] + dx, pos[1] + dy
-            if (nx, ny) in npcs:
-                continue
-            if grid is not None and not grid.is_walkable(nx, ny):
-                continue
-            choices.append((self._visits.get((map_key, nx, ny), 0), 0 if name == self._explore_dir else 1, name))
-        if not choices:
-            for name in _DELTA:
-                choices.append((0, 1, name))
-        choices.sort()
-        direction = self._explore_dir if self._explore_dir in {n for _, _, n in choices} and self._visits[key] % 5 else choices[0][2]
-        self._explore_dir = direction
-        nxt = (pos[0] + _DELTA[direction][0], pos[1] + _DELTA[direction][1])
-        self._last = ("explore", direction)
-        cells = len(self._visits)
-        if facing != direction:
-            self.stats["turns"] += 1
-            return self._act(direction, self.turn_frames, self.turn_release), self._dec(
-                "free explore", f"turn {direction}, then step ({cells} cells)",
-                goal="自由探索（goal 17 之後）", path=[pos, nxt])
-        self.stats["steps"] += 1
-        return self._act(direction, self.step_frames, self.step_release), self._dec(
-            "free explore", f"walk {direction} ({cells} cells)",
-            goal="自由探索（goal 17 之後）", path=[pos, nxt])
 
     def _wait(self, frames: int, kind: str) -> Action:
         self._last = (kind, None)

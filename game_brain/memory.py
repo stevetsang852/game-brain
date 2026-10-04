@@ -17,10 +17,34 @@ from .schema import Observation
 
 SCHEMA_VERSION = 1
 REWARD_VERSION = "novelty-v1"
+_RUN_COLUMNS = ("run_id", "namespace", "rom_hash", "policy_version", "log_path", "started_at",
+                "ended_at", "resumed_from", "schema_version")
 
 
 def default_memory_dir() -> Path:
     return Path(os.environ.get("GAME_BRAIN_MEMORY_DIR") or Path.home() / ".game-brain" / "memory")
+
+
+def memory_database_path(root: "str | Path") -> Path:
+    """Choose a database file without reusing an incompatible archive from another schema."""
+    root = Path(root).expanduser().resolve()
+    path = root / "experience.sqlite3"
+    if not path.is_file():
+        return path
+
+    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    try:
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not tables or tables & {"runs", "episodes", "transitions", "discoveries", "cells"}:
+            if "runs" not in tables:
+                return path
+            columns = tuple(row[1] for row in db.execute("PRAGMA table_info(runs)"))
+            if columns == _RUN_COLUMNS:
+                return path
+    finally:
+        db.close()
+
+    return root / f"experience-v{SCHEMA_VERSION}.sqlite3"
 
 
 def _json(value: Any) -> str:
@@ -49,7 +73,7 @@ class ExperienceMemory:
                  side: Optional[Dict[str, Any]] = None, save_cells: bool = True):
         self.root = savestate.check_save_dir(root)
         self.root.mkdir(parents=True, exist_ok=True)
-        self.path = self.root / "experience.sqlite3"
+        self.path = memory_database_path(self.root)
         self.adapter = adapter
         self.run_id = run_id
         self.episode_id = uuid.uuid4().hex
@@ -110,7 +134,10 @@ class ExperienceMemory:
             """)
             with self.db:
                 self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-                self.db.execute("INSERT INTO runs VALUES (?,?,?,?,?,?,NULL,?,?)",
+                self.db.execute("INSERT INTO runs "
+                                "(run_id,namespace,rom_hash,policy_version,log_path,started_at,"
+                                "ended_at,resumed_from,schema_version) "
+                                "VALUES (?,?,?,?,?,?,NULL,?,?)",
                                 (run_id, self.namespace, self.rom_hash, policy_version, str(log_path),
                                  time.time(), (side or {}).get("_path"), SCHEMA_VERSION))
         except BaseException:
@@ -337,7 +364,7 @@ class ExperienceMemory:
 def inspect_memory(root: "str | Path", namespace: Optional[str] = None) -> Dict[str, Any]:
     """Read-only counts and least-visited resumable cells; paths follow a moved volume."""
     root = Path(root).expanduser().resolve()
-    path = root / "experience.sqlite3"
+    path = memory_database_path(root)
     db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
     try:
         namespaces = [r[0] for r in db.execute("SELECT DISTINCT namespace FROM runs ORDER BY namespace")]
@@ -364,7 +391,7 @@ def inspect_memory(root: "str | Path", namespace: Optional[str] = None) -> Dict[
 
 def route(root: "str | Path", run_id: str, step_id: int) -> list[Dict[str, Any]]:
     """Executed transitions to a representative, following resume lineage (never the abandoned tail)."""
-    path = Path(root).expanduser().resolve() / "experience.sqlite3"
+    path = memory_database_path(root)
     db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
     seen = set()
