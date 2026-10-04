@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import os
 import sqlite3
 import sys
 import tempfile
@@ -28,10 +30,10 @@ from typing import Optional
 from .. import savestate
 from ..arbiter import Arbiter
 from ..runlog import RunLogWriter
-from ..setup import FULL_BRAINS, ForcedStop, Session, StopSignals, add_run_args, save_dir_from_args
+from ..setup import FULL_BRAINS, MGBA_NAMES, ForcedStop, Session, StopSignals, add_run_args, save_dir_from_args
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from .pacing import FrameAck, Pacer, ViewConfig
-from .server import DashboardServer, LoadSaveCommand, PersistenceCommand
+from .server import DashboardServer, LoadSaveCommand, PersistenceCommand, SavedGameCommand
 from .roms import use_remembered_rom
 
 
@@ -40,6 +42,44 @@ def _screenshot_b64(adapter, tmpdir: Path) -> Optional[str]:
     if not path:
         return None
     return base64.b64encode(Path(path).read_bytes()).decode("ascii")
+
+
+def _latest_compatible_save(adapter_name: str, save_dir: Path) -> Optional[str]:
+    selected = adapter_name
+    if selected == "auto":
+        selected = "mgba" if os.path.isfile(os.environ.get("GAME_BRAIN_ROM", "")) else "mock"
+    if selected in MGBA_NAMES:
+        expected_adapter = "gba_mgba/firered"
+    else:
+        expected_adapter = selected
+    rom_hash = None
+    rom_path = os.environ.get("GAME_BRAIN_ROM")
+    if rom_path and Path(rom_path).is_file():
+        digest = hashlib.sha1()
+        with open(rom_path, "rb") as rom_file:
+            for block in iter(lambda: rom_file.read(1024 * 1024), b""):
+                digest.update(block)
+        rom_hash = digest.hexdigest()
+    for item in savestate.list_game_saves(save_dir):
+        if item.get("adapter") != expected_adapter:
+            continue
+        if item.get("rom_sha1") and rom_hash and item["rom_sha1"] != rom_hash:
+            continue
+        if item.get("rom_sha1") and expected_adapter == "gba_mgba/firered" and not rom_hash:
+            continue
+        candidate = save_dir / Path(item["save_id"])
+        if candidate.is_file():
+            try:
+                side = savestate.load_sidecar(candidate)
+                savestate.read_state(side)
+                if side.get("_sav_path"):
+                    battery = Path(side["_sav_path"]).read_bytes()
+                    if savestate.sha1(battery) != side.get("sav_sha1"):
+                        continue
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            return str(candidate)
+    return None
 
 
 def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: int = 0, frame: int = 0,
@@ -70,8 +110,30 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
                     log.event("resume_error", step=step, frame=frame, source=msg.source_name, error=str(exc))
             else:
                 outcomes.append(f"已載入本機存檔 {msg.source_name} · step {msg.sidecar['step']}")
+        elif isinstance(msg, SavedGameCommand):
+            try:
+                if session is None:
+                    raise RuntimeError("game save loading is unavailable")
+                session.load_saved_game(msg.save_id, log, step)
+            except (OSError, RuntimeError, ValueError, KeyError) as exc:
+                outcomes.append(f"error: 遊戲存檔載入失敗：{exc}")
+                if log:
+                    log.event("resume_error", step=step, frame=frame, save_id=msg.save_id, error=str(exc))
+            else:
+                outcomes.append(f"已載入存檔 {msg.save_id}")
         elif isinstance(msg, PersistenceCommand):
-            if msg.kind == "save_game":
+            if msg.kind == "new_game":
+                try:
+                    if session is None:
+                        raise RuntimeError("new game is unavailable")
+                    session.new_game(log, step)
+                except (OSError, RuntimeError, ValueError) as exc:
+                    outcomes.append(f"error: 新遊戲啟動失敗：{exc}")
+                    if log:
+                        log.event("new_game_error", step=step, frame=frame, error=str(exc))
+                else:
+                    outcomes.append("已開始新遊戲")
+            elif msg.kind == "save_game":
                 try:
                     if session is None:
                         raise RuntimeError("game save is unavailable")
@@ -221,9 +283,16 @@ def main(argv=None) -> int:
     with server_cm as server:
         print(f"dashboard: {server.url}  (Ctrl-C to stop)")
         try:
+            save_dir = save_dir_from_args(a)
+            resume = a.resume
+            if resume is None:
+                save_root = Path(a.save_dir or savestate.default_save_dir()).expanduser()
+                resume = _latest_compatible_save(a.adapter, save_root)
+                if resume:
+                    print(f"dashboard: continuing from latest compatible save {Path(resume).name}")
             s = run(server, a.adapter, a.mode, a.brains, a.seed, a.steps, a.step_delay,
                     a.screenshot_every, a.out, a.quiet, battle_confidence=a.battle_confidence,
-                    save_dir=save_dir_from_args(a), save_every=a.save_every, resume=a.resume,
+                    save_dir=save_dir, save_every=a.save_every, resume=resume,
                     keep_periodic=a.keep_periodic, starter=a.starter,
                     memory_dir=a.memory_dir, no_memory=a.no_memory)
         except (ValueError, FileNotFoundError) as exc:

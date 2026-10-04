@@ -465,6 +465,8 @@ tbody tr:hover { background: rgba(167,139,250,0.05); }
 #ram td:first-child { color: var(--fg-mute); width: 40%; }
 #experienceRecords, #gameSaves { display:block; max-height:250px; overflow:auto; font-size:12px; }
 #experienceRecords th, #gameSaves th { position:sticky; top:0; z-index:1; background:#1a1235; }
+#gameSaves button { margin-top:6px; padding:5px 9px; border:1px solid var(--line-strong); border-radius:7px; background:rgba(124,92,255,.7); color:white; font:inherit; font-size:11px; cursor:pointer; }
+#gameSaves button:disabled { opacity:.45; cursor:not-allowed; }
 .persist-meta { color:var(--fg-dim); font-size:12px; margin:-4px 0 12px; overflow-wrap:anywhere; }
 .persist-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(95px,1fr)); gap:8px; margin-bottom:12px; }
 .persist-stat { padding:9px; border:1px solid var(--line); border-radius:var(--radius-sm); background:rgba(0,0,0,.16); }
@@ -806,10 +808,12 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <div id="saveMeta" class="persist-meta">等待存檔資料…</div>
       <div class="persist-actions">
         <button id="saveGameNow" type="button" disabled>保存遊戲</button>
+        <button id="newGameNow" type="button" disabled>New Game · 重新開始</button>
         <button id="loadLocalSave" type="button" disabled>載入本機 JSON 存檔</button>
         <input id="localSaveFiles" type="file" accept=".json,.state,.sav" multiple hidden>
       </div>
       <div id="localSaveMessage" class="persist-subhead">選擇 game-brain 存檔的 JSON sidecar、同名 .state，以及 sidecar 有列出時的 .sav。</div>
+      <div class="persist-subhead">已有存檔會在 Dashboard 啟動時自動載入最新的相容存檔；也可以從下表選擇其他存檔。</div>
       <div id="gameSaves"><div class="persist-empty">尚未建立遊戲存檔</div></div>
       <div class="persist-subhead">探索位置代表存檔</div>
       <div id="explorationSaves"><div class="persist-empty">尚無探索存檔</div></div>
@@ -1089,6 +1093,7 @@ function renderPersistence(p) {
   const cellsBox = $("memoryCells"), savesBox = $("gameSaves"), exploreBox = $("explorationSaves");
   const memory = p?.memory || { enabled: false }, totals = memory.totals || {};
   $("saveGameNow").disabled = !p?.saving;
+  $("newGameNow").disabled = !p?.save_state_supported;
   $("loadLocalSave").disabled = !p?.save_state_supported;
   $("saveLearningNow").disabled = !memory.enabled;
   meta.textContent = !memory.enabled ? "經驗記錄已關閉"
@@ -1149,23 +1154,38 @@ function renderPersistence(p) {
     if (cell.save) { const path = document.createElement("div"); path.className = "persist-path"; path.textContent = cell.save; line.appendChild(path); }
     cellsBox.appendChild(line);
   }
-  $("saveMeta").textContent = p.saving
+  $("saveMeta").textContent = `${p.active_save_id ? `目前載入：${p.active_save_id} · ` : ""}${p.saving
     ? `自動存檔中 · ${p.save_dir || "存檔目錄未提供"} · ${p.save_every ? `每 ${p.save_every} 步` : "里程碑／結束時存檔"}`
-    : p.save_dir ? `未建立可續玩的遊戲存檔 · ${p.save_dir}` : "此執行未啟用遊戲存檔";
+    : p.save_dir ? `讀取存檔目錄 · ${p.save_dir}（本局不寫入存檔）` : "此執行未啟用遊戲存檔"}`;
   const renderSaves = (box, items, emptyText, explorer = false) => {
     box.replaceChildren();
     if (!items?.length) { const empty = document.createElement("div"); empty.className = "persist-empty"; empty.textContent = emptyText; box.appendChild(empty); return; }
-    for (const save of items.slice(-8).reverse()) {
+    for (const save of (explorer ? items.slice(-8).reverse() : items.slice(0, 20))) {
       const line = document.createElement("div"); line.className = "persist-save";
       const title = document.createElement("div");
-      title.textContent = `${save.reason || "探索位置"} · step ${save.step ?? save.step_id ?? "–"} · frame ${save.frame ?? "–"}${save.visits !== undefined ? ` · 到訪 ${save.visits} 次` : ""}`;
+      title.textContent = `${save.latest ? "★ 最新 · " : ""}${save.reason || "探索位置"} · step ${save.step ?? save.step_id ?? "–"} · frame ${save.frame ?? "–"}${save.map ? ` · 地圖 ${save.map.join("/")}` : ""}${save.xy ? ` · 座標 ${save.xy.join(",")}` : ""}${save.visits !== undefined ? ` · 到訪 ${save.visits} 次` : ""}`;
       line.appendChild(title);
       const path = document.createElement("div"); path.className = "persist-path";
-      path.textContent = explorer ? (save.save || "未建立 save state") : `${save.name || "save state"}${save.battery_save ? " · 含遊戲電池存檔備份" : ""}\n${save.path || ""}`;
+      path.textContent = explorer ? (save.save || "未建立 save state")
+        : `${save.name || save.save_id || "save state"}${save.timestamp ? ` · ${save.timestamp}` : ""}${save.battery_save ? " · 含遊戲電池存檔備份" : ""}`;
       line.appendChild(path); box.appendChild(line);
+      if (!explorer && save.save_id) {
+        const compatible = save.adapter === p.adapter &&
+          (!save.rom_sha1 || save.rom_sha1 === p.rom_hash);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = compatible ? "載入此存檔" : "遊戲／ROM 不相容";
+        button.disabled = !p.save_state_supported || !compatible;
+        button.addEventListener("click", () => send({
+          type: "load_saved_game", frame: state.lastObs?.frame ?? 0, ts: Date.now() / 1000,
+          payload: { save_id: save.save_id },
+        }));
+        line.appendChild(button);
+      }
     }
   };
-  renderSaves(savesBox, p.game_saves, p.saving ? "等待首次自動存檔…" : "沒有啟用遊戲存檔");
+  renderSaves(savesBox, p.available_game_saves || p.game_saves,
+    p.save_dir ? "存檔目錄中尚無可用遊戲存檔。" : "尚未建立遊戲存檔。");
   renderSaves(exploreBox, cells, "尚無探索位置存檔", true);
 }
 
@@ -1333,6 +1353,10 @@ function sendPersistenceCommand(kind) {
 document.querySelectorAll("#modes button").forEach(b => b.onclick = () => sendMode(b.dataset.mode));
 document.querySelectorAll("#pad button").forEach(b => b.onclick = () => sendPress(b.dataset.btn));
 $("saveGameNow").addEventListener("click", () => sendPersistenceCommand("save_game"));
+$("newGameNow").addEventListener("click", () => {
+  if (window.confirm("重新開始會放棄目前尚未保存的遊戲進度，確定開始新遊戲？"))
+    sendPersistenceCommand("new_game");
+});
 $("saveLearningNow").addEventListener("click", () => sendPersistenceCommand("save_learning"));
 $("loadLocalSave").addEventListener("click", () => $("localSaveFiles").click());
 $("localSaveFiles").addEventListener("change", async () => {

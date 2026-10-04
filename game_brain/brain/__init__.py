@@ -6,16 +6,15 @@ from .goals import GoalPlanner, Milestone, Target, firered_milestones
 from .imitation import ImitationBrain
 from .llm import LLMBrain
 from .path import PathBrain
-from .progress import ProgressBrain
 from .random_brain import RandomBrain
 from .rule import RuleBrain
 
-__all__ = ["Brain", "BrainUnavailable", "GoalPlanner", "ImitationBrain", "LLMBrain", "Milestone", "PathBrain", "ProgressBrain", "RandomBrain",
+__all__ = ["Brain", "BrainUnavailable", "GoalPlanner", "ImitationBrain", "LLMBrain", "Milestone", "PathBrain", "RandomBrain",
            "RuleBattleBrain", "RuleBrain", "Target", "firered_milestones", "make_brain", "make_brains"]
 
 
 def make_brain(name: str, **kwargs) -> Brain:
-    table = {"rule": RuleBrain, "random": RandomBrain, "llm": LLMBrain, "path": PathBrain, "progress": ProgressBrain,
+    table = {"rule": RuleBrain, "random": RandomBrain, "llm": LLMBrain, "path": PathBrain,
              "battle": RuleBattleBrain, "imitation": ImitationBrain}
     if name not in table:
         raise ValueError(f"unknown brain {name!r} (available: {sorted(table)})")
