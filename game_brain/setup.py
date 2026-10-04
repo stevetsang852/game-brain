@@ -41,7 +41,7 @@ from .memory import ExperienceMemory, default_memory_dir
 from .schema import Mode
 
 #: brains that get the full FireRed stack (battle in battle, A* + milestones outside, A-mash fallback)
-FULL_BRAINS = "battle,path,rule"
+FULL_BRAINS = "battle,progress"
 MGBA_NAMES = ("mgba", "gba_mgba", "firered")
 
 
