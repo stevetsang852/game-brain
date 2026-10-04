@@ -170,7 +170,7 @@ def test_goal_planner_is_sticky_and_ordered():
     gone = Observation(frame=17, ram={"player_x": 6, "player_y": 4, "map_bank": 4, "map_id": 3, "party_count": 1,
                                       "npcs": [{"local_id": 4}, {"local_id": 8}]})
     m = pl.update(gone)
-    assert m.id == "pewter_city" and m.placeholder
+    assert m.id == "pewter_city" and not m.placeholder
     done = {m["id"]: m["done"] for m in pl.summary()}
     assert all(v for k, v in done.items() if k != "pewter_city") and not done["pewter_city"]
     assert list(done) == ["intro", "leave_bedroom", "leave_house", "pallet_town", "oak_stops_you", "oak_lab",

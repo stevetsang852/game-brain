@@ -238,9 +238,16 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
                   else Target.warp(*FR_OAKS_LAB) if m(o) == FR_PALLET_TOWN
                   else Target.edge("DOWN") if m(o) in (FR_VIRIDIAN_CITY, FR_ROUTE_1)
                   else Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART else to_pallet(o)),
-        # --- next: not implemented.
-        Milestone("pewter_city", "North of Viridian City: Route 2, Viridian Forest, Pewter City "
-                  "(not implemented: stop here)", placeholder=True),
+        # Goal 17: a probe, not free wander. Walk off Viridian's north edge. Done when the map
+        # changes to something that is not the route south or the mart. Forest/Pewter routes
+        # after that are still unverified, so later milestones stay unimplemented.
+        Milestone("pewter_city", "Probe north from Viridian City toward Route 2 (Pewter path)",
+                  done=lambda o: m(o) not in (None, FR_VIRIDIAN_CITY, FR_VIRIDIAN_MART, FR_ROUTE_1,
+                                              FR_PALLET_TOWN, FR_OAKS_LAB, FR_HOUSE_1F, FR_HOUSE_2F),
+                  target=lambda o: Target.edge("UP") if m(o) == FR_VIRIDIAN_CITY
+                  else Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART
+                  else Target.edge("UP") if m(o) in (FR_PALLET_TOWN, FR_ROUTE_1)
+                  else to_pallet(o)),
     ]
 
 
