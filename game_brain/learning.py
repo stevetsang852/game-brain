@@ -15,12 +15,12 @@ from typing import Any, Dict, Optional
 
 from .brain.imitation import MODEL_VERSION, _action_key, state_features, state_key
 from .schema import Action
-from .memory import default_memory_dir
+from .memory import default_memory_dir, memory_database_path
 
 
 def train_imitation(memory_dir: "str | Path", namespace: str, output: "str | Path") -> Dict[str, Any]:
     """Fit an exact-state majority policy using only transitions performed by a human."""
-    database = Path(memory_dir).expanduser().resolve() / "experience.sqlite3"
+    database = memory_database_path(memory_dir)
     if not database.is_file():
         raise FileNotFoundError(f"experience database not found: {database}")
     uri = database.as_uri() + "?mode=ro"

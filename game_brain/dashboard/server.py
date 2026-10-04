@@ -243,6 +243,15 @@ class DashboardServer:
                         or origin.netloc != self.headers.get("Host")
                         or self.headers.get("X-Game-Brain-Upload") != "rom"
                         or self.headers.get("Content-Type") != "application/octet-stream"):
+                    # Consume small rejected bodies before closing to avoid a TCP reset that
+                    # can hide the 403 from the browser on Windows.
+                    try:
+                        length = int(self.headers.get("Content-Length", ""))
+                        if not self.headers.get("Transfer-Encoding") and 0 <= length <= 64 * 1024:
+                            self.connection.settimeout(1)
+                            self.rfile.read(length)
+                    except (OSError, ValueError):
+                        pass
                     self.send_json(403, {"error": "ROM uploads require a same-origin Dashboard request"})
                     return
                 if self.headers.get("Transfer-Encoding"):
