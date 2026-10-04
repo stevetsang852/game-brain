@@ -209,7 +209,16 @@ def main(argv=None) -> int:
         use_remembered_rom()
     except (ValueError, OSError) as exc:
         print(f"warning: {exc} (using configured adapter/ROM until a new file is selected)", file=sys.stderr)
-    with DashboardServer(a.host, a.port) as server:
+    try:
+        server_cm = DashboardServer(a.host, a.port)
+    except OSError as exc:
+        if getattr(exc, "errno", None) in (98, 48, 10048):
+            print(f"error: {a.host}:{a.port} is already in use. The dashboard is probably still running.", file=sys.stderr)
+            print(f"open http://127.0.0.1:{a.port}/ or stop the old process, then start again.", file=sys.stderr)
+            print("WSL: ss -ltnp | grep 8765    then kill <pid>", file=sys.stderr)
+            return 1
+        raise
+    with server_cm as server:
         print(f"dashboard: {server.url}  (Ctrl-C to stop)")
         try:
             s = run(server, a.adapter, a.mode, a.brains, a.seed, a.steps, a.step_delay,
