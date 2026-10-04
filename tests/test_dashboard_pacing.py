@@ -105,12 +105,14 @@ def test_server_queues_save_commands_and_validates_payloads():
         c = Client(server.port)
         c.send({"type": "save_game", "frame": 1, "ts": 0, "payload": {}})
         c.send({"type": "save_learning", "frame": 1, "ts": 0, "payload": {}})
+        c.send({"type": "new_game", "frame": 1, "ts": 0, "payload": {}})
         c.send({"type": "save_game", "frame": 1, "ts": 0, "payload": {"path": "unsafe"}})
         err = c.recv_until(lambda e: e["type"] == "error")
         assert "payload must be an empty object" in err["payload"]["reason"]
         got = []
-        assert wait_for(lambda: got.extend(server.poll()) or len(got) >= 2)
-        assert got == [PersistenceCommand("save_game"), PersistenceCommand("save_learning")]
+        assert wait_for(lambda: got.extend(server.poll()) or len(got) >= 3)
+        assert got == [PersistenceCommand("save_game"), PersistenceCommand("save_learning"),
+                       PersistenceCommand("new_game")]
         c.close()
 
 

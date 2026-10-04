@@ -38,6 +38,16 @@ in `game_brain/schema/messages.py`). Durations are always frames.
 Order per step: `observation`, then `decision`, then `status`. A newly opened tab is sent the
 latest envelope of each type first, so it shows the current state immediately.
 
+### Local saves and new game
+
+The Dashboard lists recent game sidecars from the configured save directory at `GET /api/saves`.
+`POST /api/save/load` accepts a same-origin `{save_id}` request; the identifier is relative to the
+save root, and the server checks that the sidecar and state remain inside that root and validates
+the state SHA1 before queuing it. With no explicit `--resume`, Dashboard startup automatically
+resumes the newest intact save matching the active adapter and ROM. The `new_game` WebSocket
+message clears the active in-memory battery save, resets the adapter and brains, and starts a fresh
+episode without stopping the current dashboard run.
+
 ### Loading a local game save
 
 The page posts to `POST /api/save` with `Content-Type: application/json` and

@@ -329,6 +329,7 @@ python -m game_brain.demo --adapter mgba --brains battle,path,rule --steps 1000 
 - Dashboard（`live.py`）用同一套旗標自動存檔 / 續玩（`--resume latest` 等）。`compose.yaml` 將 host 嘅 `${GAME_BRAIN_SAVE_DIR_HOST:-<home>/.game-brain/saves}` mount 去 container 嘅 `/saves`（`--save-dir /saves`）；Linux 要先 `mkdir -p ~/.game-brain/saves`（container 用戶係 uid 1000 `brain`，唔係就會變 root 擁有、寫唔到），`start.bat` 會自動開 `%USERPROFILE%\.game-brain\saves`。未喺 Docker 實測（box 上 docker daemon 用唔到）。
 - Dashboard 啟動時會喺目前 save dir 自動載入最新、adapter／ROM 相容且完整嘅存檔。遊戲存檔面板會列出最近 20 個存檔，可直接載入其他存檔；「New Game · 重新開始」會確認後喺目前 ROM 重新開局，保留 Dashboard 同一條 log，並開新學習 episode。
 - Dashboard「遊戲存檔」面板可按「載入本機 JSON 存檔」，一次揀 game-brain `.json` sidecar、sidecar 指定嘅同名 `.state`，以及（如有）`.sav`。確認後會喺下一個遊戲步驟即時取代目前遊戲狀態；adapter 同 ROM SHA1 會核對，腦會 reset 並還原 sidecar 嘅里程碑。資料只傳到本機 Dashboard，唔會寫入 repo；載入事件會記入目前 run log。
+- Dashboard「新遊戲」會清除目前 mGBA 的記憶卡狀態並重新開局；此操作不會刪除磁碟上的遊戲存檔檔案。
 - 格式：[`notes/savestate-format.md`](notes/savestate-format.md)。
 
 ## PathBrain（自動尋路）

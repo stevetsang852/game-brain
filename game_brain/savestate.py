@@ -274,47 +274,6 @@ def _inside(p: Path, root: Path) -> bool:
         return False
 
 
-def list_game_saves(save_dir: "str | Path", limit: int = 100) -> List[Dict[str, Any]]:
-    """List complete game save sidecars newest-first without exposing absolute paths."""
-    root = Path(save_dir).expanduser().resolve()
-    latest = _read_latest(root)
-    latest = latest.resolve() if latest is not None else None
-    saves = []
-    if not root.is_dir():
-        return saves
-    for path in root.glob("*/*.json"):
-        try:
-            side = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(side, dict) or side.get("format") != FORMAT:
-                continue
-            state_name = side.get("state_file")
-            if not isinstance(state_name, str) or not state_name or Path(state_name).name != state_name:
-                continue
-            state_path = path.with_name(state_name)
-            if not _inside(path, root) or not _inside(state_path, root) or not state_path.is_file():
-                continue
-            saves.append({
-                "save_id": path.relative_to(root).as_posix(),
-                "reason": side.get("reason"),
-                "step": side.get("step"),
-                "frame": side.get("frame"),
-                "map": [side.get("map_bank"), side.get("map_id")]
-                    if side.get("map_bank") is not None and side.get("map_id") is not None else None,
-                "xy": [side.get("x"), side.get("y")]
-                    if side.get("x") is not None and side.get("y") is not None else None,
-                "milestone": side.get("milestone"),
-                "timestamp": side.get("timestamp"),
-                "adapter": side.get("adapter"),
-                "rom_sha1": side.get("rom_sha1"),
-                "latest": latest == path.resolve() if latest is not None else False,
-                "_mtime": path.stat().st_mtime,
-            })
-        except (OSError, ValueError, TypeError):
-            continue
-    saves.sort(key=lambda item: item["_mtime"], reverse=True)
-    return [{key: value for key, value in item.items() if key != "_mtime"} for item in saves[:limit]]
-
-
 def resolve_resume(spec: str, save_dir: "str | Path") -> Dict[str, Any]:
     """``spec`` = "latest" (newest save in ``save_dir``, via the ``latest`` pointer resolved relative to
     ``save_dir``) or a sidecar/state path."""
@@ -328,6 +287,61 @@ def resolve_resume(spec: str, save_dir: "str | Path") -> Dict[str, Any]:
     if not sides:
         raise FileNotFoundError(f"no saves in {root}")
     return load_sidecar(sides[-1])
+
+
+def list_game_saves(save_dir: "str | Path", limit: int = 200) -> List[Dict[str, Any]]:
+    """Return recent game-save metadata without exposing filesystem paths to the dashboard."""
+    root = Path(save_dir).expanduser().resolve()
+    latest = _read_latest(root)
+    latest = latest.resolve() if latest is not None else None
+    if not root.is_dir():
+        return []
+    found = []
+    for path in root.glob("*/*.json"):
+        try:
+            if not _inside(path, root):
+                continue
+            side = load_sidecar(path)
+            state_path = Path(side["_state_path"])
+            if not _inside(state_path, root):
+                continue
+            found.append((path.stat().st_mtime, path, side, state_path.is_file()))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    found.sort(key=lambda item: (item[0], item[1].name), reverse=True)
+    return [{
+        "save_id": path.relative_to(root).as_posix(),
+        "run_id": side.get("run_id") or path.parent.name,
+        "name": path.name,
+        "reason": side.get("reason"),
+        "step": side.get("step"),
+        "frame": side.get("frame"),
+        "map": [side.get("map_bank"), side.get("map_id")]
+        if side.get("map_bank") is not None and side.get("map_id") is not None else None,
+        "xy": [side.get("x"), side.get("y")] if side.get("x") is not None and side.get("y") is not None else None,
+        "timestamp": side.get("timestamp"),
+        "adapter": side.get("adapter"),
+        "rom_sha1": side.get("rom_sha1"),
+        "battery_save": bool(side.get("sav_file")),
+        "available": state_exists,
+        "latest": latest == path.resolve() if latest is not None else False,
+    } for _mtime, path, side, state_exists in found[:max(0, limit)]]
+
+
+def latest_compatible_save(save_dir: "str | Path", adapter: str,
+                           rom_sha1: Optional[str] = None) -> Optional[str]:
+    """Find the newest intact save for this adapter and ROM; return its sidecar path."""
+    for entry in list_game_saves(save_dir, limit=10000):
+        if entry["adapter"] != adapter or (entry["rom_sha1"] and rom_sha1
+                                            and entry["rom_sha1"] != rom_sha1):
+            continue
+        try:
+            side = load_sidecar(Path(save_dir).expanduser() / Path(entry["save_id"]))
+            read_state(side)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        return side["_path"]
+    return None
 
 
 def read_state(side: Dict[str, Any]) -> bytes:

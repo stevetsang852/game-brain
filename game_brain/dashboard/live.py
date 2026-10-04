@@ -30,7 +30,8 @@ from typing import Optional
 from .. import savestate
 from ..arbiter import Arbiter
 from ..runlog import RunLogWriter
-from ..setup import FULL_BRAINS, MGBA_NAMES, ForcedStop, Session, StopSignals, add_run_args, save_dir_from_args
+from ..setup import (FULL_BRAINS, MGBA_NAMES, ForcedStop, Session, StopSignals, add_run_args,
+                     resolve_adapter, save_dir_from_args)
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from .pacing import FrameAck, Pacer, ViewConfig
 from .server import DashboardServer, LoadSaveCommand, PersistenceCommand, SavedGameCommand
@@ -42,44 +43,6 @@ def _screenshot_b64(adapter, tmpdir: Path) -> Optional[str]:
     if not path:
         return None
     return base64.b64encode(Path(path).read_bytes()).decode("ascii")
-
-
-def _latest_compatible_save(adapter_name: str, save_dir: Path) -> Optional[str]:
-    selected = adapter_name
-    if selected == "auto":
-        selected = "mgba" if os.path.isfile(os.environ.get("GAME_BRAIN_ROM", "")) else "mock"
-    if selected in MGBA_NAMES:
-        expected_adapter = "gba_mgba/firered"
-    else:
-        expected_adapter = selected
-    rom_hash = None
-    rom_path = os.environ.get("GAME_BRAIN_ROM")
-    if rom_path and Path(rom_path).is_file():
-        digest = hashlib.sha1()
-        with open(rom_path, "rb") as rom_file:
-            for block in iter(lambda: rom_file.read(1024 * 1024), b""):
-                digest.update(block)
-        rom_hash = digest.hexdigest()
-    for item in savestate.list_game_saves(save_dir):
-        if item.get("adapter") != expected_adapter:
-            continue
-        if item.get("rom_sha1") and rom_hash and item["rom_sha1"] != rom_hash:
-            continue
-        if item.get("rom_sha1") and expected_adapter == "gba_mgba/firered" and not rom_hash:
-            continue
-        candidate = save_dir / Path(item["save_id"])
-        if candidate.is_file():
-            try:
-                side = savestate.load_sidecar(candidate)
-                savestate.read_state(side)
-                if side.get("_sav_path"):
-                    battery = Path(side["_sav_path"]).read_bytes()
-                    if savestate.sha1(battery) != side.get("sav_sha1"):
-                        continue
-            except (OSError, ValueError, KeyError, TypeError):
-                continue
-            return str(candidate)
-    return None
 
 
 def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: int = 0, frame: int = 0,
@@ -265,14 +228,32 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def automatic_resume(adapter_name: str, save_dir: str) -> Optional[str]:
+    rom_sha1 = None
+    rom_path = os.environ.get("GAME_BRAIN_ROM", "")
+    if adapter_name in MGBA_NAMES and os.path.isfile(rom_path):
+        with open(rom_path, "rb") as rom_file:
+            rom_sha1 = hashlib.sha1(rom_file.read()).hexdigest()
+    compatible_adapter = "gba_mgba/firered" if adapter_name in MGBA_NAMES else adapter_name
+    return savestate.latest_compatible_save(save_dir, compatible_adapter, rom_sha1)
+
+
 def main(argv=None) -> int:
     a = build_parser().parse_args(argv)
     try:
         use_remembered_rom()
     except (ValueError, OSError) as exc:
         print(f"warning: {exc} (using configured adapter/ROM until a new file is selected)", file=sys.stderr)
+    adapter_name = resolve_adapter(a.adapter)
+    save_dir = save_dir_from_args(a)
+    catalog_dir = save_dir or a.save_dir or str(savestate.default_save_dir())
+    resume = a.resume
+    if resume is None:
+        resume = automatic_resume(adapter_name, catalog_dir)
+        if resume and not a.quiet:
+            print(f"automatically resuming latest compatible save: {resume}")
     try:
-        server_cm = DashboardServer(a.host, a.port)
+        server_cm = DashboardServer(a.host, a.port, save_dir=catalog_dir)
     except OSError as exc:
         if getattr(exc, "errno", None) in (98, 48, 10048):
             print(f"error: {a.host}:{a.port} is already in use. The dashboard is probably still running.", file=sys.stderr)
@@ -283,14 +264,7 @@ def main(argv=None) -> int:
     with server_cm as server:
         print(f"dashboard: {server.url}  (Ctrl-C to stop)")
         try:
-            save_dir = save_dir_from_args(a)
-            resume = a.resume
-            if resume is None:
-                save_root = Path(a.save_dir or savestate.default_save_dir()).expanduser()
-                resume = _latest_compatible_save(a.adapter, save_root)
-                if resume:
-                    print(f"dashboard: continuing from latest compatible save {Path(resume).name}")
-            s = run(server, a.adapter, a.mode, a.brains, a.seed, a.steps, a.step_delay,
+            s = run(server, adapter_name, a.mode, a.brains, a.seed, a.steps, a.step_delay,
                     a.screenshot_every, a.out, a.quiet, battle_confidence=a.battle_confidence,
                     save_dir=save_dir, save_every=a.save_every, resume=resume,
                     keep_periodic=a.keep_periodic, starter=a.starter,

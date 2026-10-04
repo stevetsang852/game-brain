@@ -478,6 +478,8 @@ tbody tr:hover { background: rgba(167,139,250,0.05); }
 .persist-path { color:var(--fg-dim); font:11px/1.45 ui-monospace,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
 .persist-save { padding:8px 0; border-bottom:1px solid var(--line); }
 .persist-save:last-child { border-bottom:0; }
+.persist-save button { margin-top:6px; padding:5px 10px; border:1px solid var(--line-strong); border-radius:7px; background:rgba(124,92,255,.35); color:var(--fg); font:inherit; cursor:pointer; }
+.persist-save button:disabled { opacity:.45; cursor:not-allowed; }
 .persist-actions { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 12px; }
 .persist-actions button { padding:7px 12px; border:1px solid var(--line-strong); border-radius:8px; background:var(--gba-purple); color:white; font:inherit; cursor:pointer; }
 .persist-actions button:disabled { opacity:.45; cursor:not-allowed; }
@@ -815,6 +817,8 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <div id="localSaveMessage" class="persist-subhead">選擇 game-brain 存檔的 JSON sidecar、同名 .state，以及 sidecar 有列出時的 .sav。</div>
       <div class="persist-subhead">已有存檔會在 Dashboard 啟動時自動載入最新的相容存檔；也可以從下表選擇其他存檔。</div>
       <div id="gameSaves"><div class="persist-empty">尚未建立遊戲存檔</div></div>
+      <div class="persist-subhead">本機所有遊戲存檔 <button id="refreshSaves" type="button">重新整理</button></div>
+      <div id="availableSaves"><div class="persist-empty">正在讀取本機存檔…</div></div>
       <div class="persist-subhead">探索位置代表存檔</div>
       <div id="explorationSaves"><div class="persist-empty">尚無探索存檔</div></div>
     </section>
@@ -1189,6 +1193,65 @@ function renderPersistence(p) {
   renderSaves(exploreBox, cells, "尚無探索位置存檔", true);
 }
 
+function renderAvailableSaves(items, activeSaveId) {
+  const box = $("availableSaves");
+  box.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("div"); empty.className = "persist-empty";
+    empty.textContent = "本機沒有可用遊戲存檔"; box.appendChild(empty); return;
+  }
+  for (const save of items) {
+    const line = document.createElement("div"); line.className = "persist-save";
+    const title = document.createElement("div");
+    const position = save.map ? ` · 地圖 ${save.map.join("/")} ${save.xy ? `(${save.xy.join(",")})` : ""}` : "";
+    const active = save.save_id === activeSaveId ? " · 目前遊玩中" : "";
+    title.textContent = `${save.reason || "save"} · step ${save.step ?? "–"} · frame ${save.frame ?? "–"}${position}${active}`;
+    line.appendChild(title);
+    const detail = document.createElement("div"); detail.className = "persist-path";
+    detail.textContent = `${save.name} · ${save.timestamp || save.run_id}${save.battery_save ? " · 含 .sav" : ""}${save.available ? "" : " · 缺少 .state"}`;
+    line.appendChild(detail);
+    const button = document.createElement("button"); button.type = "button";
+    button.textContent = save.save_id === activeSaveId ? "重新載入" : "載入此存檔";
+    button.disabled = !save.available;
+    button.addEventListener("click", () => loadCatalogSave(save));
+    line.appendChild(button);
+    box.appendChild(line);
+  }
+}
+
+async function refreshAvailableSaves() {
+  const box = $("availableSaves");
+  try {
+    const response = await fetch("/api/saves", { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "讀取失敗");
+    state.availableSaves = Array.isArray(result.saves) ? result.saves : [];
+    renderAvailableSaves(state.availableSaves, state.persistence?.active_save_id);
+  } catch (error) {
+    box.textContent = `無法讀取本機存檔：${error.message}`;
+  }
+}
+
+async function loadCatalogSave(save) {
+  if (!window.confirm(`載入 ${save.name} 會取代目前遊戲狀態，確定繼續？`)) return;
+  const status = $("localSaveMessage");
+  status.className = "persist-subhead";
+  status.textContent = `正在載入 ${save.name}…`;
+  try {
+    const response = await fetch("/api/save/load", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Game-Brain-Upload": "save" },
+      body: JSON.stringify({ save_id: save.save_id }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "載入失敗");
+    status.textContent = `已選擇 ${save.name}，會在下一個遊戲步驟載入。`;
+  } catch (error) {
+    status.className = "persist-subhead bad";
+    status.textContent = `存檔未載入：${error.message}`;
+  }
+}
+
 // ------------------------------------------------------------------ battle panel
 // HP and menu come from ram.battle (every observation); names, options, confidence and handoff
 // from the battle brain's Decision (only while it is the one deciding).
@@ -1278,6 +1341,7 @@ function onStatus(env) {
   while (tb.rows.length > MAX_STEPS) tb.deleteRow(-1);
   for (const n of s.notes || []) {
     event(n, /REJECTED|error|unavailable/.test(n));
+    if (n.startsWith("已保存遊戲") || n === "已重新開始遊戲") refreshAvailableSaves();
     if (n.startsWith("已載入本機存檔")) {
       $("localSaveMessage").className = "persist-subhead";
       $("localSaveMessage").textContent = n;
@@ -1286,7 +1350,11 @@ function onStatus(env) {
       $("localSaveMessage").textContent = n;
     }
   }
-  if (s.persistence) { state.persistence = s.persistence; renderPersistence(s.persistence); }
+  if (s.persistence) {
+    state.persistence = s.persistence;
+    renderPersistence(s.persistence);
+    renderAvailableSaves(state.availableSaves || [], s.persistence.active_save_id);
+  }
   if (s.display) onDisplay(s.display);
 }
 
@@ -1358,6 +1426,7 @@ $("newGameNow").addEventListener("click", () => {
     sendPersistenceCommand("new_game");
 });
 $("saveLearningNow").addEventListener("click", () => sendPersistenceCommand("save_learning"));
+$("refreshSaves").addEventListener("click", refreshAvailableSaves);
 $("loadLocalSave").addEventListener("click", () => $("localSaveFiles").click());
 $("localSaveFiles").addEventListener("change", async () => {
   const files = Array.from($("localSaveFiles").files || []);
@@ -1441,6 +1510,7 @@ function connect() {
 setMode(null);
 connect();
 loadRomSelection();
+refreshAvailableSaves();
 </script>
 </body>
 </html>

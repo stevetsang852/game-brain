@@ -26,7 +26,7 @@ import threading
 from dataclasses import dataclass
 from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -60,6 +60,7 @@ class LoadSaveCommand:
     state: bytes
     battery: Optional[bytes]
     source_name: str
+    save_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,35 @@ def imported_save_command(payload: Any) -> LoadSaveCommand:
     return LoadSaveCommand(sidecar, state, battery, source_name)
 
 
+def saved_game_command(save_id: str, save_dir: Path) -> LoadSaveCommand:
+    relative = PurePosixPath(save_id)
+    if (relative.is_absolute() or len(relative.parts) != 2 or
+            any(part in ("", ".", "..") for part in relative.parts) or
+            not relative.name.lower().endswith(".json")):
+        raise ValueError("save_id must identify a sidecar inside the save directory")
+    root = Path(save_dir).expanduser().resolve()
+    path = (root / Path(*relative.parts)).resolve()
+    if path.parent.parent != root or not path.is_file():
+        raise FileNotFoundError(f"save not found: {save_id}")
+    side = savestate.load_sidecar(path)
+    if not savestate._inside(Path(side["_state_path"]), root):
+        raise ValueError("save state is outside the save directory")
+    state = savestate.read_state(side)
+    battery = None
+    if side.get("_sav_path"):
+        battery_path = Path(side["_sav_path"])
+        if not savestate._inside(battery_path, root):
+            raise ValueError("battery save is outside the save directory")
+        battery = battery_path.read_bytes()
+    command = imported_save_command({
+        "source_name": path.name,
+        "sidecar": side,
+        "state": base64.b64encode(state).decode("ascii"),
+        "battery": base64.b64encode(battery).decode("ascii") if battery is not None else None,
+    })
+    return LoadSaveCommand(command.sidecar, command.state, command.battery, command.source_name, save_id)
+
+
 def _is_loopback(host: str) -> bool:
     if host in _LOCAL_HOSTS:
         return True
@@ -184,7 +214,7 @@ class _Client:
 class DashboardServer:
     """Runs in a background thread. Use :meth:`broadcast` to push, :meth:`poll` to read commands."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8765):
+    def __init__(self, host: str = "127.0.0.1", port: int = 8765, save_dir=None):
         if not (_is_loopback(host) or container_bind_allowed(host)):
             raise ValueError(f"dashboard only binds loopback addresses, not {host!r} "
                              f"(0.0.0.0 is allowed only inside the game-brain container)")
@@ -194,6 +224,7 @@ class DashboardServer:
         self._snapshot: Dict[str, str] = {}  # latest envelope per type, replayed to new tabs
         self.refused: List[str] = []  # audit trail of refused inbound messages
         self.rom_selection = RomSelection()
+        self.save_dir = Path(save_dir).expanduser().resolve() if save_dir else None
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -216,6 +247,9 @@ class DashboardServer:
                     server._upgrade(self)
                 elif path == "/api/rom":
                     self.send_json(200, server.rom_selection.status())
+                elif path == "/api/saves":
+                    self.send_json(200, {"saves": savestate.list_game_saves(server.save_dir)
+                                         if server.save_dir else []})
                 else:
                     self.send_error(404)
 
@@ -232,6 +266,9 @@ class DashboardServer:
                 # Custom header + same-origin check prevents cross-site form uploads.
                 self.close_connection = True
                 path = urlparse(self.path).path
+                if path == "/api/save/load":
+                    self.post_save_load()
+                    return
                 if path == "/api/save":
                     self.post_save()
                     return
@@ -316,6 +353,41 @@ class DashboardServer:
                     command = imported_save_command(json.loads(data))
                 except (ValueError, TypeError, KeyError, binascii.Error) as exc:
                     self.send_json(400, {"error": f"Invalid save upload: {exc}"})
+                    return
+                server._inbox.put(command)
+                self.send_json(202, {"queued": True, "source_name": command.source_name})
+
+            def post_save_load(self):
+                origin = urlparse(self.headers.get("Origin", ""))
+                if (not _is_loopback(origin.hostname or "") or origin.scheme != "http"
+                        or origin.netloc != self.headers.get("Host")
+                        or self.headers.get("X-Game-Brain-Upload") != "save"
+                        or self.headers.get("Content-Type") != "application/json"):
+                    self.send_json(403, {"error": "Save loading requires a same-origin Dashboard request"})
+                    return
+                if self.headers.get("Transfer-Encoding"):
+                    self.send_json(400, {"error": "Chunked save requests are not supported"})
+                    return
+                try:
+                    size = int(self.headers.get("Content-Length", ""))
+                except ValueError:
+                    self.send_json(411, {"error": "Save request requires Content-Length"})
+                    return
+                if not 0 < size <= 4096:
+                    self.send_json(413, {"error": "Save request is too large"})
+                    return
+                try:
+                    self.connection.settimeout(5)
+                    data = self.rfile.read(size)
+                    if len(data) != size:
+                        raise ValueError("Save request was incomplete")
+                    request = json.loads(data)
+                    save_id = request.get("save_id") if isinstance(request, dict) else None
+                    if not isinstance(save_id, str) or not server.save_dir:
+                        raise ValueError("save_id is required")
+                    command = saved_game_command(save_id, server.save_dir)
+                except (OSError, ValueError, TypeError, KeyError) as exc:
+                    self.send_json(400, {"error": f"Could not load selected save: {exc}"})
                     return
                 server._inbox.put(command)
                 self.send_json(202, {"queued": True, "source_name": command.source_name})

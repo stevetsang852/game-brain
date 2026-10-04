@@ -206,6 +206,7 @@ class Session:
         self.brain_spec = brains
         self.imitation_model = imitation_model
         self.configured_starter = (starter or default_starter()).strip().lower()
+        self.starter_requested = self.configured_starter
         self.seed_argument = seed
         self.memory_root = None if no_memory else savestate.check_save_dir(memory_dir or default_memory_dir())
         self.memory: Optional[ExperienceMemory] = None
@@ -483,6 +484,8 @@ class Session:
 
     def new_game(self, log, step: int) -> None:
         """Start a fresh game on the current ROM without stopping the live Dashboard."""
+        if self.adapter.supports_battery_save:
+            self.adapter.load_battery_save(None)
         obs = self.adapter.reset()
         mode = self.arbiter.mode
         if self.seed_argument is not None:
@@ -510,7 +513,8 @@ class Session:
             self.memory.start(obs, step)
             self.sidecar_extra["memory"] = self.memory.cursor(step)
             log.event("episode_start", **self.sidecar_extra["memory"])
-        log.event("new_game", step=step, frame=obs.frame, starter=starter, seed=seed)
+        log.event("new_game", step=step, frame=obs.frame, starter=self.starter,
+                  seed=seed, cleared_battery=bool(self.adapter.supports_battery_save))
 
     def finish(self, log, steps_done: int, result, reason: str = "run_end") -> None:
         """End of run: the ``final`` save."""
@@ -548,7 +552,7 @@ class Session:
             "run_id": self.run_id, "adapter": self.adapter.name,
             "save_state_supported": bool(self.adapter.supports_save_state),
             "rom_hash": getattr(self.adapter, "rom_sha1", None),
-            "log": str(self.log_path), "save_dir": str(self.saver.root) if self.saver else None,
+            "log": str(self.log_path),
             "saving": self.saving, "save_every": self.saver.every if self.saver else None,
             "memory_dir": str(self.memory.root) if self.memory else None,
             "memory": self.memory.dashboard_status() if self.memory else {"enabled": False},

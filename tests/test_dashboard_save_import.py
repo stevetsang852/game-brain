@@ -3,9 +3,12 @@ import hashlib
 import json
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from game_brain.dashboard import DashboardServer
+from game_brain.dashboard.live import automatic_resume
 from game_brain.dashboard.server import LoadSaveCommand, PersistenceCommand, SavedGameCommand
+from game_brain.schema import Action
 from game_brain.setup import Session
 from game_brain import savestate
 
@@ -102,6 +105,85 @@ def test_local_save_load_restores_live_adapter_and_milestones(tmp_path):
         session.__exit__()
 
 
+def write_catalog_save(root, run_id, name, state, *, adapter="mock-house", rom_sha1=None, step=1):
+    run_dir = root / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    state_name = Path(name).with_suffix(".state").name
+    (run_dir / state_name).write_bytes(state)
+    sidecar = {
+        "format": savestate.FORMAT,
+        "format_version": savestate.FORMAT_VERSION,
+        "state_file": state_name,
+        "state_sha1": hashlib.sha1(state).hexdigest(),
+        "sav_file": None,
+        "step": step,
+        "frame": step * 10,
+        "adapter": adapter,
+        "rom_sha1": rom_sha1,
+        "reason": "manual",
+        "timestamp": f"2026-10-04T00:00:{step:02d}+00:00",
+        "milestones_done": [],
+    }
+    (run_dir / name).write_text(json.dumps(sidecar), encoding="utf-8")
+    return f"{run_id}/{name}"
+
+
+def test_catalog_lists_local_saves_and_auto_selects_newest_compatible(tmp_path):
+    root = tmp_path / "saves"
+    older = write_catalog_save(root, "run-a", "0000001_final.json", b"old", step=1)
+    newest = write_catalog_save(root, "run-b", "0000002_final.json", b"new", rom_sha1="rom-A", step=2)
+    incompatible = write_catalog_save(root, "run-c", "0000003_final.json", b"wrong",
+                                      adapter="other-adapter", step=3)
+    (root / newest).touch()
+    entries = savestate.list_game_saves(root)
+    assert {entry["save_id"] for entry in entries} == {older, newest, incompatible}
+    assert savestate.latest_compatible_save(root, "mock-house", "rom-A") == str((root / newest).resolve())
+    assert savestate.latest_compatible_save(root, "mock-house", "different-rom") == str((root / older).resolve())
+
+
+def test_dashboard_auto_resume_matches_active_rom(tmp_path, monkeypatch):
+    root = tmp_path / "saves"
+    rom = tmp_path / "firered.gba"
+    rom.write_bytes(b"active rom")
+    digest = hashlib.sha1(b"active rom").hexdigest()
+    older = write_catalog_save(root, "run-a", "0000001_final.json", b"older",
+                               adapter="gba_mgba/firered", rom_sha1=digest, step=1)
+    other_rom = write_catalog_save(root, "run-b", "0000002_final.json", b"other",
+                                   adapter="gba_mgba/firered", rom_sha1="0" * 40, step=2)
+    monkeypatch.setenv("GAME_BRAIN_ROM", str(rom))
+    assert automatic_resume("mgba", str(root)) == str((root / older).resolve())
+    assert other_rom != older
+
+
+def test_catalog_api_queues_safe_save_ids_only(tmp_path):
+    root = tmp_path / "saves"
+    save_id = write_catalog_save(root, "run-a", "0000001_final.json", b"known save")
+    with DashboardServer(port=0, save_dir=root) as server:
+        with urllib.request.urlopen(server.url + "api/saves", timeout=5) as response:
+            catalog = json.loads(response.read())
+        assert catalog["saves"][0]["save_id"] == save_id
+        body = json.dumps({"save_id": save_id}).encode()
+        req = urllib.request.Request(
+            server.url + "api/save/load", data=body,
+            headers={"Origin": server.url.rstrip("/"), "Content-Type": "application/json",
+                     "X-Game-Brain-Upload": "save"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            assert response.status == 202
+        command = server.poll()[0]
+        assert isinstance(command, LoadSaveCommand) and command.state == b"known save"
+        bad = json.dumps({"save_id": "../outside/escape.json"}).encode()
+        req = urllib.request.Request(
+            server.url + "api/save/load", data=bad,
+            headers={"Origin": server.url.rstrip("/"), "Content-Type": "application/json",
+                     "X-Game-Brain-Upload": "save"})
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            raise AssertionError("path traversal save id was accepted")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 400
+        assert server.poll() == []
+
+
 def test_dashboard_lists_saves_loads_selection_and_starts_new_game(tmp_path):
     class Log:
         def __init__(self):
@@ -138,16 +220,37 @@ def test_dashboard_lists_saves_loads_selection_and_starts_new_game(tmp_path):
         session.__exit__()
 
 
-def test_dashboard_auto_selects_latest_compatible_save(tmp_path):
-    from game_brain.dashboard.live import _latest_compatible_save
+def test_new_game_resets_adapter_and_brain_state(tmp_path):
+    class Log:
+        def __init__(self):
+            self.events = []
 
+        def event(self, kind, **fields):
+            self.events.append((kind, fields))
+
+    session = Session("mock-house", brains="path,rule", seed=0,
+                      out_dir=str(tmp_path / "runs"), save_dir=str(tmp_path / "saves"),
+                      no_memory=True)
+    try:
+        session.adapter.x, session.adapter.y = 1, 1
+        session.adapter.act(Action([]))
+        log = Log()
+        session.new_game(log, step=20)
+        assert (session.adapter.x, session.adapter.y) == tuple(session.adapter.start_pos)
+        assert session.adapter.frame == 0
+        assert any(kind == "new_game" for kind, _ in log.events)
+    finally:
+        session.__exit__()
+
+
+def test_dashboard_auto_selects_latest_compatible_save(tmp_path):
     session = Session("mock-house", brains="path,rule", seed=2,
                       out_dir=str(tmp_path / "runs"), save_dir=str(tmp_path / "saves"), no_memory=True)
     try:
         session.adapter.x, session.adapter.y = 4, 5
         saved = session.save_game(8, [])
-        assert _latest_compatible_save("mock-house", tmp_path / "saves") == saved["_path"]
-        assert _latest_compatible_save("mock", tmp_path / "saves") is None
+        assert automatic_resume("mock-house", str(tmp_path / "saves")) == saved["_path"]
+        assert automatic_resume("mock", str(tmp_path / "saves")) is None
     finally:
         session.__exit__()
 
@@ -163,3 +266,11 @@ def test_server_accepts_save_selection_and_new_game_commands():
             SavedGameCommand("run-id/0000010_final.json"),
             PersistenceCommand("new_game"),
         ]
+
+
+def test_dashboard_has_save_catalog_and_new_game_controls():
+    html = (Path(__file__).parents[1] / "game_brain" / "dashboard" / "static" / "index.html").read_text(
+        encoding="utf-8")
+    assert 'id="availableSaves"' in html
+    assert 'id="newGameNow"' in html
+    assert '"/api/save/load"' in html
