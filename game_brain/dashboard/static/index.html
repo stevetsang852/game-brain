@@ -790,8 +790,9 @@ tr.actor-row-human td { color: var(--gba-amber); }
         <button id="saveLearningNow" type="button" disabled>保存 AI 學習資料</button>
       </div>
       <div class="persist-subhead">經驗記錄會逐步自動寫入；按鈕會立即同步保存學習資料庫。</div>
+      <div id="learningResults" class="persist-stats"></div>
       <div id="memoryStats" class="persist-stats"></div>
-      <div class="persist-subhead">最近實際操作（分數係新奇／劇情指標，唔係學習成績）</div>
+      <div class="persist-subhead">學習成果：探索格、累積獎勵、本局最高獎勵。Goal 17 之後會自由探索，唔再企定。</div>
       <table id="experienceRecords">
         <thead><tr><th>步數</th><th>操作／執行者</th><th>位置</th><th>獎勵</th></tr></thead>
         <tbody><tr><td colspan="4" class="persist-empty">尚無經驗記錄</td></tr></tbody>
@@ -1099,6 +1100,21 @@ function renderPersistence(p) {
     const caption = document.createElement("span"); caption.textContent = label;
     el.append(number, caption); statsBox.appendChild(el);
   };
+  const learn = $("learningResults");
+  learn.innerHTML = "";
+  const cards = [
+    ["探索格", memory.unique_cells ?? totals.cells ?? "–"],
+    ["新發現", totals.discoveries ?? "–"],
+    ["累積獎勵", totals.reward == null ? "–" : Number(totals.reward).toFixed(2)],
+    ["本局最高", memory.best_reward == null ? "–" : Number(memory.best_reward).toFixed(2)],
+    ["步數", totals.transitions ?? "–"],
+  ];
+  for (const [k, v] of cards) {
+    const sp = document.createElement("span");
+    sp.className = "pill";
+    sp.textContent = k + " " + v;
+    learn.appendChild(sp);
+  }
   if (memory.enabled) {
     metric("累積操作", String(totals.transitions ?? 0));
     metric("探索位置", String(totals.cells ?? 0));

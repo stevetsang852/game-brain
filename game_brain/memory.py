@@ -325,9 +325,12 @@ class ExperienceMemory:
             cells.append({"map": loc[0:2], "position": loc[2:4], "party_count": loc[4],
                           "progress": loc[5], "visits": visits,
                           "save": Path(save).name if save else None})
+        unique_cells = self.db.execute("SELECT COUNT(*) FROM cells WHERE namespace=?", (self.namespace,)).fetchone()[0]
+        best = self.db.execute("SELECT MAX(reward) FROM transitions WHERE run_id=?", (self.run_id,)).fetchone()[0]
         return {"enabled": True, "namespace": self.namespace, "run_id": self.run_id,
                 "episode_id": self.episode_id, "policy_version": self.policy_version,
                 "rom_hash": self.rom_hash, "totals": totals,
+                "unique_cells": unique_cells, "best_reward": best,
                 "recent": list(reversed(recent)), "least_visited_cells": cells}
 
 

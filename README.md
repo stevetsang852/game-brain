@@ -33,7 +33,7 @@
 | 項目 | 狀態 |
 |---|---|
 | 模擬器 | ✅ mGBA 0.10.5 headless bindings；act 可重現，replay 0 mismatch |
-| PathBrain | ✅ A* 尋路、避 NPC、過劇情、跳台當牆。下一個目標（尼比市）仍係 placeholder |
+| PathBrain | ✅ A* 尋路、避 NPC、過劇情、跳台當牆。Goal 17（尼比／常磐道館）未有劇本，對白完之後改為自由探索 |
 | RuleBattleBrain | ✅ 讀 `ram["battle"]`，用 PokeAPI 靜態表揀招。勁敵戰已打完並返到研究所。未做換寵、道具；RUN 預設唔用 |
 | RuleBrain / RandomBrain | ✅ 後備。RuleBrain 過開場後只會亂行 |
 | LLMBrain | ⛔ stub，未接 provider。呼叫會 fallback |
