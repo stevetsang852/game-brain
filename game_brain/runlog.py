@@ -58,6 +58,7 @@ path, sha1, step, frame); :func:`replay` loads that state first (notes/savestate
 from __future__ import annotations
 
 import json
+import warnings
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
@@ -212,11 +213,29 @@ class RunLogWriter:
 
 
 def read_log(path: "str | Path") -> Iterator[Dict[str, Any]]:
+    """Records of a run log. A run killed mid-write (SIGKILL, power loss) can leave a truncated
+    LAST line: that one is skipped with a warning. A bad line anywhere else still raises."""
+    pending = None  # (line number, error) of an unparsable line; fatal unless it is the last one
     with open(path, encoding="utf-8") as f:
-        for line in f:
+        for n, line in enumerate(f, 1):
             line = line.strip()
-            if line:
-                yield json.loads(line)
+            if not line:
+                continue
+            if pending is not None:
+                raise ValueError(f"{path}:{pending[0]}: corrupt run log line: {pending[1]}")
+            try:
+                rec = json.loads(line)
+            except ValueError as exc:
+                pending = (n, exc)
+                continue
+            yield rec
+    if pending is not None:
+        warnings.warn(f"{path}:{pending[0]}: skipping truncated last line of the run log ({pending[1]})",
+                      TruncatedLogWarning, stacklevel=2)
+
+
+class TruncatedLogWarning(UserWarning):
+    """The run log's last line was cut off (the run was killed mid-write); it was skipped."""
 
 
 def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:

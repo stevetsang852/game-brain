@@ -126,6 +126,22 @@ def new_run_id(now: Optional[float] = None) -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
 
 
+def claim_run_dir(out_dir: "str | Path", run_id: str) -> "tuple[str, Path]":
+    """Create ``out_dir/<run_id>`` atomically; if it already exists (two runs started in the same
+    second and drew the same suffix, or a copied runs/ tree) use ``<run_id>-2``, ``-3``, ...
+    Never reuses an existing directory, so a run can't append to another run's log or saves."""
+    root = Path(out_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    n = 1
+    while True:
+        rid = run_id if n == 1 else f"{run_id}-{n}"
+        try:
+            (root / rid).mkdir()
+            return rid, root / rid
+        except FileExistsError:
+            n += 1
+
+
 class ForcedStop(KeyboardInterrupt):
     """Raised by :class:`StopSignals` on the *second* SIGTERM / SIGINT: stop now, mid-step if need
     be (e.g. a hung step). There is no final save (the game state may be mid-step); the last
@@ -284,10 +300,12 @@ class Session:
                 self.active_save_id = side_path.relative_to(self.save_root).as_posix()
             except ValueError:
                 pass
-        self.run_id = new_run_id() + "-" + uuid.uuid4().hex[:12]
-        self.run_dir = Path(out_dir) / self.run_id
-        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.run_id, self.run_dir = claim_run_dir(out_dir, new_run_id() + "-" + uuid.uuid4().hex[:12])
         self.log_path = self.run_dir / "run.jsonl"
+        #: "running" -> "free_explore" once every main (non-placeholder) milestone is done; the
+        #: dashboard sets "stopped" in its final status. Nothing auto-stops on milestones.
+        self.phase = "running"
+        self.current_step = self.start_step  # steps completed so far (the dashboard loop updates it)
         self.saver: Optional[savestate.SaveManager] = None
         if save_dir:
             self.saver = savestate.SaveManager(save_dir, self.adapter, [b.name for b in self.brains], self.run_id,
@@ -327,6 +345,7 @@ class Session:
             obs = self.adapter.load_state(savestate.read_state(side), frame=side["frame"],
                                           adapter_state=side.get("adapter_state"))
             log.event("resumed", **self.resumed_from)
+            self.update_phase(log, self.start_step, reason="resumed")
             if not self.quiet:
                 print(f"resumed from {side['_path']} (step {self.start_step}, frame {side['frame']}, "
                       f"map {side.get('map_bank')}/{side.get('map_id')} at ({side.get('x')}, {side.get('y')}))")
@@ -371,6 +390,7 @@ class Session:
         """Call after log.step(): notes the starter pick, then milestone / periodic saves (``save``
         events); a save at the get_starter milestone already records the pick."""
         self.note_starter(log, steps_done, result)
+        self.update_phase(log, steps_done)
         if not self.saving:
             return
         n_pruned = len(self.saver.pruned)
@@ -447,6 +467,7 @@ class Session:
             log.event("episode_start", **self.sidecar_extra["memory"])
         log.event("local_save_loaded", step=step, save_step=side["step"], frame=side["frame"],
                   source=source_name, milestones_done=side.get("milestones_done", []))
+        self.update_phase(log, step, reason="save_loaded")
 
     def _replace_brains(self, seed: int, starter: str, mode) -> None:
         namespace = f"{self.adapter.name}:{getattr(self.adapter, 'rom_sha1', None) or 'synthetic'}"
@@ -515,6 +536,26 @@ class Session:
             log.event("episode_start", **self.sidecar_extra["memory"])
         log.event("new_game", step=step, frame=obs.frame, starter=self.starter,
                   seed=seed, cleared_battery=bool(self.adapter.supports_battery_save))
+        self.update_phase(log, step, reason="new_game")
+
+    def main_milestones_done(self) -> bool:
+        """Every non-placeholder milestone of the (first) planner is done, i.e. the scripted route
+        is over (FireRed: goal 16 deliver_parcel; goal 17 pewter_city is a placeholder = free explore).
+        False without a planner (no path brain / mock adapters without milestones)."""
+        planner = next((b.planner for b in self.brains if hasattr(b, "planner")), None)
+        if planner is None:
+            return False
+        main = [m.id for m in planner.milestones if not m.placeholder]
+        done = {m["id"] for m in planner.summary() if m["done"]}
+        return bool(main) and all(mid in done for mid in main)
+
+    def update_phase(self, log, step: int, reason: str = "milestones") -> None:
+        """Log a ``phase`` event when ``running`` <-> ``free_explore`` changes (back to running only
+        on new game / loading an earlier save). The run keeps going either way."""
+        phase = "free_explore" if self.main_milestones_done() else "running"
+        if phase != self.phase:
+            self.phase = phase
+            log.event("phase", phase=phase, step=step, reason=reason)
 
     def finish(self, log, steps_done: int, result, reason: str = "run_end") -> None:
         """End of run: the ``final`` save."""
