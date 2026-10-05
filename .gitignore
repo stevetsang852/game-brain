@@ -25,6 +25,13 @@ bios/
 *.safetensors
 *.pkl
 *.npz
+# experience memory (game_brain/memory.py) and Go-Explore archives: ROM-derived run data
+*.sqlite3*
+*.sqlite
+*.db
+*.db-wal
+*.db-shm
+archive.json
 
 # --- Run artifacts (logs, screenshots of copyrighted game) ---
 runs/
