@@ -48,6 +48,18 @@ resumes the newest intact save matching the active adapter and ROM. The `new_gam
 message clears the active in-memory battery save, resets the adapter and brains, and starts a fresh
 episode without stopping the current dashboard run.
 
+### Party icons
+
+`GET /icons/<id>.png` returns a 32×64 RGBA PNG (animation frame 0 on top, frame 1 below; colour 0
+transparent), decoded on demand from the user's own ROM with the recipe in
+`notes/party-and-icons.md` §5. Nothing is shipped in the repo. `<id>` is the icon id: `0-411` =
+`status.party[i].species_id`, **`412` = egg** (use it when `party[i].egg` is true; the egg keeps its
+real `species_id`), `413-439` = Unown B…Z, `!`, `?`. The ROM is the one the running game uses
+(`$GAME_BRAIN_ROM`), else the one selected in the Dashboard for the next launch. PNGs are cached in
+`~/.game-brain/icons/<rom sha1>/<id>.png` (`$GAME_BRAIN_CONFIG_DIR` moves the root). 404 when no
+ROM is readable, it is not FireRed US 1.0 (`BPRE`, version 0), or the id is not 0-439. Responses
+carry `ETag` + `Cache-Control: no-cache`, so the page can reuse them with a 304.
+
 ### Loading a local game save
 
 The page posts to `POST /api/save` with `Content-Type: application/json` and
