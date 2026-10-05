@@ -26,6 +26,17 @@
 
 預設大腦係 `battle,path,rule`。模式可以喺網頁切：Auto 全自動、Assist 人手可插隊、Manual 只人手、Shadow 只提議。
 
+## 方案取捨（2026-10-05）
+
+外來方案有用，但唔會原樣照做：
+
+- 跟：課程階段、反循環、分層獎勵、LLM 只出子目標、圖鑑先定 Kanto 151。
+- 唔跟：全國 386 圖鑑。交換進化同版本獨佔喺單機做唔到。
+- 唔跟：而家就換 Stable-Baselines3 做預設。未證明短局贏到劇本腦之前，深度 PPO 只係訓練選項。
+- 唔跟：LLM 直接出按鍵。頻率太低，而且 LLMBrain 仍然係 stub，未接 provider。
+
+已落地的第一階段：`rl/anti_loop.py` 位置窗同連續按鍵罰、`rl/env.py` Gymnasium 形狀的 Adapter wrapper、`rl/curriculum.py` 由出屋到第一個徽章的階段。深度 PPO 同 Pokédex RAG 未開始。
+
 ## 同事接手（2026-10-04）
 
 目標次序已確認，唔好再手寫每一條路：
