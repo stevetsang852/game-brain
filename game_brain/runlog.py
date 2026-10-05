@@ -53,6 +53,11 @@ optimisations have no markers and pass through unchanged.
 Determinism: replaying ``executed_action`` of every step against the same start state
 reproduces the run (see :func:`replay`). A resumed run's header has ``resumed_from`` (save state
 path, sha1, step, frame); :func:`replay` loads that state first (notes/savestate-format.md).
+
+Killed runs: a SIGKILL / power loss mid-write can leave a truncated last line; :func:`read_log`
+(and so :func:`iter_steps` / :func:`replay`) skips it with a :class:`TruncatedLogWarning`. An
+unparsable line anywhere else is still an error. (``--resume`` never reads run.jsonl: it resumes
+from a save sidecar.)
 """
 
 from __future__ import annotations
