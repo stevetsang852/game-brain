@@ -59,9 +59,9 @@
 
 驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。徽章同圖鑑 RAM 未驗證，進度分而家只會喺 observation 有呢啲欄位時先計到。
 
-## 目前進度（2026-10-04）
+## 目前進度（2026-10-06）
 
-已喺真 ROM 由開機行到：主角屋 → 真新鎮 → 研究所攞御三家 → 勁敵戰 → 1 號道路 → 常磐市，再返研究所攞圖鑑。Wild／勁敵戰鬥交俾 RuleBattleBrain。輸咗會喺屋企醒，可以再行出去。
+已喺真 ROM 由開機行到：主角屋 → 真新鎮 → 研究所攞御三家 → 勁敵戰 → 1 號道路 → 常磐市，再返研究所攞圖鑑（M1／M2／M3 + `oaks_parcel`／圖鑑）。Wild／勁敵戰鬥交俾 RuleBattleBrain。輸咗會喺屋企醒，可以再行出去。存檔／續玩、live 共用 setup、`--starter random` 都已經落地。
 
 | 項目 | 狀態 |
 |---|---|
@@ -70,10 +70,15 @@
 | RuleBattleBrain | ✅ 讀 `ram["battle"]`，用 PokeAPI 靜態表揀招。勁敵戰已打完並返到研究所。未做換寵、道具；RUN 預設唔用 |
 | RuleBrain / RandomBrain | ✅ 後備。RuleBrain 過開場後只會亂行 |
 | LLMBrain | ⛔ stub，未接 provider。呼叫會 fallback |
-| 學習 | ✅ Go-Explore 式自主探索：持久化 tabular Q-learning、cell archive + savestate、跨次續跑；另有人手 imitation。未做 PPO，未驗證森林以後 |
-| Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、存檔／續玩 |
+| 存檔／續玩 | ✅ `--save-dir`／`--resume latest`、里程碑＋periodic＋final；`live.py` 同 CLI 共用 `setup.py`；`--starter random`（或固定御三家） |
+| Party RAM | ✅ `ram["party"]` 解密讀取（#41）。⛔ 未有 party 入 `status`／側欄 UI；⛔ `/icons` endpoint（只有 [`notes/party-and-icons.md`](notes/party-and-icons.md)） |
+| 學習／Go-Explore | ✅ `ExperienceMemory`（`memory.py`）＋ `go_explore.py`：tabular Q、cell archive＋savestate、跨次續跑；另有人手 imitation。長局未全面驗證（森林以後未驗證） |
+| Gym／RL env（#59） | ✅ `rl/anti_loop.py`、`rl/env.py`（Gymnasium adapter wrapper）、`rl/curriculum.py`；進度分 `rl/progress.py`。徽章／圖鑑 RAM 未驗證 |
+| 短局 runner（#60） | ✅ `rl/short.py`：starter 短局（CPU），做 deep PPO 之前嘅門檻。**唔會**取代預設 `battle,path,rule` |
+| PPO | ✅ 短局入口 `rl/ppo.py` 已有（CPU tabular）。⛔ 深度 PPO／GPU 未開始（要 YIN 批准） |
+| Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、戰鬥 panel、24 fps、ROM picker、本機存檔瀏覽、存檔掣。⛔ 未有完整 mobile layout PR；⛔ `brain_state` v2 只係協定 |
 | Docker / 本機啟動 | ✅ `start_in_docker.bat`、`start_local.bat`。ROM 只讀掛入，唔會 COPY 入 image |
-| CI / License | ⛔ 未有 CI。License 未揀，repo 係 public |
+| CI / License | ⛔ 未有 CI。License 未揀；repo 係 **PUBLIC** |
 
 呢隻驗證 ROM 嘅御三家只識 METRONOME（揮指），勁敵戰結果係隨機。戰鬥邏輯要讀 RAM，唔好假設識邊招。
 
