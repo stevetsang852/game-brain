@@ -35,6 +35,8 @@
 - 唔跟：而家就換 Stable-Baselines3 做預設。未證明短局贏到劇本腦之前，深度 PPO 只係訓練選項。
 - 唔跟：LLM 直接出按鍵。頻率太低，而且 LLMBrain 仍然係 stub，未接 provider。
 
+短局入口：`python -m game_brain.rl.short --adapter mock-house`。成功條件係 `party_count` 變 1。真 ROM 用 `--adapter mgba`。
+
 已落地的第一階段：`rl/anti_loop.py` 位置窗同連續按鍵罰、`rl/env.py` Gymnasium 形狀的 Adapter wrapper、`rl/curriculum.py` 由出屋到第一個徽章的階段。深度 PPO 同 Pokédex RAG 未開始。
 
 ## 同事接手（2026-10-04）
