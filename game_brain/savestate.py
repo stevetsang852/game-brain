@@ -135,6 +135,11 @@ class SaveManager:
     def enabled(self) -> bool:
         return bool(getattr(self.adapter, "supports_save_state", False))
 
+    def reset_milestones(self) -> None:
+        """A different game is on screen (new game / load save): the next after_step() takes its
+        milestones as the baseline again, so the new game's own milestone saves are written."""
+        self._done = None
+
     def after_step(self, steps_done: int, milestones: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
         """Call after a step's action was executed; ``steps_done`` = steps executed so far."""
         if not self.enabled:

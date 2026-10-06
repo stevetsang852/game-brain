@@ -49,9 +49,15 @@ def _screenshot_b64(adapter, tmpdir: Path) -> Optional[str]:
 
 def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: int = 0, frame: int = 0,
                    pacer: Optional[Pacer] = None, session=None, milestones=None):
-    """Feed dashboard input into the arbiter. Returns a list of human-readable outcomes."""
+    """Feed dashboard input into the arbiter. Returns a list of human-readable outcomes.
+
+    New game / load save replace ``session.arbiter`` (fresh brains + milestone planner), so with a
+    session every command goes to ``session.arbiter`` *at that moment*, never a stale reference;
+    a save after a new game / load in the same batch uses the new planner's milestones."""
     outcomes = []
     for msg in server.poll():
+        if session is not None:
+            arbiter = session.arbiter
         if isinstance(msg, ModeCommand):
             msg.issued_by = "dashboard"
             arbiter.apply_mode(msg)
@@ -75,6 +81,7 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
                     log.event("resume_error", step=step, frame=frame, source=msg.source_name, error=str(exc))
             else:
                 outcomes.append(f"已載入本機存檔 {msg.source_name} · step {msg.sidecar['step']}")
+                milestones = _planner_milestones(session)
         elif isinstance(msg, SavedGameCommand):
             try:
                 if session is None:
@@ -86,6 +93,7 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
                     log.event("resume_error", step=step, frame=frame, save_id=msg.save_id, error=str(exc))
             else:
                 outcomes.append(f"已載入存檔 {msg.save_id}")
+                milestones = _planner_milestones(session)
         elif isinstance(msg, PersistenceCommand):
             if msg.kind == "new_game":
                 try:
@@ -98,6 +106,7 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
                         log.event("new_game_error", step=step, frame=frame, error=str(exc))
                 else:
                     outcomes.append("已開始新遊戲")
+                    milestones = _planner_milestones(session)
             elif msg.kind == "save_game":
                 try:
                     if session is None:
@@ -134,6 +143,12 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
             buttons = "+".join(p.button for p in msg.presses) or "(empty)"
             outcomes.append(f"manual {buttons} {'queued' if ok else 'REJECTED: ' + arbiter.rejected[-1]}")
     return outcomes
+
+
+def _planner_milestones(session):
+    """The session's (new) planner summary right after new game / load save, else None."""
+    planner = next((b.planner for b in session.brains if hasattr(b, "planner")), None)
+    return planner.summary() if planner is not None else None
 
 
 def party_status(ram: dict, last: Optional[list] = None) -> list:
@@ -210,6 +225,10 @@ def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held
             started = pacer.clock()
             outcomes = apply_commands(server, arbiter, log, step, obs.frame, pacer, sess,
                                       result.decision.milestones if result is not None else None)
+            # new game / load save built new brains + planner (Session._replace_brains): step with
+            # them, not the arbiter captured at start (its planner keeps the previous game's
+            # milestones done -> goals would never restart)
+            arbiter = sess.arbiter
             obs = adapter.observe()
             if pacer.want_screenshot(step, getattr(server, "client_count", 1) > 0):
                 obs.screenshot_b64 = _screenshot_b64(adapter, tmp)
