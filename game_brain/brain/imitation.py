@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from ..cache import cache_json
 from ..schema import Action, Decision, Observation
 from .base import Brain, BrainUnavailable
 
@@ -63,7 +64,7 @@ class ImitationBrain(Brain):
         self.states: Dict[str, list] = {}
         if self.model_path is not None:
             try:
-                model = json.loads(self.model_path.read_text(encoding="utf-8"))
+                model = cache_json(self.model_path)
             except (OSError, json.JSONDecodeError) as exc:
                 raise ValueError(f"cannot load imitation model {self.model_path}: {exc}") from exc
             if not isinstance(model, dict):
