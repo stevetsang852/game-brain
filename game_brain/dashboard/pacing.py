@@ -105,8 +105,6 @@ class Pacer:
             return bool(self.screenshot_every) and step % self.screenshot_every == 0
         if not has_clients:
             return False
-        if self._inflight and self.clock() - self._inflight[1] < ACK_TIMEOUT:
-            return False
         return True
 
     def sent_screenshot(self, frame: int) -> None:
