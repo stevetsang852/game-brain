@@ -39,6 +39,7 @@ from .brain import make_brains
 from .brain.goals import FR_STARTER, FR_STARTER_BALLS, GoalPlanner, firered_milestones
 from .memory import ExperienceMemory, default_memory_dir
 from .schema import Mode
+from .stuck import DEFAULT_STUCK_STEPS, StuckDetector
 
 #: brains that get the full FireRed stack (battle in battle, A* + milestones outside, A-mash fallback)
 FULL_BRAINS = "battle,path,rule"
@@ -115,6 +116,12 @@ def add_run_args(ap: argparse.ArgumentParser, *, adapter_default: str, brains_de
     ap.add_argument("--no-save", action="store_true", help="don't write save states")
     ap.add_argument("--resume", default=None, metavar="PATH|latest",
                     help="continue from a save (sidecar .json or .state path, or 'latest' in --save-dir)")
+    ap.add_argument("--auto-learn", action="store_true",
+                    help="enable stuck detection: in auto mode, if the player's tile is unchanged for "
+                         "--stuck-steps counted steps (warp/fade, text box/script, menu and battle steps don't "
+                         "count), switch the path brain to free explore. Default off")
+    ap.add_argument("--stuck-steps", type=int, default=DEFAULT_STUCK_STEPS, metavar="N",
+                    help=f"stuck detection threshold in counted steps (default {DEFAULT_STUCK_STEPS}; needs --auto-learn)")
 
 
 def new_run_id(now: Optional[float] = None) -> str:
@@ -214,8 +221,12 @@ class Session:
                  resume: Optional[str] = None, quiet: bool = False,
                  keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
                  starter: Optional[str] = None, memory_dir: Optional[str] = None,
-                 no_memory: bool = False, imitation_model: Optional[str] = None):
+                 no_memory: bool = False, imitation_model: Optional[str] = None,
+                 auto_learn: bool = False, stuck_steps: int = DEFAULT_STUCK_STEPS):
         self.quiet = quiet
+        #: stuck detection (game_brain/stuck.py); ``stuck`` = {step, map, x, y, reason} after a switch
+        self.stuck_detector = StuckDetector(stuck_steps, enabled=auto_learn)
+        self.stuck: Optional[Dict[str, Any]] = None
         self.battle_confidence = battle_confidence
         self.save_dir, self.save_every = save_dir, save_every
         self.save_root = savestate.check_save_dir(save_dir or savestate.default_save_dir())
@@ -324,7 +335,9 @@ class Session:
         return cls(a.adapter, a.brains, a.mode, a.seed, a.battle_confidence, a.out, save_dir_from_args(a),
                    a.save_every, a.resume, quiet=a.quiet if quiet is None else quiet,
                    keep_periodic=a.keep_periodic, starter=a.starter,
-                   memory_dir=a.memory_dir, no_memory=a.no_memory, imitation_model=a.imitation_model)
+                   memory_dir=a.memory_dir, no_memory=a.no_memory, imitation_model=a.imitation_model,
+                   auto_learn=getattr(a, "auto_learn", False),
+                   stuck_steps=getattr(a, "stuck_steps", DEFAULT_STUCK_STEPS))
 
     # ------------------------------------------------------------------ run-loop hooks
     def header_info(self, **extra: Any) -> Dict[str, Any]:
@@ -332,7 +345,8 @@ class Session:
                 "mode": self.arbiter.mode.value, "starter": dict(self.starter_info), **extra,
                 "seed": self.seed, "seed_source": self.seed_source, "run_id": self.run_id,
                 "rom_hash": getattr(self.adapter, "rom_sha1", None),
-                "memory_dir": str(self.memory_root) if self.memory_root else None}
+                "memory_dir": str(self.memory_root) if self.memory_root else None,
+                "auto_learn": {"enabled": self.stuck_detector.enabled, "threshold": self.stuck_detector.threshold}}
         if self.resumed_from:
             info["resumed_from"] = self.resumed_from
         return info
@@ -470,6 +484,7 @@ class Session:
             log.event("episode_start", **self.sidecar_extra["memory"])
         log.event("local_save_loaded", step=step, save_step=side["step"], frame=side["frame"],
                   source=source_name, milestones_done=side.get("milestones_done", []))
+        self._clear_stuck()
         self.update_phase(log, step, reason="save_loaded")
 
     def _replace_brains(self, seed: int, starter: str, mode) -> None:
@@ -540,6 +555,7 @@ class Session:
             log.event("episode_start", **self.sidecar_extra["memory"])
         log.event("new_game", step=step, frame=obs.frame, starter=self.starter,
                   seed=seed, cleared_battery=bool(self.adapter.supports_battery_save))
+        self._clear_stuck()
         self.update_phase(log, step, reason="new_game")
 
     def main_milestones_done(self) -> bool:
@@ -555,11 +571,57 @@ class Session:
 
     def update_phase(self, log, step: int, reason: str = "milestones") -> None:
         """Log a ``phase`` event when ``running`` <-> ``free_explore`` changes (back to running only
-        on new game / loading an earlier save). The run keeps going either way."""
-        phase = "free_explore" if self.main_milestones_done() else "running"
+        on new game / loading an earlier save). The run keeps going either way. A stuck switch
+        (watch_stuck) is free explore too."""
+        phase = "free_explore" if self.stuck is not None or self.main_milestones_done() else "running"
         if phase != self.phase:
             self.phase = phase
             log.event("phase", phase=phase, step=step, reason=reason)
+
+    # ------------------------------------------------------------------ stuck detection (auto-learn)
+    def watch_stuck(self, log, step: int, obs, result) -> Optional[Dict[str, Any]]:
+        """Call once per step with the step's observation (before the action) and result. Counts
+        the step (game_brain/stuck.py); at the threshold, while ``phase == "running"`` and a brain
+        can free-explore (PathBrain), switches it: ``stuck`` event + ``phase`` event (reason
+        ``stuck``). Returns the new ``stuck`` dict on the switching step, else None."""
+        decision = result.decision if result is not None else None
+        if not self.stuck_detector.observe(obs, self.arbiter.mode, decision):
+            return None
+        if self.phase != "running" or self.stuck is not None:
+            return None             # already free-exploring (main milestones done / earlier switch)
+        brains = [b for b in self.brains if hasattr(b, "force_free_explore")]
+        if not brains:
+            return None             # nothing can free-explore (no path brain): count only
+        d = self.stuck_detector
+        bank, map_id, x, y = d.tile
+        reason = (f"position ({x}, {y}) on map {bank}/{map_id} unchanged for {d.stuck_steps} counted steps "
+                  f"(threshold {d.threshold}) -> free explore")
+        for b in brains:
+            b.force_free_explore(reason)
+        self.stuck = {"step": step, "map": [bank, map_id], "x": x, "y": y, "reason": reason}
+        log.event("stuck", **self.stuck, stuck_steps=d.stuck_steps, threshold=d.threshold,
+                  switched_to="free_explore", frame=obs.frame)
+        self.update_phase(log, step, reason="stuck")
+        if not self.quiet:
+            print(f"step {step}: stuck -> free_explore: {reason}")
+        return dict(self.stuck)
+
+    def set_auto_learn(self, enabled: bool, log=None, step: int = 0) -> None:
+        """Turn stuck detection on / off (the counter restarts). PR2 wires the dashboard's
+        ``set_auto_learn`` command to this; an earlier switch to free explore is kept."""
+        self.stuck_detector.set_enabled(enabled)
+        if log is not None:
+            log.event("auto_learn", step=step, enabled=self.stuck_detector.enabled,
+                      threshold=self.stuck_detector.threshold)
+
+    def auto_learn_status(self) -> Dict[str, Any]:
+        """``status.auto_learn`` = {enabled, stuck_steps, threshold}."""
+        return self.stuck_detector.status()
+
+    def _clear_stuck(self) -> None:
+        """Load save / new game: new brains (no forced explore), counter restarts."""
+        self.stuck = None
+        self.stuck_detector.reset()
 
     def finish(self, log, steps_done: int, result, reason: str = "run_end") -> None:
         """End of run: the ``final`` save."""
@@ -627,7 +689,8 @@ class Session:
                "save_dir": str(self.saver.root) if self.saver else None,
                "save_every": self.saver.every if self.saver else None, "saving": self.saving,
                "keep_periodic": self.saver.keep_periodic if self.saver else None,
-               "resumed_from": self.resumed_from["sidecar"] if self.resumed_from else None}
+               "resumed_from": self.resumed_from["sidecar"] if self.resumed_from else None,
+               "auto_learn": self.stuck_detector.enabled, "stuck_steps": self.stuck_detector.threshold}
         for b in self.brains:
             if hasattr(b, "confidence_threshold"):
                 out["battle_confidence"] = b.confidence_threshold

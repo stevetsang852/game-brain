@@ -34,6 +34,7 @@ in `game_brain/schema/messages.py`). Durations are always frames.
 | `action` | page → server | `Action`: `presses: [{button, frames, release_frames}]` — manual and assist modes (server side; see `decision.actor`) |
 | `load_saved_game` | page → server | `{save_id}` from the current save-list status |
 | `new_game` | page → server | `{}`; reset current adapter and brain on the configured ROM |
+| `command` | page → server | **PR2, not accepted yet**: flat `{"type": "command", "cmd": "set_auto_learn", "enabled": <bool>}`, see "Auto-learn" below |
 
 Order per step: `observation`, then `decision`, then `status`. A newly opened tab is sent the
 latest envelope of each type first, so it shows the current state immediately.
@@ -124,7 +125,66 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
 - Every `status` carries `display: {mode, fps, target_fps, actual_fps, frame_fps, page_ms}`; the page shows it under the slider.
 - Every `status` carries `starter: {requested, picked, seed}`: `requested` = `random` | `bulbasaur` | `charmander` | `squirtle` (`--starter`, default `random`), `picked` = the starter taken in Oak's lab or `null` before that, `seed` = the seed a random pick comes from: `--seed`, or (no `--seed` with `--starter random`) a seed drawn at random at start, never a placeholder; on `--resume` the save's. The same object is in the log header, the run summary and every save sidecar.
 - Every `status` carries `party: [...]`: a copy of the adapter's `ram["party"]` (mGBA, `adapters/gba_mgba/firered_party.py`), one object per party slot: `{slot, species_id, species, egg, level, hp, max_hp, status, sleep_turns?, active, moves: [{id, name, pp, max_pp}]}` (`status` = `null` | `"sleep"` | `"poison"` | `"burn"` | `"freeze"` | `"paralysis"` | `"toxic"`; `sleep_turns` only while asleep; `active` = the mon in battle; a corrupt slot is `{slot, bad_egg: true}`). `[]` before the starter and with adapters that have no party data (mock). On the few transition frames where the adapter skips the read, the last list is repeated. In battle `hp`/`pp` are the live values (the game writes them back to the party after each hit / move).
-- Every `status` carries `phase`: `running` while the scripted route has open milestones; `free_explore` once every main (non-placeholder) milestone is done (FireRed: after goal 16 `deliver_parcel`, goal 17 `pewter_city` is a placeholder). The run does **not** stop on milestones; it stops only on SIGTERM / SIGINT or the `--steps` limit. The change is logged as a `phase` event `{phase, step, reason: milestones|resumed|save_loaded|new_game}` (back to `running` only on new game / loading an earlier save). The last `status` before the server shuts down has `finished: true`, `phase: "stopped"` and `stopped: {reason: "SIGTERM"|"SIGINT"|"steps", step}` (step = steps completed; logged as a `phase` event with `previous`). A forced stop (second signal, no final save) still sends it, with `stopped.forced: true`. Both final statuses also carry the last `party`.
+- Every `status` carries `phase`: `running` while the scripted route has open milestones; `free_explore` once every main (non-placeholder) milestone is done (FireRed: after goal 16 `deliver_parcel`, goal 17 `pewter_city` is a placeholder). The run does **not** stop on milestones; it stops only on SIGTERM / SIGINT or the `--steps` limit. The change is logged as a `phase` event `{phase, step, reason: milestones|resumed|save_loaded|new_game|stuck}` (`stuck`: stuck detection, next section) (back to `running` only on new game / loading an earlier save). The last `status` before the server shuts down has `finished: true`, `phase: "stopped"` and `stopped: {reason: "SIGTERM"|"SIGINT"|"steps", step}` (step = steps completed; logged as a `phase` event with `previous`). A forced stop (second signal, no final save) still sends it, with `stopped.forced: true`. Both final statuses also carry the last `party`.
+
+## Auto-learn: stuck detection (`auto_learn`, `stuck`)
+
+PR1 (this backend) adds the detector and the status fields; PR2 adds the dashboard switch and the
+`set_auto_learn` command. The formats below are fixed now so both sides can build against them.
+
+**What it does.** While auto-learn is enabled and the mode is `auto`, the backend counts steps on
+which the player's `(map_bank, map_id, x, y)` stayed the same. When the count reaches the
+threshold (`--stuck-steps N`, default 300) the path brain switches to free explore, whatever the
+current milestone. `phase` becomes `free_explore`, and the switch is logged as a `stuck` event and
+then a `phase` event with `reason: "stuck"`.
+
+- **Not counted** (neither counted nor a reset): steps with no player position (warp fade, battle
+  or menu screens, intro); `ram.in_battle`; `ram.controls_locked` (FireRed: script or text box,
+  START menu, door warp; see notes/mgba-bridge.md); and the path brain's own map-transition waits
+  (`decision.plan` `warp transition` / `arrived on a new map`). Any other step on a different
+  tile restarts the count at 1. Idle steps where no brain is available do count, because that is
+  a stopped AI.
+- **Manual mode: the detector is inactive.** It is also inactive in `assist` and `shadow`, where a
+  human drives or nothing is executed. Only `auto` counts. Leaving `auto` resets the count.
+- **When it does not switch.** When `phase` is already `free_explore` (main milestones done, or an
+  earlier switch), the switch happens only once. It also does not switch when no brain can free
+  explore (no `path` brain); the steps are still counted.
+- **How long the switch lasts.** It stays until a new game or loading a save: brains are rebuilt,
+  `stuck` goes away, and the count restarts.
+- **Default: off.** Enable it with `--auto-learn` (CLI and dashboard share the flag). The log header
+  carries `auto_learn: {enabled, threshold}`.
+
+**Status fields.**
+
+- Every `status` carries `auto_learn: {enabled: bool, stuck_steps: int, threshold: int}`.
+  `stuck_steps` is the counted steps in a row on the current tile; it is 0 when disabled or not in
+  `auto`.
+- After a switch, every `status` also carries `stuck: {step, map: [map_bank, map_id], x, y, reason}`
+  (`step` is the step whose observation reached the threshold). It is absent before a switch.
+- Final statuses (`finished: true`, also a forced stop) carry both fields too.
+- **`auto_learn` absent means the backend doesn't support it.** The Frontend greys the switch out.
+
+**Command (page → server, PR2).**
+
+```json
+{"type": "command", "cmd": "set_auto_learn", "enabled": true}
+```
+
+`enabled` must be a JSON bool. Turning it on or off restarts the count. An earlier switch to free
+explore is kept. It will be logged as an `auto_learn` event `{step, enabled, threshold}`
+(`Session.set_auto_learn`). **Until PR2 the server refuses it** with an `error` envelope
+(`type 'command' may not be sent by the dashboard`), so the page should treat the switch as
+read-only and just show `auto_learn.enabled`.
+
+**Run-log event** written at the switch (one per switch; `ts` omitted):
+
+```json
+{"kind": "stuck", "step": 4029, "map": [3, 0], "x": 12, "y": 0,
+ "reason": "position (12, 0) on map 3/0 unchanged for 300 counted steps (threshold 300) -> free explore",
+ "stuck_steps": 300, "threshold": 300, "switched_to": "free_explore", "frame": 54026}
+```
+
+It is followed by `{"kind": "phase", "phase": "free_explore", "step": 4029, "reason": "stuck"}` (example from a real-ROM run).
 
 ## 存檔 / 續玩（save / resume）協定
 
