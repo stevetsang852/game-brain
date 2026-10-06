@@ -1,7 +1,8 @@
-"""Short-horizon PPO on discrete buttons. CPU only, no torch.
+"""Experimental global action-weighting baseline on discrete buttons.
 
-This trains a softmax policy on logged transitions. It is the first training
-stage (boot to Pokedex, then Viridian to the first badge), not a full clear.
+Despite this module's historical name and CLI path, this is not PPO: it fits one
+shared set of action logits from logged rewards, without a state-conditioned policy,
+rollouts, value estimates, or a clipped objective. CPU only, no torch.
 """
 
 from __future__ import annotations
@@ -62,12 +63,12 @@ def train_short_ppo(memory_dir: str | Path, namespace: str, epochs: int = 4, see
                 grad = (1.0 if i == index else 0.0) - probs[i]
                 logits[name] += 0.05 * advantage * grad
             updates += 1
-    return {"algorithm": "ppo-tabular-short", "namespace": namespace, "updates": updates,
+    return {"algorithm": "global-action-reward-weighting-v1", "namespace": namespace, "updates": updates,
             "epochs": epochs, "logits": logits, "objective": ["clear", "pokedex"]}
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Train the short-horizon progress policy")
+    ap = argparse.ArgumentParser(description="Train the global action-weighting baseline (not PPO)")
     ap.add_argument("--namespace", required=True)
     ap.add_argument("--memory-dir", default=None)
     ap.add_argument("--epochs", type=int, default=4)

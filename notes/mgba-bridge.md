@@ -7,27 +7,34 @@
 
 `start_local.bat` uses native Python 3.10+ if its mGBA bindings import successfully.
 The mGBA desktop application does not include these bindings, and the PyPI `mgba`
-package does not provide a Windows wheel. Otherwise the launcher uses a separate
-`Ubuntu` WSL distribution, not Docker Desktop's distribution.
+package does not provide a Windows wheel. Otherwise the launcher uses an installed
+Ubuntu WSL distribution, not Docker Desktop's distribution. It prefers a distribution
+named `Ubuntu`, or uses the only registered `Ubuntu-*` distribution (for example
+`Ubuntu-F`); it does not install WSL automatically.
 
-1. In Administrator PowerShell, run `wsl --install -d Ubuntu`. Restart if requested.
+1. If Ubuntu WSL is not installed, install it on F: from Administrator PowerShell:
+   `wsl --install -d Ubuntu --location F:\WSL\Ubuntu`. Restart if requested.
 2. Run `setup_local_wsl.bat` from this repository. It installs Ubuntu build
    dependencies and builds mGBA 0.10.5 with Python bindings and FFmpeg.
 3. Run `start_local.bat`, then open http://127.0.0.1:8765/ in your Windows browser.
    Ctrl-C in the launcher window stops the game and writes the final save.
 
-Setup creates a dedicated, unprivileged `game-brain` Linux user. Builds and the
-Python virtual environment live in `/home/game-brain/.game-brain/` inside Ubuntu.
-It does not change Ubuntu's default user or your Windows Python installation.
-Re-running setup rebuilds the same pinned mGBA revision.
+Setup creates a dedicated, unprivileged `game-brain` Linux user. Build dependencies,
+the mGBA build, and the Python virtual environment live inside the selected WSL
+distribution. When installed with the F: location above, this Linux environment is
+stored on F:. Setup does not change Ubuntu's default user or your Windows Python
+installation. Re-running setup rebuilds the same pinned mGBA revision.
 
 The launcher remembers the Windows ROM path in `%USERPROFILE%\.game-brain\rom-path.txt`
-and translates it for WSL. Saves default to `%USERPROFILE%\.game-brain\saves`;
-WSL experience memory defaults to `/home/game-brain/.game-brain/memory`, separately
-from native Windows memory and Docker volumes. Existing databases are not migrated
-or overwritten. Explicit `GAME_BRAIN_SAVE_DIR`, `GAME_BRAIN_MEMORY_DIR`, and
+and translates it for WSL; the WSL ROM cache lives inside the selected distribution.
+Saves, run logs, and experience memory default to
+`/home/game-brain/.game-brain/{saves,runs,memory}` inside that distribution, avoiding
+slow or blocking per-step writes to a Windows/OneDrive-mounted repository. These WSL
+paths are stored on F: when the distribution itself is installed there, separately
+from native Windows data and Docker volumes. Existing databases are not migrated or
+overwritten. Explicit `GAME_BRAIN_SAVE_DIR`, `GAME_BRAIN_MEMORY_DIR`, and
 `GAME_BRAIN_START_STATE` Windows paths are translated for WSL; `GAME_BRAIN_STARTER`
-is also forwarded. Run logs remain in the repository's gitignored `runs/`.
+is also forwarded.
 ROMs selected through the dashboard are remembered inside Ubuntu's
 `/home/game-brain/.game-brain/` configuration and take precedence on subsequent WSL
 dashboard runs.

@@ -90,6 +90,47 @@ def test_novelty_persists_no_loop_or_reload_farming(tmp_path):
     assert stats["runs"] == 2 and stats["transitions"] == 90 and stats["cells"]
 
 
+def test_dashboard_totals_are_scoped_to_the_current_run(tmp_path):
+    run = demo.run(steps=2, quiet=True, out_dir=str(tmp_path / "runs"))
+    database = Path(run["memory"])
+    run_id = next(read_log(run["log"]))["run_id"]
+    with sqlite3.connect(database) as db:
+        db.execute("UPDATE transitions SET reward=42 WHERE run_id=?", (run_id,))
+
+    adapter = make_adapter("mock")
+    memory = ExperienceMemory(database.parent, adapter, "next-run", None, [],
+                              tmp_path / "next-run.jsonl")
+    try:
+        memory.start(adapter.reset(), 0)
+        totals = memory.dashboard_status()["totals"]
+        assert totals["runs"] == 1
+        assert totals["transitions"] == 0
+        assert totals["reward"] == 0
+    finally:
+        memory.close()
+        adapter.close()
+
+
+def test_restarting_memory_episode_uses_a_new_episode_id(tmp_path):
+    adapter = make_adapter("mock")
+    memory = ExperienceMemory(tmp_path / "archive", adapter, "same-run", "rules-v1", [],
+                              tmp_path / "run.jsonl")
+    try:
+        obs = adapter.reset()
+        memory.start(obs, 0)
+        first_episode = memory.episode_id
+        memory.finish("new_game")
+        memory.start(obs, 12)
+
+        assert memory.episode_id != first_episode
+        episodes = rows(memory.path, "SELECT episode_id,start_step FROM episodes ORDER BY start_step")
+        assert episodes == [{"episode_id": first_episode, "start_step": 0},
+                            {"episode_id": memory.episode_id, "start_step": 12}]
+    finally:
+        memory.close()
+        adapter.close()
+
+
 def test_resume_cuts_episode_and_route_excludes_abandoned_tail(tmp_path):
     root = tmp_path / "memory"
     saves = tmp_path / "saves"

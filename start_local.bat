@@ -44,9 +44,6 @@ if errorlevel 1 (
 )
 
 set "GAME_BRAIN_ROM=%GAME_BRAIN_ROM_FILE%"
-if not defined GAME_BRAIN_SAVE_DIR set "GAME_BRAIN_SAVE_DIR=%GAME_BRAIN_CONFIG_DIR%\saves"
-if not exist "%GAME_BRAIN_SAVE_DIR%" mkdir "%GAME_BRAIN_SAVE_DIR%"
-if errorlevel 1 goto data_dir_error
 
 python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
 if errorlevel 1 (
@@ -60,6 +57,9 @@ if errorlevel 1 (
 )
 
 if not defined GAME_BRAIN_MEMORY_DIR set "GAME_BRAIN_MEMORY_DIR=%GAME_BRAIN_CONFIG_DIR%\memory"
+if not defined GAME_BRAIN_SAVE_DIR set "GAME_BRAIN_SAVE_DIR=%GAME_BRAIN_CONFIG_DIR%\saves"
+if not exist "%GAME_BRAIN_SAVE_DIR%" mkdir "%GAME_BRAIN_SAVE_DIR%"
+if errorlevel 1 goto data_dir_error
 if not exist "%GAME_BRAIN_MEMORY_DIR%" mkdir "%GAME_BRAIN_MEMORY_DIR%"
 if errorlevel 1 goto data_dir_error
 
