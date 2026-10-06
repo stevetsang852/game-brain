@@ -1,8 +1,13 @@
 """status.party: a passthrough of ram["party"] (firered_party.py shape), [] without data. No ROM."""
+import hashlib
 import json
 
+import pytest
+
+from game_brain import savestate
 from game_brain.adapters.mock.house import MockHouseAdapter
 from game_brain.dashboard import live
+from game_brain.dashboard.server import LoadSaveCommand, PersistenceCommand
 
 BULBA = {"slot": 0, "species_id": 1, "species": "BULBASAUR", "egg": False, "level": 5, "hp": 20,
          "max_hp": 20, "status": None, "active": False,
@@ -72,3 +77,47 @@ def test_status_party_follows_ram_party_live(tmp_path, monkeypatch):
     assert all(set(BULBA) <= set(p[0]) for p in parties[first:])
     assert srv.status[-1].get("finished") and srv.status[-1]["party"] == parties[-2]
     assert s["steps"] == 400
+
+
+def _mock_house_save():
+    a = MockHouseAdapter()
+    a.reset()
+    state = a.save_state()
+    side = {"format": savestate.FORMAT, "format_version": savestate.FORMAT_VERSION, "adapter": a.name,
+            "state_sha1": hashlib.sha1(state).hexdigest(), "step": 3, "frame": 30, "adapter_state": {},
+            "milestones_done": [], "state_file": "x.state"}
+    a.close()
+    return LoadSaveCommand(side, state, None, "x.json")
+
+
+@pytest.mark.parametrize("command", ["new_game", "load_save"])
+def test_party_reset_on_new_game_and_load_save(tmp_path, monkeypatch, command):
+    """After 'new game' / 'load save' the held party is dropped: frames without a party read show []
+    (not the previous game's party) until the adapter reads the new game's party."""
+    orig = MockHouseAdapter.observe
+    state = {"switched_at": None, "i": 0}
+
+    def observe(self):
+        obs = orig(self)
+        state["i"] += 1
+        if state["switched_at"] is None:
+            obs.ram["party"] = [BULBA]                        # previous game: has a starter
+        elif state["i"] - state["switched_at"] > 5:
+            obs.ram["party"] = []                             # new game's own (empty) party read
+        return obs                                            # first frames after: no read
+    monkeypatch.setattr(MockHouseAdapter, "observe", observe)
+
+    class Srv(_Capture):
+        def poll(self):
+            if len(self.status) == 10 and state["switched_at"] is None:
+                state["switched_at"] = state["i"]
+                return [PersistenceCommand("new_game") if command == "new_game" else _mock_house_save()]
+            return []
+    srv = Srv()
+    live.run(srv, "mock-house", "auto", brains="path,rule", steps=25, step_delay=0, screenshot_every=0,
+             out_dir=str(tmp_path), quiet=True, save_dir=None, no_memory=True)
+    parties = [st["party"] for st in srv.status]
+    assert all(p == [BULBA] for p in parties[:10])
+    notes = srv.status[10]["notes"]
+    assert any(("新遊戲" in n) or ("已載入本機存檔" in n) for n in notes), notes
+    assert all(p == [] for p in parties[10:])                 # never the old BULBA again

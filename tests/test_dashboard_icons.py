@@ -119,10 +119,10 @@ def test_server_serves_caches_by_rom_hash_and_404s(tmp_path, monkeypatch):
         code, hdr, body = fetch(server, "/icons/412.png")  # the egg
         assert code == 200 and hdr["Content-Type"] == "image/png"
         assert body == icons.icon_png(rom, 412)
-        cached = cfg / "icons" / digest / "412.png"
+        cached = cfg / "icons" / "v1" / digest / "412.png"
         assert cached.read_bytes() == body
         code, hdr2, _ = fetch(server, "/icons/412.png", {"If-None-Match": hdr["ETag"]})
-        assert code == 304
+        assert code == 304 and hdr["ETag"].startswith('"v1-')
         for path in ("/icons/440.png", "/icons/-1.png", "/icons/1.gif", "/icons/01a.png",
                      "/icons/1.png/x", "/icons/1234.png"):
             assert fetch(server, path)[0] == 404, path
@@ -139,7 +139,8 @@ def test_server_serves_caches_by_rom_hash_and_404s(tmp_path, monkeypatch):
         monkeypatch.setenv("GAME_BRAIN_ROM", str(rom2))
         code, _, body2 = fetch(server, "/icons/412.png")
         assert code == 200 and body2 == icons.icon_png(other, 412) and body2 != body
-        assert (cfg / "icons" / hashlib.sha1(other).hexdigest() / "412.png").is_file()
+        assert (cfg / "icons" / "v1" / hashlib.sha1(other).hexdigest() / "412.png").is_file()
+        assert not (cfg / "icons" / digest).exists()  # only under the version segment
         # unreadable / missing ROM -> 404
         monkeypatch.setenv("GAME_BRAIN_ROM", str(tmp_path / "missing.gba"))
         assert fetch(server, "/icons/1.png")[0] == 404

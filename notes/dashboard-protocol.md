@@ -56,7 +56,7 @@ transparent), decoded on demand from the user's own ROM with the recipe in
 `status.party[i].species_id`, **`412` = egg** (use it when `party[i].egg` is true; the egg keeps its
 real `species_id`), `413-439` = Unown B…Z, `!`, `?`. The ROM is the one the running game uses
 (`$GAME_BRAIN_ROM`), else the one selected in the Dashboard for the next launch. PNGs are cached in
-`~/.game-brain/icons/<rom sha1>/<id>.png` (`$GAME_BRAIN_CONFIG_DIR` moves the root). 404 when no
+`~/.game-brain/icons/v1/<rom sha1>/<id>.png` (`v1` = decoder/cache version, bumped when the PNG output changes; `$GAME_BRAIN_CONFIG_DIR` moves the root). 404 when no
 ROM is readable, it is not FireRed US 1.0 (`BPRE`, version 0), or the id is not 0-439. Responses
 carry `ETag` + `Cache-Control: no-cache`, so the page can reuse them with a 304.
 
@@ -124,6 +124,7 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
 - Every `status` carries `display: {mode, fps, target_fps, actual_fps, frame_fps, page_ms}`; the page shows it under the slider.
 - Every `status` carries `starter: {requested, picked, seed}`: `requested` = `random` | `bulbasaur` | `charmander` | `squirtle` (`--starter`, default `random`), `picked` = the starter taken in Oak's lab or `null` before that, `seed` = the seed a random pick comes from: `--seed`, or (no `--seed` with `--starter random`) a seed drawn at random at start, never a placeholder; on `--resume` the save's. The same object is in the log header, the run summary and every save sidecar.
 - Every `status` carries `party: [...]`: a copy of the adapter's `ram["party"]` (mGBA, `adapters/gba_mgba/firered_party.py`), one object per party slot: `{slot, species_id, species, egg, level, hp, max_hp, status, sleep_turns?, active, moves: [{id, name, pp, max_pp}]}` (`status` = `null` | `"sleep"` | `"poison"` | `"burn"` | `"freeze"` | `"paralysis"` | `"toxic"`; `sleep_turns` only while asleep; `active` = the mon in battle; a corrupt slot is `{slot, bad_egg: true}`). `[]` before the starter and with adapters that have no party data (mock). On the few transition frames where the adapter skips the read, the last list is repeated. In battle `hp`/`pp` are the live values (the game writes them back to the party after each hit / move).
+- Every `status` carries `phase`: `running` while the scripted route has open milestones; `free_explore` once every main (non-placeholder) milestone is done (FireRed: after goal 16 `deliver_parcel`, goal 17 `pewter_city` is a placeholder). The run does **not** stop on milestones; it stops only on SIGTERM / SIGINT or the `--steps` limit. The change is logged as a `phase` event `{phase, step, reason: milestones|resumed|save_loaded|new_game}` (back to `running` only on new game / loading an earlier save). The last `status` before the server shuts down has `finished: true`, `phase: "stopped"` and `stopped: {reason: "SIGTERM"|"SIGINT"|"steps", step}` (step = steps completed; logged as a `phase` event with `previous`). A forced stop (second signal, no final save) still sends it, with `stopped.forced: true`. Both final statuses also carry the last `party`.
 
 ## 存檔 / 續玩（save / resume）協定
 
