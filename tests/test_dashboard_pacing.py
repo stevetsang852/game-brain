@@ -54,16 +54,17 @@ def test_manual_fps_subtracts_step_time():
     assert p.sleep_after(started) == 0.0  # slow step: never negative
 
 
-def test_auto_waits_for_ack_and_follows_page_speed():
+def test_auto_does_not_wait_for_ack_and_follows_page_speed():
     clk = Clock(); p = Pacer(clock=clk)
     p.apply(ViewConfig("auto", 60))
     assert not p.want_screenshot(0, has_clients=False)  # nobody watching -> no PNGs
     assert p.want_screenshot(0) and p.target_fps() == 60
     p.sent_screenshot(10)
     clk.t += 0.05
-    assert not p.want_screenshot(1)  # frame 10 still in flight
-    p.ack(FrameAck(9, clk()))        # stale ack does not release it
-    assert not p.want_screenshot(1)
+    assert p.want_screenshot(1)  # an in-flight frame does not block the next screenshot
+    p.ack(FrameAck(9, clk()))        # stale ack does not update latency
+    assert p.want_screenshot(1)
+    assert p.latency is None
     # page needs 0.2 s to receive + draw each frame -> ~5 steps/s
     for i in range(12):
         clk.t += 0.2
