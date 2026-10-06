@@ -630,6 +630,7 @@ tr.actor-row-human td { color: var(--gba-amber); }
   .dpad { grid-template-columns: repeat(3, 34px); grid-template-rows: repeat(3, 34px); }
   .face-btn { width: 46px; height: 46px; font-size: 14px; }
 }
+.party-row{display:flex;align-items:center;gap:8px;margin:4px 0}.party-icon{width:16px;height:32px;image-rendering:pixelated;background:#1118}
 </style>
 </head>
 <body>
@@ -1369,16 +1370,23 @@ function renderParty(list) {
   box.innerHTML = "";
   for (const mon of mons) {
     const row = document.createElement("div");
-    row.className = "persist-subhead";
-    if (mon.bad_egg) {
-      row.textContent = `#${mon.slot + 1} Bad Egg`;
-    } else {
+    row.className = "party-row";
+    const icon = document.createElement("img");
+    icon.className = "party-icon";
+    icon.alt = "";
+    const iconId = mon.egg ? 412 : mon.species_id;
+    if (Number.isInteger(iconId)) icon.src = `/icons/${iconId}.png`;
+    row.appendChild(icon);
+    const text = document.createElement("span");
+    if (mon.bad_egg) text.textContent = `#${mon.slot + 1} Bad Egg`;
+    else {
       const name = mon.species || mon.species_id || "?";
       const hp = Number.isInteger(mon.hp) ? `${mon.hp}/${mon.max_hp ?? "?"}` : "–";
       const status = mon.status ? ` · ${mon.status}` : "";
       const active = mon.active ? " · active" : "";
-      row.textContent = `#${(mon.slot ?? 0) + 1} ${name} Lv${mon.level ?? "?"} ${hp}${status}${active}`;
+      text.textContent = `#${(mon.slot ?? 0) + 1} ${name} Lv${mon.level ?? "?"} ${hp}${status}${active}`;
     }
+    row.appendChild(text);
     box.appendChild(row);
   }
 }
