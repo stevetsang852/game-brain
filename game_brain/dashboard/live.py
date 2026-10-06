@@ -35,6 +35,7 @@ from ..setup import (FULL_BRAINS, MGBA_NAMES, ForcedStop, Session, StopSignals, 
                      resolve_adapter, save_dir_from_args)
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from ..stuck import DEFAULT_STUCK_STEPS
+from .framepack import changed_tiles, pack_frame
 from .pacing import FrameAck, Pacer, ViewConfig
 from .server import AutoLearnCommand, DashboardServer, LoadSaveCommand, PersistenceCommand, SavedGameCommand
 from .roms import use_remembered_rom
