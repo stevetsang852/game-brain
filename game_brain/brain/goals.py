@@ -267,7 +267,8 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
     for milestone in milestones:
         item = config.get(milestone.id)
         if item:
-            milestone.label = item['label']
+            if milestone.id != "get_starter":
+                milestone.label = item['label']
             milestone.placeholder = bool(item.get('placeholder', False))
             milestone.script_button = item.get('script_button', milestone.script_button)
     return milestones
