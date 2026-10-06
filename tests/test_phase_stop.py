@@ -199,3 +199,48 @@ def test_corrupt_line_in_the_middle_still_raises(tmp_path):
         f.write("".join(lines))
     with pytest.raises(ValueError, match=r":3: corrupt run log line"):
         list(read_log(path))
+
+
+MON = {"slot": 0, "species_id": 1, "species": "BULBASAUR", "egg": False, "level": 5, "hp": 22, "max_hp": 22,
+       "status": None, "active": False, "moves": [{"id": 33, "name": "TACKLE", "pp": 35, "max_pp": 35}]}
+
+
+def _with_party(monkeypatch):
+    from game_brain.adapters.mock.house import MockHouseAdapter
+    orig = MockHouseAdapter.observe
+
+    def observe(self):
+        obs = orig(self)
+        obs.ram["party"] = [dict(MON)]
+        return obs
+    monkeypatch.setattr(MockHouseAdapter, "observe", observe)
+
+
+def test_final_status_carries_party_and_phase(tmp_path, monkeypatch):
+    _with_party(monkeypatch)
+    srv, _ = _run(tmp_path, steps=5)
+    assert all(st["party"] == [MON] and "phase" in st for st in srv.status)
+    final = srv.status[-1]
+    assert final["finished"] and final["phase"] == "stopped" and final["party"] == [MON]
+    assert final["stopped"] == {"reason": "steps", "step": 5}
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGTERM") or os.name == "nt", reason="POSIX signals")
+def test_forced_stop_status_carries_party(tmp_path, monkeypatch):
+    _with_party(monkeypatch)
+    real = Session.after_step
+
+    def after_step(self, log, steps_done, result):
+        real(self, log, steps_done, result)
+        if steps_done == 3:
+            os.kill(os.getpid(), signal.SIGINT)
+            os.kill(os.getpid(), signal.SIGINT)
+
+    monkeypatch.setattr(Session, "after_step", after_step)
+    srv = Capture()
+    with pytest.raises(ForcedStop):
+        live.run(srv, "mock-house", steps=0, step_delay=0, screenshot_every=0, out_dir=str(tmp_path / "runs"),
+                 quiet=True, save_dir=None, no_memory=True)
+    last = srv.status[-1]
+    assert last["stopped"]["forced"] is True and last["stopped"]["reason"] == "SIGINT"
+    assert last["phase"] == "stopped" and last["party"] == [MON]
