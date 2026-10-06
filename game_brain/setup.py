@@ -476,6 +476,7 @@ class Session:
             if hasattr(brain, "planner"):
                 brain.planner.restore(side.get("milestones_done"))
         self.sidecar_extra.update(starter=self.starter_info, seed=self.seed)
+        self._reset_milestone_tracking(side.get("milestones_done"))
         if self.memory:
             end = self.memory.finish("local_save_loaded")
             log.event("episode_end", **end)
@@ -492,6 +493,19 @@ class Session:
         self.brains = make_brains(self.brain_spec, seed=seed, battle_confidence=self.battle_confidence,
                                   starter=starter, imitation_model=self.imitation_model, namespace=namespace)
         self.arbiter = Arbiter(self.brains, mode=mode)
+
+    def _reset_milestone_tracking(self, done_ids=None) -> None:
+        """New game / load save: the other per-game milestone state restarts too. The saver's
+        "already reached" set is rebuilt from the next step (else the new game's milestone saves
+        are skipped), and the memory's planner (exploration cell progress) restarts from
+        ``done_ids`` (the loaded save's milestones_done; none for a new game)."""
+        if self.saver is not None:
+            self.saver.reset_milestones()
+        if self.memory is not None and self.memory.planner is not None:
+            src = next((b.planner for b in self.brains if hasattr(b, "planner")), None)
+            planner = GoalPlanner(src.milestones if src is not None else self.memory.planner.milestones)
+            planner.restore(done_ids)
+            self.memory.planner = planner
 
     def load_imported_save(self, command, log, step: int) -> None:
         """Load a browser-imported sidecar and emulator state into the active run."""
@@ -547,6 +561,7 @@ class Session:
             self.saver.resumed_from = None
             self.saver.extra.update(starter=self.starter_info, seed=self.seed)
         self.sidecar_extra.update(starter=self.starter_info, seed=self.seed)
+        self._reset_milestone_tracking()
         if self.memory:
             end = self.memory.finish("new_game")
             log.event("episode_end", **end)
