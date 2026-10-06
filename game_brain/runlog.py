@@ -313,11 +313,22 @@ def iter_steps(path: "str | Path") -> Iterator[Dict[str, Any]]:
         yield pending
 
 
+_ABSENT = object()
+
+
+def ram_differs(live: Dict[str, Any], logged: Dict[str, Any]) -> bool:
+    """True if a RAM field present in the logged observation differs from the replayed one (or is
+    missing now). Fields the log does not have are skipped: logs written before a RAM field was
+    added (e.g. ``controls_locked``) still replay, and experience memory can import them."""
+    return any(live.get(k, _ABSENT) != v for k, v in logged.items())
+
+
 def replay(path: "str | Path", adapter) -> List[str]:
     """Re-execute the executed actions of a log on a freshly reset adapter.
 
     Returns a list of mismatch descriptions (empty list == replay matched the log:
-    same frame at every step and same RAM summary).
+    same frame at every step and the same value for every RAM field the log recorded;
+    see :func:`ram_differs`).
     """
     mismatches: List[str] = []
     adapter.reset()
@@ -336,7 +347,7 @@ def replay(path: "str | Path", adapter) -> List[str]:
         obs = adapter.observe()
         if obs.frame != rec["frame"]:
             mismatches.append(f"step {rec['step']}: frame {obs.frame} != logged {rec['frame']}")
-        if obs.ram != rec["observation"]["ram"]:
+        if ram_differs(obs.ram, rec["observation"]["ram"]):
             mismatches.append(f"step {rec['step']}: ram differs")
         if rec.get("executed_action"):
             adapter.act(Action.from_dict(rec["executed_action"]))
@@ -344,6 +355,6 @@ def replay(path: "str | Path", adapter) -> List[str]:
             after = adapter.observe().summary()
             if after["frame"] != rec["observation_after"]["frame"]:
                 mismatches.append(f"step {rec['step']}: post-action frame differs")
-            if after["ram"] != rec["observation_after"]["ram"]:
+            if ram_differs(after["ram"], rec["observation_after"]["ram"]):
                 mismatches.append(f"step {rec['step']}: post-action ram differs")
     return mismatches

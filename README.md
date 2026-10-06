@@ -316,7 +316,7 @@ docker compose exec dashboard python3 -m game_brain.memory
 
 讀 log 請用 `game_brain.runlog.iter_steps()`（`replay()` 都係用佢），佢會將以上全部還原；舊 log 照讀，結果一樣。
 
-Replay 會將 log 入面每一步嘅 `executed_action`（包括人手動作）喺一個新 reset 嘅 adapter 上重做一次，逐步比較 `frame` 同 RAM：
+Replay 會將 log 入面每一步嘅 `executed_action`（包括人手動作）喺一個新 reset 嘅 adapter 上重做一次，逐步比較 `frame` 同 RAM。RAM 只比較 log 入面有記錄嘅欄位：舊 log 冇嘅新欄位（例如 `controls_locked`）會跳過，所以舊 log 照樣 replay 到；log 有記錄嘅欄位就一定要一樣：
 
 ```bash
 python -c "

@@ -112,3 +112,49 @@ def test_map_keys_logged_once_per_map_and_restored(tmp_path):
     assert [r["kind"] for r in recs].count("map") == 3  # a, b, a again
     assert all("collision" not in r["observation"]["ram"] for r in recs if r["kind"] == "step")
     assert [r["observation"]["ram"] for r in iter_steps(p)] == rams
+
+
+class _NewFieldMock(MockAdapter):
+    """A newer adapter that reports one more RAM field than the one that wrote the log."""
+
+    def __init__(self, locked=False, **kw):
+        self.locked = locked
+        super().__init__(**kw)
+
+    def observe(self):
+        obs = super().observe()
+        obs.ram["controls_locked"] = self.locked
+        return obs
+
+
+def test_old_log_without_a_new_ram_field_still_replays(tmp_path):
+    """Logs written before a RAM field existed (pre-#71 mGBA logs have no ``controls_locked``)
+    replay with 0 mismatches: fields absent from the logged observation are skipped."""
+    s = demo.run("mock", steps=40, mode="auto", out_dir=str(tmp_path), quiet=True)
+    steps = list(iter_steps(s["log"]))
+    assert all("controls_locked" not in r["observation"]["ram"] for r in steps)
+    assert all("controls_locked" not in r["observation_after"]["ram"] for r in steps if r.get("observation_after"))
+    assert replay(s["log"], _NewFieldMock()) == []
+
+
+def test_a_logged_ram_field_that_differs_is_still_a_mismatch(tmp_path):
+    from game_brain.arbiter import Arbiter
+    from game_brain.brain import RuleBrain
+    from game_brain.runlog import RunLogWriter, ram_differs
+    adapter, arb = _NewFieldMock(locked=False), Arbiter([RuleBrain()], mode="auto")
+    path = tmp_path / "new.jsonl"
+    with RunLogWriter(path) as log:
+        log.header(adapter="mock")
+        adapter.reset()
+        for step in range(5):
+            obs = adapter.observe()
+            res = arb.step(obs)
+            advanced = adapter.act(res.executed)
+            log.step(step, obs, res, advanced, observation_after=adapter.observe())
+    assert all(r["observation"]["ram"]["controls_locked"] is False for r in iter_steps(path))
+    assert replay(path, _NewFieldMock(locked=False)) == []
+    mm = replay(path, _NewFieldMock(locked=True))          # present in the log but different
+    assert any("ram differs" in m for m in mm) and any("post-action ram differs" in m for m in mm)
+    assert replay(path, MockAdapter()) != []               # present in the log, missing on replay
+    assert ram_differs({"a": 1, "b": 2}, {"a": 1}) is False
+    assert ram_differs({"a": 1}, {"a": 2}) is True and ram_differs({}, {"a": None}) is True
