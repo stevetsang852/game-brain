@@ -111,21 +111,91 @@ def test_frozen_on_the_warp_tile_is_not_a_dead_warp():
     assert act.presses[0].button == "DOWN" and "take warp" in dec.reason
 
 
-def test_placeholder_milestone_finishes_dialogue_then_idles():
+def test_placeholder_milestone_free_explores():
+    """Goal 17 (placeholder): outside battle, walk toward less-visited tiles instead of idling
+    (PathBrain._free_explore, restored from 1252fcc)."""
     pl = GoalPlanner([Milestone("later", "not yet", placeholder=True, script_button="B")])
     b = PathBrain(planner=pl, settle_checks=0)
     settle(b, obs(1, 1, "UP"))
     act, dec = b.decide(obs(1, 1, "UP"))
+    assert dec.plan == "free explore" and act.presses[0].button in ("DOWN", "RIGHT")  # UP/LEFT are walls
+    assert "turn" in dec.reason and act.presses[0].frames <= 3
+    d = act.presses[0].button
+    act, dec = b.decide(obs(1, 1, d))                                       # facing it now: step
+    assert act.presses[0].button == d and "walk" in dec.reason and act.presses[0].frames > 3
+    assert dec.milestones == [{"id": "later", "label": "not yet", "done": False}]
+
+
+def _explorer():
+    return PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]), settle_checks=0)
+
+
+def test_free_explore_takes_a_door_mat_warp():
+    """New (not in 1252fcc): on a mat warp whose ``enter`` points into a wall (Oak's lab door,
+    (6,12) + DOWN), pressing ``enter`` counts as a move, so free explore can leave the building."""
+    rows = ["###",
+            "#.#",
+            "#.#",
+            "###"]
+    mat = {"x": 1, "y": 2, "dest_bank": 3, "dest_map": 0, "enter": "DOWN", "behavior": 101}
+    b = _explorer()
+    settle(b, obs(1, 1, "DOWN", rows=rows, warps=[mat]))
+    act, dec = b.decide(obs(1, 1, "DOWN", rows=rows, warps=[mat]))
+    assert act.presses[0].button == "DOWN" and "walk DOWN" in dec.reason      # only way: onto the mat
+    act, dec = b.decide(obs(1, 2, "DOWN", rows=rows, warps=[mat]))
+    assert act.presses[0].button == "DOWN" and "take warp (1,2) -> (3, 0)" in dec.reason
+    act, dec = b.decide(Observation(frame=0, ram={"facing": "DOWN"}))          # fade: no position
+    assert act.presses[0].button == "NONE" and dec.plan == "warp transition"
+
+
+def test_free_explore_takes_a_door_from_the_tile_below():
+    rows = ["#####",                                       # (2,0) is the door: blocked, enter UP
+            "#...#",
+            "#####"]
+    door = {"x": 2, "y": 0, "dest_bank": 4, "dest_map": 3, "enter": "UP", "behavior": 0}
+    b = _explorer()
+    settle(b, obs(2, 1, "UP", rows=rows, warps=[door]))
+    b._visits.update({((9, 9), 1, 1): 3, ((9, 9), 3, 1): 3})   # both side tiles already explored
+    act, dec = b.decide(obs(2, 1, "UP", rows=rows, warps=[door]))
+    assert act.presses[0].button == "UP" and "take warp (2,0) -> (4, 3)" in dec.reason
+
+
+def test_free_explore_does_not_walk_into_an_unlisted_obstacle_forever():
+    """New: a step that didn't move us marks the bumped tile visited (Pallet Town (7,19) looks
+    walkable in the collision map but blocks), so another direction is tried."""
+    rows = ["#######",
+            "#.....#",
+            "#.....#",
+            "#######"]
+    b = _explorer()
+    settle(b, obs(3, 1, "RIGHT", rows=rows))
+    facing, pressed = "RIGHT", []
+    for _ in range(12):                                   # the position never changes
+        act, dec = b.decide(obs(3, 1, facing, rows=rows))
+        btn = act.presses[0].button
+        facing = btn if btn in ("UP", "DOWN", "LEFT", "RIGHT") else facing
+        pressed.append(btn)
+    dirs = [p for p in pressed if p in ("UP", "DOWN", "LEFT", "RIGHT")]
+    assert len(set(dirs)) >= 2, pressed                   # verbatim 1252fcc: one direction forever
+
+
+def test_placeholder_milestone_in_battle_finishes_dialogue_first():
+    pl = GoalPlanner([Milestone("later", "not yet", placeholder=True, script_button="B")])
+    b = PathBrain(planner=pl, settle_checks=0)
+
+    def bobs(*a):
+        o = obs(*a)
+        o.ram["in_battle"] = True
+        return o
+    settle(b, bobs(1, 1, "UP"))
+    act, dec = b.decide(bobs(1, 1, "UP"))
     assert act.presses[0].button == "LEFT" and "probe" in dec.reason      # can we move?
-    act, dec = b.decide(obs(1, 1, "UP"))                                    # no: text box open
+    act, dec = b.decide(bobs(1, 1, "UP"))                                    # no: text box open
     assert act.presses[0].button == "B" and "text box" in dec.reason
-    act, dec = b.decide(obs(1, 1, "UP"))
+    act, dec = b.decide(bobs(1, 1, "UP"))
     assert act.presses[0].button == "LEFT"
-    act, dec = b.decide(obs(1, 1, "LEFT"))                                  # turned: free
-    assert act.presses[0].button == "NONE" and "not implemented" in dec.reason
-    act, dec = b.decide(obs(1, 1, "LEFT"))
-    assert act.presses[0].button == "NONE" and dec.milestones == [{"id": "later", "label": "not yet",
-                                                                  "done": False}]
+    act, dec = b.decide(bobs(1, 1, "LEFT"))                                  # turned: free -> explore
+    assert dec.plan == "free explore"
     strict = PathBrain(planner=GoalPlanner([Milestone("later", "x", placeholder=True)]),
                        idle_on_placeholder=False, settle_checks=0)
     settle(strict, obs(1, 1))
@@ -250,7 +320,7 @@ def test_pathbrain_walks_mock_house_through_parcel_and_replays(tmp_path):
                or maps[i] != (4, 0) for i, r in enumerate(steps))
     assert all(r["decision"].get("milestones") for r in steps)  # every step, also RuleBrain's
     last = steps[-1]["decision"]
-    assert last["brain"] == "path" and "not implemented yet -> idle" in last["reason"]
+    assert last["brain"] == "path" and last["plan"] == "free explore"   # goal 17: walks, no idling
     done = {m["id"]: m["done"] for m in last["milestones"]}
     assert done["get_starter"] and done["rival_battle"] and done["rival_battle_over"]
     assert all(v for k, v in done.items() if k != "pewter_city") and not done["pewter_city"]
