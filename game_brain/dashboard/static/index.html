@@ -745,6 +745,11 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <button id="msToggle" class="linkbtn" type="button" style="display:none"></button>
     </section>
 
+    <section class="gb-card">
+      <h2 data-i18n="partyList">隊伍</h2>
+      <div id="partyList"><div class="persist-empty">尚未有隊伍資料</div></div>
+    </section>
+
     <section id="battleSection" class="gb-card idle">
       <h2 data-i18n="battle">戰鬥</h2>
       <div id="battleState">不在戰鬥中</div>
@@ -1352,6 +1357,32 @@ function setMode(mode) {
   for (const b of document.querySelectorAll("#pad button")) b.disabled = !HUMAN_MODES.includes(mode);
 }
 
+
+function renderParty(list) {
+  const box = $("partyList");
+  if (!box) return;
+  const mons = Array.isArray(list) ? list : [];
+  if (!mons.length) {
+    box.innerHTML = '<div class="persist-empty">尚未有隊伍資料</div>';
+    return;
+  }
+  box.innerHTML = "";
+  for (const mon of mons) {
+    const row = document.createElement("div");
+    row.className = "persist-subhead";
+    if (mon.bad_egg) {
+      row.textContent = `#${mon.slot + 1} Bad Egg`;
+    } else {
+      const name = mon.species || mon.species_id || "?";
+      const hp = Number.isInteger(mon.hp) ? `${mon.hp}/${mon.max_hp ?? "?"}` : "–";
+      const status = mon.status ? ` · ${mon.status}` : "";
+      const active = mon.active ? " · active" : "";
+      row.textContent = `#${(mon.slot ?? 0) + 1} ${name} Lv${mon.level ?? "?"} ${hp}${status}${active}`;
+    }
+    box.appendChild(row);
+  }
+}
+
 function onStatus(env) {
   const s = env.payload;
   $("step").textContent = s.step; state.step = s.step; $("adapter").textContent = "adapter: " + s.adapter;
@@ -1382,6 +1413,7 @@ function onStatus(env) {
     renderAvailableSaves(state.availableSaves || [], s.persistence.active_save_id);
   }
   if (s.display) onDisplay(s.display);
+  renderParty(s.party);
 }
 
 // ---------- display speed ----------
