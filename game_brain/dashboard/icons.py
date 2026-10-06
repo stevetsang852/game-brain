@@ -2,7 +2,7 @@
 
 Recipe and addresses: notes/party-and-icons.md section 5. Nothing is shipped in the repo: every
 PNG is decoded from the local ROM on first request and cached under
-``~/.game-brain/icons/<rom sha1>/<id>.png`` (``$GAME_BRAIN_CONFIG_DIR`` overrides the root).
+``~/.game-brain/icons/v1/<rom sha1>/<id>.png`` (``$GAME_BRAIN_CONFIG_DIR`` overrides the root).
 
 Icon ids: 0-411 species (the party's ``species_id``), 412 egg, 413-439 Unown B..Z, ``!``, ``?``.
 Each PNG is 32x64 RGBA: animation frame 0 on top, frame 1 below; palette colour 0 is transparent.
@@ -25,6 +25,8 @@ MON_ICON_TABLE = 0x083D37A0          # const u8 *gMonIconTable[440]
 MON_ICON_PALETTE_INDICES = 0x083D3E80  # u8 gMonIconPaletteIndices[440], values 0-2
 MON_ICON_PALETTE_TABLE = 0x083D4038  # struct SpritePalette[6] {const u16 *data; u16 tag; u16 pad}
 NUM_ICONS = 440
+#: cache layout / decoder version: bump when the PNG output changes so old cached files are ignored
+CACHE_VERSION = "v1"
 EGG_ICON = 412
 ICON_BYTES = 0x400                   # 2 frames x 16 tiles x 32 bytes, uncompressed 4bpp
 NUM_PALETTES = 3                     # entries 3-5 of the palette table are unused in FireRed
@@ -110,7 +112,7 @@ class IconCache:
 
     def __init__(self, rom_path_fn=current_rom_path, cache_root_fn=None):
         self._rom_path_fn = rom_path_fn
-        self._cache_root_fn = cache_root_fn or (lambda: config_dir() / "icons")
+        self._cache_root_fn = cache_root_fn or (lambda: config_dir() / "icons" / CACHE_VERSION)
         self._lock = threading.Lock()
         self._rom_key: Optional[Tuple[str, int, int]] = None
         self._rom: Optional[bytes] = None
