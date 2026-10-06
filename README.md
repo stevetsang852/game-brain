@@ -13,6 +13,18 @@
 >
 > **請用美版 FireRed（header `BPRE`）。** 坊間中文版多數係美版打翻譯補丁，畫面可以係中文，但字庫或劇本一改，RAM 位址就可能對唔上。中文 ROM 唔當通關基準。我哋驗證過嗰隻 SHA1 係 `e0194282c427689768f8e618a285552f264524a4`，唔係乾淨 US 1.0（`41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`），所以位址都係逐個驗證，唔係照抄 pokefirered。
 
+
+## 學習目標計劃（2026-10-06）
+
+方向係自己提出下一個劇本目標，而唔係一次過寫完整主線。
+
+1. 已驗證里程碑仍然由 PathBrain 跟 `goals.py`。
+2. `ProbeBrain` 見到新地圖或新 NPC，就加一條 `unverified` probe。它只提議，唔寫入 `goals.json`，亦唔當完成。
+3. 下一步先把 probe 交俾尋路執行。LLM 只在有 provider 之後負責把 probe 寫成可驗證劇本。
+4. RL 仍未接入真 ROM。通關獎勵稀疏，未有 probe 執行政策之前不上 PPO。
+
+啟用：`--brains battle,path,probe,rule`。預設未包括 probe。
+
 ## 點樣開
 
 開完之後瀏覽器去 http://127.0.0.1:8765/ 。Dashboard 只綁本機，唔好改成對外。
