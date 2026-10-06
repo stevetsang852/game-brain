@@ -7,9 +7,10 @@ identifier (``"bulbasaur"``, ``"vine-whip"``; case-insensitive, spaces/underscor
 
 from __future__ import annotations
 
-import json
 from functools import lru_cache
 from pathlib import Path
+
+from ..cache import cache_json
 from typing import Dict, Iterable, Optional, Union
 
 _DIR = Path(__file__).resolve().parent
@@ -18,7 +19,7 @@ Key = Union[int, str]
 
 @lru_cache(maxsize=None)
 def _load(name: str) -> dict:
-    data = json.loads((_DIR / name).read_text(encoding="utf-8"))
+    data = dict(cache_json(_DIR / name))
     data.pop("_meta", None)
     return data
 

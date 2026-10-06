@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Optional
 
 try:
@@ -30,3 +32,16 @@ def cache_delete(key: str) -> None:
         _fallback.pop(key, None)
         return
     _store.delete(key)
+
+
+def cache_json(path) -> dict:
+    """Load a static JSON file, cached by path, size, and mtime."""
+    file = Path(path)
+    stat = file.stat()
+    key = f"file:{file.resolve()}:{stat.st_mtime_ns}:{stat.st_size}"
+    cached = cache_get(key)
+    if isinstance(cached, dict):
+        return cached
+    data = json.loads(file.read_text(encoding="utf-8"))
+    cache_set(key, data)
+    return data
