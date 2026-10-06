@@ -23,6 +23,7 @@ from . import savestate
 from .runlog import RunLogWriter
 from .schema import Mode, ModeCommand
 from .setup import ForcedStop, Session, StopSignals, add_run_args, save_dir_from_args
+from .stuck import DEFAULT_STUCK_STEPS
 
 
 def _parse_switches(items: List[str]) -> Dict[int, Mode]:
@@ -39,13 +40,15 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
         resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
         starter: Optional[str] = None, memory_dir: Optional[str] = None, no_memory: bool = False,
-        imitation_model: Optional[str] = None) -> dict:
+        imitation_model: Optional[str] = None, auto_learn: bool = False,
+        stuck_steps: int = DEFAULT_STUCK_STEPS) -> dict:
     """``save_dir``: write save states there (None = no saves). ``resume``: "latest" (in
     ``save_dir``, default ~/.game-brain/saves) or a sidecar/state path; the run continues from it.
     Adapter / brains / saves are built by :class:`game_brain.setup.Session` (shared with the dashboard)."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
                    quiet=quiet, keep_periodic=keep_periodic, starter=starter,
-                   memory_dir=memory_dir, no_memory=no_memory, imitation_model=imitation_model)
+                   memory_dir=memory_dir, no_memory=no_memory, imitation_model=imitation_model,
+                   auto_learn=auto_learn, stuck_steps=stuck_steps)
     adapter, arbiter = sess.adapter, sess.arbiter
     switches = switches or {}
     start_step = sess.start_step
@@ -72,6 +75,7 @@ def run(adapter_name: str = "mock", steps: int = 60, mode: str = "auto", brains:
             by_brain[result.decision.brain] += 1
             executed_count += int(result.decision.executed)
             sess.record_step(log, step, obs, result, advanced)
+            sess.watch_stuck(log, step, obs, result)
             steps_done += 1
             sess.after_step(log, step + 1, result)
             if screenshot_every and step % screenshot_every == 0:
@@ -122,7 +126,8 @@ def main(argv=None) -> int:
                 a.screenshot_every, a.quiet, battle_confidence=a.battle_confidence,
                 save_dir=save_dir, save_every=a.save_every,
                 resume=a.resume, keep_periodic=a.keep_periodic, starter=a.starter,
-                memory_dir=a.memory_dir, no_memory=a.no_memory)
+                memory_dir=a.memory_dir, no_memory=a.no_memory,
+                auto_learn=a.auto_learn, stuck_steps=a.stuck_steps)
     except (ValueError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -104,6 +104,7 @@ class PathBrain(Brain):
         self._visits: Dict[tuple, int] = {}    # (map, x, y) visits during free explore after goal 17
         self._explore_dir: Optional[str] = None
         self._explore_walk: Optional[tuple] = None  # (map/x/y key, direction) of the last free-explore step
+        self._forced_explore: Optional[str] = None  # set by force_free_explore() (stuck detection)
         self.stats = {"steps": 0, "turns": 0, "bumps": 0, "a_presses": 0, "warps": 0, "replans": 0,
                       "script_presses": 0, "frozen": 0, "npc_blocked_tiles": 0}
 
@@ -189,6 +190,19 @@ class PathBrain(Brain):
             path=[pos])
 
 
+    def force_free_explore(self, reason: str) -> None:
+        """Stuck detection (game_brain/stuck.py): free explore from the next decision on, whatever
+        the current milestone, until reset() (new brains on load save / new game). Milestones
+        keep updating. Warp fades / settling after a map change are still waited out first."""
+        self._forced_explore = reason
+
+    @property
+    def forced_explore(self) -> Optional[str]:
+        return self._forced_explore
+
+    def _explore_goal(self) -> str:
+        return "自由探索（卡住後自動切換）" if self._forced_explore else "自由探索（goal 17 之後）"
+
     def _free_explore(self, obs: Observation, milestone, pos: Tile):
         """After goal 17, actually walk. Same step timing as PathBrain, not a turn-only probe."""
         grid = self.maps.current_map()
@@ -209,7 +223,7 @@ class PathBrain(Brain):
             self._last = ("explore", "A")
             return self._act("A", 2, 10), self._dec(
                 "free explore", "position unchanged, press A to clear dialogue, then keep walking",
-                goal="自由探索（goal 17 之後）", path=[pos])
+                goal=self._explore_goal(), path=[pos])
         npcs = self._npc_tiles(obs) if self.avoid_npcs else set()
         # a usable warp whose stand tile is here (door mat: press DOWN into the wall; door: walk
         # into it) is a move too, otherwise free explore can never leave a building
@@ -236,19 +250,19 @@ class PathBrain(Brain):
             self.stats["turns"] += 1
             return self._act(direction, self.turn_frames, self.turn_release), self._dec(
                 "free explore", f"turn {direction}, then step ({cells} cells)",
-                goal="自由探索（goal 17 之後）", path=[pos, nxt])
+                goal=self._explore_goal(), path=[pos, nxt])
         if direction in warps:
             w = warps[direction]
             self._visits[(map_key,) + nxt] = self._visits.get((map_key,) + nxt, 0) + 1  # ranks like a visited tile
             self._last = ("warp", (grid.key, w))      # wait out the fade like a normal warp
             return self._act(direction, self.step_frames, self.warp_release), self._dec(
                 "free explore", f"at {pos}: press {direction} to take warp ({w.x},{w.y}) -> {w.dest} ({cells} cells)",
-                goal="自由探索（goal 17 之後）", path=[pos])
+                goal=self._explore_goal(), path=[pos])
         self.stats["steps"] += 1
         self._explore_walk = (key, direction)
         return self._act(direction, self.step_frames, self.step_release), self._dec(
             "free explore", f"walk {direction} ({cells} cells)",
-            goal="自由探索（goal 17 之後）", path=[pos, nxt])
+            goal=self._explore_goal(), path=[pos, nxt])
 
     def _wait(self, frames: int, kind: str) -> Action:
         self._last = (kind, None)
@@ -296,6 +310,8 @@ class PathBrain(Brain):
                     "arrived on a new map", f"at {pos}, waiting until the position is stable")
             self._settling = False
 
+        if self._forced_explore:
+            return self._free_explore(obs, milestone, pos)
         if milestone is None:
             raise self._unavailable("all milestones done")
         if milestone.placeholder:

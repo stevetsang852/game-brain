@@ -34,6 +34,7 @@ from ..runlog import RunLogWriter
 from ..setup import (FULL_BRAINS, MGBA_NAMES, ForcedStop, Session, StopSignals, add_run_args,
                      resolve_adapter, save_dir_from_args)
 from ..schema import Action, ModeCommand, Mode, to_envelope
+from ..stuck import DEFAULT_STUCK_STEPS
 from .pacing import FrameAck, Pacer, ViewConfig
 from .server import DashboardServer, LoadSaveCommand, PersistenceCommand, SavedGameCommand
 from .roms import use_remembered_rom
@@ -153,12 +154,14 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
         out_dir: str = "runs", quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
         resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
-        starter: Optional[str] = None, memory_dir: Optional[str] = None, no_memory: bool = False) -> dict:
+        starter: Optional[str] = None, memory_dir: Optional[str] = None, no_memory: bool = False,
+        auto_learn: bool = False, stuck_steps: int = DEFAULT_STUCK_STEPS) -> dict:
     """Adapter / brains (battle, path + FireRed milestones, rule) / saves come from
-    :class:`game_brain.setup.Session`, the same setup the CLI uses. ``save_dir`` None = no saves."""
+    :class:`game_brain.setup.Session`, the same setup the CLI uses. ``save_dir`` None = no saves.
+    ``auto_learn`` / ``stuck_steps``: stuck detection (game_brain/stuck.py, off by default)."""
     sess = Session(adapter_name, brains, mode, seed, battle_confidence, out_dir, save_dir, save_every, resume,
                    quiet=quiet, keep_periodic=keep_periodic, starter=starter,
-                   memory_dir=memory_dir, no_memory=no_memory)
+                   memory_dir=memory_dir, no_memory=no_memory, auto_learn=auto_learn, stuck_steps=stuck_steps)
     adapter, arbiter = sess.adapter, sess.arbiter
     if not quiet:
         c = sess.config()
@@ -180,8 +183,18 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                                       "adapter": adapter.name, "notes": [], "finished": True,
                                       "party": held["party"], "phase": "stopped", "stopped": {"reason": exc.args[0],
                                                                       "step": sess.current_step,
-                                                                      "forced": True}}})
+                                                                      "forced": True},
+                                      **auto_learn_fields(sess)}})
         raise
+
+
+def auto_learn_fields(sess) -> dict:
+    """``status.auto_learn`` = {enabled, stuck_steps, threshold} on every status, plus
+    ``status.stuck`` = {step, map, x, y, reason} once stuck detection switched to free explore."""
+    out = {"auto_learn": sess.auto_learn_status()}
+    if sess.stuck is not None:
+        out["stuck"] = dict(sess.stuck)
+    return out
 
 
 def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held) -> dict:
@@ -203,6 +216,7 @@ def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held
             result = arbiter.step(obs)
             advanced = adapter.act(result.executed) if result.executed else 0
             sess.record_step(log, step, obs, result, advanced)
+            sess.watch_stuck(log, step, obs, result)
             sess.after_step(log, step + 1, result)
             server.broadcast(to_envelope(obs, obs.frame))
             if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
@@ -219,6 +233,7 @@ def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held
                 "notes": list(result.notes) + outcomes, "display": pacer.status(),
                 "starter": dict(sess.starter_info),
                 "persistence": sess.dashboard_status(), "party": party, "phase": sess.phase,
+                **auto_learn_fields(sess),
             }})
             if not quiet and outcomes:
                 print(f"step {step} frame {obs.frame}: " + "; ".join(outcomes))
@@ -247,6 +262,7 @@ def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held
             "pending_manual": arbiter.pending_manual, "notes": [], "display": pacer.status(),
             "starter": dict(sess.starter_info), "persistence": sess.dashboard_status(),
             "party": party, "finished": True, "phase": "stopped", "stopped": stopped,
+            **auto_learn_fields(sess),
         }})
     return summary
 
@@ -305,7 +321,8 @@ def main(argv=None) -> int:
                     a.screenshot_every, a.out, a.quiet, battle_confidence=a.battle_confidence,
                     save_dir=save_dir, save_every=a.save_every, resume=resume,
                     keep_periodic=a.keep_periodic, starter=a.starter,
-                    memory_dir=a.memory_dir, no_memory=a.no_memory)
+                    memory_dir=a.memory_dir, no_memory=a.no_memory,
+                    auto_learn=a.auto_learn, stuck_steps=a.stuck_steps)
         except (ValueError, FileNotFoundError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
