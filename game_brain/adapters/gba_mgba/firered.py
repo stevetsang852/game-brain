@@ -16,6 +16,9 @@ MAIN_VBLANK_COUNTER2 = G_MAIN + 0x24  # u32, +1 per frame
 MAIN_HELD_KEYS = G_MAIN + 0x2C   # u16, KEYINPUT bits of held buttons
 MAIN_FLAGS_439 = G_MAIN + 0x439  # u8 bitfield: bit1 = gMain.inBattle (set by the battle engine)
 IN_BATTLE_BIT = 0x02
+#: bool8 sScriptContext2Enabled (script.c): 1 while the player's field controls are locked -- a
+#: script / text box (Oak's speech, talking to an NPC), the START menu, a door warp + auto-walk
+SCRIPT_CONTEXT2_ENABLED = 0x03000F9C
 G_SAVEBLOCK1_PTR = 0x03005008    # struct SaveBlock1 *; pos @+0 (s16 x,y), location @+4 (s8 group, s8 num)
 G_PLAYER_AVATAR = 0x02037078     # struct PlayerAvatar; objectEventId @+5
 G_OBJECT_EVENTS = 0x02036E38     # struct ObjectEvent[16], 0x24 bytes each; facingDirection = low nibble @+0x18
@@ -71,6 +74,8 @@ class FireRedRam:
             # transition into it (callback2 is already not the overworld then). Verified on the
             # rival battle in Oak's lab; see notes/mgba-bridge.md "`in_battle`".
             "in_battle": bool(self.u8(MAIN_FLAGS_439) & IN_BATTLE_BIT),
+            # field controls locked (script / text box / START menu / warp); notes/mgba-bridge.md
+            "controls_locked": bool(self.u8(SCRIPT_CONTEXT2_ENABLED)),
         }
         if cb2 != CB2_OVERWORLD:
             ram["scene"] = "other"

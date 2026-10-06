@@ -140,6 +140,20 @@ def test_in_battle_is_bit1_of_gmain_439_only():
     assert a.observe().ram["in_battle"] is False
 
 
+def test_controls_locked_is_sscriptcontext2enabled():
+    """0x03000F9C (sScriptContext2Enabled): script / text box / START menu / warp; every observation."""
+    core = FakeCore()
+    a = MgbaFireRedAdapter(core=core)
+    assert fr.SCRIPT_CONTEXT2_ENABLED == 0x03000F9C
+    assert a.reset().ram["controls_locked"] is False
+    core.memory.put(fr.SCRIPT_CONTEXT2_ENABLED, 1, 1)
+    assert a.observe().ram["controls_locked"] is True
+    overworld(core)
+    assert a.observe().ram["controls_locked"] is True
+    core.memory.put(fr.SCRIPT_CONTEXT2_ENABLED, 0, 1)
+    assert a.observe().ram["controls_locked"] is False
+
+
 def _put_mon(core, battler, species, level, hp, max_hp, moves):
     b = fb.G_BATTLE_MONS + fb.BATTLE_MON_SIZE * battler
     core.memory.put(b + fb.BM_SPECIES, species, 2)

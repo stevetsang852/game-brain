@@ -137,6 +137,36 @@ How it was checked:
   battle**, so it is not usable as "in a battle" and is not exposed.
 * Only a trainer battle (the rival) has been seen. A wild battle is not verified yet.
 
+## `controls_locked` (verified on the supplied ROM)
+
+`ram["controls_locked"]` is the byte at `0x03000F9C`, pokefirered's `sScriptContext2Enabled`
+(script.c, set by `ScriptContext2_Enable`). It is 1 while the player's field controls are locked
+and is reported in every observation. Stuck detection (`game_brain/stuck.py`) uses it to skip
+dialogue, menu and warp steps.
+
+How it was found and checked:
+
+* **Finding it.** The run started from the goal-16 milestone save (Oak's lab, Oak's speech still
+  running) and did 800 path-brain steps. IWRAM (`0x03000000`-`0x03007FFF`) was dumped every step.
+  - "Locked" steps were 282 direction presses that changed neither the position nor the facing,
+    all during Oak's speech.
+  - "Free" steps were 389 direction presses that moved or turned the player.
+  - Only three bytes were 1 on every locked step and 0 on at least 99.7 % of free steps:
+    `0x03000F9C`, `0x03005078` and `0x0300510C`.
+  - `0x03000F9C` is the one that matches `sScriptContext2Enabled`; the other two take other values
+    (`0x03005078` is 16 in a warp and 4 in the menu).
+* **Oak's speech.** 1 on every step until the speech ends, then 0 from the first step the player
+  can turn.
+* **Door warp.** Leaving the lab by pressing DOWN on the mat at (6,12): 1 from the press through
+  the fade and the auto-walk out of the Pallet door ((16,13) to (16,14)), then 0 again.
+* **START menu.** In Pallet it goes 0 → START → 1 (menu open; LEFT doesn't turn the player) → B → 0.
+  Opening the Pokédex from the menu: 1, with no position. Closing it: 0.
+* **Talking to an NPC.** With the Pallet NPC at (11,17), standing at (12,17) facing LEFT: 0 before
+  pressing A, 1 after A (text box; LEFT doesn't move the player).
+* **Free steps.** One free step in 389 read 1: a single step right after arriving in Pallet,
+  probably a map script.
+* **Not verified.** A wild battle; `in_battle` covers battles anyway.
+
 Takeover check for `firered_extra.py` (written by the M2 PR):
 
 * `party_count`: 0 on every step before "received the BULBASAUR" (step 963 of the run
