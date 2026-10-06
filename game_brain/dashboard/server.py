@@ -36,7 +36,7 @@ from urllib.parse import urlparse
 from .. import savestate
 from ..schema import Action, ModeCommand, SchemaError, from_envelope
 from . import ws
-from .icons import IconCache, IconError
+from .icons import CACHE_VERSION, IconCache, IconError
 from .pacing import FrameAck, ViewConfig
 from .roms import MAX_ROM_BYTES, MIN_ROM_BYTES, RomSelection
 
@@ -268,7 +268,7 @@ class DashboardServer:
                     log.debug("icon %s: %s", icon_id, exc)
                     self.send_error(404)
                     return
-                etag = f'"{digest[:16]}-{icon_id}"'
+                etag = f'"{CACHE_VERSION}-{digest[:16]}-{icon_id}"'
                 if self.headers.get("If-None-Match") == etag:
                     self.send_response(304)
                     self.send_header("ETag", etag)

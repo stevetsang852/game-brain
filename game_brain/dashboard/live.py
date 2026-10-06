@@ -188,6 +188,7 @@ def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held
     step = sess.start_step
     result = None
     party: list = held["party"]
+    epoch = sess.game_epoch
     with sess, RunLogWriter(sess.log_path) as log, StopSignals() as stop:
         log.header(**sess.header_info(steps=steps, dashboard=server.url))
         obs = sess.start(log)
@@ -207,6 +208,8 @@ def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held
             if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
                 pacer.sent_screenshot(obs.frame)
             server.broadcast(to_envelope(result.decision, obs.frame))
+            if sess.game_epoch != epoch:  # load save / new game: never show the previous game's party
+                epoch, party = sess.game_epoch, []
             party = held["party"] = party_status(obs.ram, party)
             server.broadcast({"type": "status", "frame": obs.frame, "ts": time.time(), "payload": {
                 "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,

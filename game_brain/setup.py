@@ -306,6 +306,8 @@ class Session:
         #: dashboard sets "stopped" in its final status. Nothing auto-stops on milestones.
         self.phase = "running"
         self.current_step = self.start_step  # steps completed so far (the dashboard loop updates it)
+        #: bumped by new_game() and by loading a save from the dashboard: the game on screen changed
+        self.game_epoch = 0
         self.saver: Optional[savestate.SaveManager] = None
         if save_dir:
             self.saver = savestate.SaveManager(save_dir, self.adapter, [b.name for b in self.brains], self.run_id,
@@ -432,6 +434,7 @@ class Session:
             self.adapter.load_battery_save(battery)
         obs = self.adapter.load_state(state, frame=side["frame"],
                                       adapter_state=side.get("adapter_state"))
+        self.game_epoch += 1  # a different game is on screen now (dashboard drops per-game state)
         mode = self.arbiter.mode
         recorded_seed = side.get("seed")
         if isinstance(recorded_seed, int) and not isinstance(recorded_seed, bool):
@@ -508,6 +511,7 @@ class Session:
         if self.adapter.supports_battery_save:
             self.adapter.load_battery_save(None)
         obs = self.adapter.reset()
+        self.game_epoch += 1
         mode = self.arbiter.mode
         if self.seed_argument is not None:
             seed = int(self.seed_argument)

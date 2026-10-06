@@ -56,7 +56,7 @@ transparent), decoded on demand from the user's own ROM with the recipe in
 `status.party[i].species_id`, **`412` = egg** (use it when `party[i].egg` is true; the egg keeps its
 real `species_id`), `413-439` = Unown B…Z, `!`, `?`. The ROM is the one the running game uses
 (`$GAME_BRAIN_ROM`), else the one selected in the Dashboard for the next launch. PNGs are cached in
-`~/.game-brain/icons/<rom sha1>/<id>.png` (`$GAME_BRAIN_CONFIG_DIR` moves the root). 404 when no
+`~/.game-brain/icons/v1/<rom sha1>/<id>.png` (`v1` = decoder/cache version, bumped when the PNG output changes; `$GAME_BRAIN_CONFIG_DIR` moves the root). 404 when no
 ROM is readable, it is not FireRed US 1.0 (`BPRE`, version 0), or the id is not 0-439. Responses
 carry `ETag` + `Cache-Control: no-cache`, so the page can reuse them with a 304.
 
