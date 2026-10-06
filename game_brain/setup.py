@@ -621,13 +621,15 @@ class Session:
             print(f"step {step}: stuck -> free_explore: {reason}")
         return dict(self.stuck)
 
-    def set_auto_learn(self, enabled: bool, log=None, step: int = 0) -> None:
-        """Turn stuck detection on / off (the counter restarts). PR2 wires the dashboard's
-        ``set_auto_learn`` command to this; an earlier switch to free explore is kept."""
+    def set_auto_learn(self, enabled: bool, log=None, step: int = 0, **extra: Any) -> None:
+        """Turn stuck detection on / off: the dashboard's ``set_auto_learn`` command. A change
+        restarts the count (off -> ``stuck_steps`` 0); the same value again changes nothing. In
+        manual / assist / shadow the flag is stored but nothing counts until ``auto``. An earlier
+        switch to free explore is kept. Logged as an ``auto_learn`` event (``extra``: frame, issued_by)."""
         self.stuck_detector.set_enabled(enabled)
         if log is not None:
             log.event("auto_learn", step=step, enabled=self.stuck_detector.enabled,
-                      threshold=self.stuck_detector.threshold)
+                      threshold=self.stuck_detector.threshold, **extra)
 
     def auto_learn_status(self) -> Dict[str, Any]:
         """``status.auto_learn`` = {enabled, stuck_steps, threshold}."""

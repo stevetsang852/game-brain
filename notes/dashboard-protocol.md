@@ -9,7 +9,7 @@ It talks to the live loop over one WebSocket: `ws://127.0.0.1:8765/ws`.
 * WebSocket upgrades with a non-local `Origin` header get `403`, so other sites open in the
   same browser cannot drive the game.
 * Inbound frames are capped at 64 KiB, must be masked, and may not be fragmented.
-* The page can only send `mode_command`, `action`, the display messages below and the implemented save commands. Any `action` it sends is re-tagged
+* The page can only send `mode_command`, `action`, the display messages below, the implemented save commands and `command` (`set_auto_learn`). Any `action` it sends is re-tagged
   `source: "manual"`, so it can never pose as a brain.
 * ROM and local save uploads use same-origin HTTP POSTs with a custom header; a local save upload
   includes its JSON sidecar and base64-encoded state (and optional battery save). The server checks
@@ -29,12 +29,12 @@ in `game_brain/schema/messages.py`). Durations are always frames.
 | `observation` | server → page | `Observation`: `frame`, `game`, `ram`, `screenshot_b64` (PNG, when the adapter supports screenshots) |
 | `decision` | server → page | `Decision`: `brain`, `plan`, `reason`, `mode`, `executed`, `actor` (brain / human / none; missing = brain) |
 | `status` | server → page | dashboard-only, not a schema message: `step`, `mode`, `adapter`, `proposed_action`, `executed_action`, `frames_advanced`, `pending_manual`, `notes` |
-| `error` | server → page | dashboard-only: `reason` for a refused inbound message |
+| `error` | server → page | dashboard-only: `reason` for a refused inbound message (only to the tab that sent it); a refused or failed `command` also carries its `cmd` |
 | `mode_command` | page → server | `ModeCommand`: `mode` ∈ auto / assist / manual / shadow |
 | `action` | page → server | `Action`: `presses: [{button, frames, release_frames}]` — manual and assist modes (server side; see `decision.actor`) |
 | `load_saved_game` | page → server | `{save_id}` from the current save-list status |
 | `new_game` | page → server | `{}`; reset current adapter and brain on the configured ROM |
-| `command` | page → server | **PR2, not accepted yet**: flat `{"type": "command", "cmd": "set_auto_learn", "enabled": <bool>}`, see "Auto-learn" below |
+| `command` | page → server | flat (no `payload`): `{"type": "command", "cmd": "set_auto_learn", "enabled": <bool>}`, see "Auto-learn" below |
 
 Order per step: `observation`, then `decision`, then `status`. A newly opened tab is sent the
 latest envelope of each type first, so it shows the current state immediately.
@@ -129,8 +129,8 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
 
 ## Auto-learn: stuck detection (`auto_learn`, `stuck`)
 
-PR1 (this backend) adds the detector and the status fields; PR2 adds the dashboard switch and the
-`set_auto_learn` command. The formats below are fixed now so both sides can build against them.
+PR1 (#71) added the detector and the status fields. PR2 (backend) accepts the `set_auto_learn`
+command; the Frontend adds the switch.
 
 **What it does.** While auto-learn is enabled and the mode is `auto`, the backend counts steps on
 which the player's `(map_bank, map_id, x, y)` stayed the same. When the count reaches the
@@ -164,17 +164,35 @@ then a `phase` event with `reason: "stuck"`.
 - Final statuses (`finished: true`, also a forced stop) carry both fields too.
 - **`auto_learn` absent means the backend doesn't support it.** The Frontend greys the switch out.
 
-**Command (page → server, PR2).**
+**Command (page → server).**
 
 ```json
 {"type": "command", "cmd": "set_auto_learn", "enabled": true}
 ```
 
-`enabled` must be a JSON bool. Turning it on or off restarts the count. An earlier switch to free
-explore is kept. It will be logged as an `auto_learn` event `{step, enabled, threshold}`
-(`Session.set_auto_learn`). **Until PR2 the server refuses it** with an `error` envelope
-(`type 'command' may not be sent by the dashboard`), so the page should treat the switch as
-read-only and just show `auto_learn.enabled`.
+It is a flat message (no `payload`); other keys are ignored. `enabled` must be a JSON bool
+(`1` or `"true"` are refused).
+
+- **Success.** It is applied at the start of the next step. The `status` of that same step already
+  shows the new `auto_learn.enabled`; that is the confirmation, and there is no separate reply. It
+  is logged as an `auto_learn` run-log event `{step, frame, enabled, threshold, issued_by:
+  "dashboard"}`. Events are not steps, so replay is unaffected (0 mismatches).
+- **Turning it off** stops counting and resets `stuck_steps` to 0. **Turning it on** starts
+  counting from 0. Sending the value it already has changes nothing (the event is still logged).
+- **An earlier switch is kept.** Turning auto-learn off does not undo a switch to free explore
+  that already happened; `stuck` stays until a new game or loading a save.
+- **Manual / assist / shadow mode: the toggle is accepted and stored.** The detector stays
+  inactive (`stuck_steps` 0) until the mode is `auto`, and then it counts with the stored
+  setting. The status note says 「只喺 Auto 模式生效」. The page greys the switch out outside
+  `auto` using `status.mode`.
+- **Failure.** An `error` envelope goes only to the tab that sent it; it is never broadcast and
+  never replayed to a new tab:
+  `{"type": "error", "frame": -1, "ts": 0, "payload": {"reason": "...", "cmd": "set_auto_learn"}}`.
+  The page rolls its switch back to the last `status.auto_learn.enabled`.
+  - It is sent when the server refuses the message: missing or non-bool `enabled`, or an unknown
+    `cmd` (then `cmd` is the name that was sent; a non-string `cmd` gets an error without `cmd`).
+  - It is also sent when the live loop could not apply it (`reason` starts with
+    `set_auto_learn failed:`).
 
 **Run-log event** written at the switch (one per switch; `ts` omitted):
 

@@ -36,7 +36,7 @@ from ..setup import (FULL_BRAINS, MGBA_NAMES, ForcedStop, Session, StopSignals, 
 from ..schema import Action, ModeCommand, Mode, to_envelope
 from ..stuck import DEFAULT_STUCK_STEPS
 from .pacing import FrameAck, Pacer, ViewConfig
-from .server import DashboardServer, LoadSaveCommand, PersistenceCommand, SavedGameCommand
+from .server import AutoLearnCommand, DashboardServer, LoadSaveCommand, PersistenceCommand, SavedGameCommand
 from .roms import use_remembered_rom
 
 
@@ -138,6 +138,19 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
                     outcomes.append(f"已保存 AI 學習資料 · {session.memory.path}")
                     if log:
                         log.event("learning_save", step=step, frame=frame, path=str(session.memory.path))
+        elif isinstance(msg, AutoLearnCommand):
+            # the next status' auto_learn.enabled is the confirmation; a failure goes back to the
+            # sending tab as an error envelope with cmd "set_auto_learn" (the page rolls back)
+            try:
+                if session is None:
+                    raise RuntimeError("auto-learn is unavailable")
+                session.set_auto_learn(msg.enabled, log, step, frame=frame, issued_by="dashboard")
+            except (RuntimeError, ValueError) as exc:
+                outcomes.append(f"error: 自動學習切換失敗：{exc}")
+                msg.reply_error(f"set_auto_learn failed: {exc}")
+            else:
+                note = "" if arbiter.mode is Mode.AUTO else "（只喺 Auto 模式生效，而家暫停偵測）"
+                outcomes.append(f"自動學習 {'開' if msg.enabled else '關'}{note}")
         elif isinstance(msg, Action):
             ok = arbiter.submit_manual(msg, origin="dashboard")
             buttons = "+".join(p.button for p in msg.presses) or "(empty)"
