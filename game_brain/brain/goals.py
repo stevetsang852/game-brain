@@ -26,6 +26,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+import json
+from pathlib import Path
+
+from ..cache import cache_delete, cache_get, cache_set
 from ..schema import Observation
 
 
@@ -121,6 +125,24 @@ def _party(obs: Observation) -> int:
 
 
 
+
+_GOALS_PATH = Path(__file__).resolve().parents[1] / "data" / "goals.json"
+_GOALS_CACHE = "goals:firered"
+
+
+def load_goal_config() -> dict:
+    cached = cache_get(_GOALS_CACHE)
+    if isinstance(cached, dict) and cached.get("goals"):
+        return cached
+    data = json.loads(_GOALS_PATH.read_text(encoding="utf-8"))
+    cache_set(_GOALS_CACHE, data)
+    return data
+
+
+def clear_goal_cache() -> None:
+    cache_delete(_GOALS_CACHE)
+
+
 def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
     starter = starter.upper()
     m = _map
@@ -172,7 +194,8 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
             return Target.edge("UP")
         return to_pallet(o)
 
-    return [
+    config = {item['id']: item for item in load_goal_config()['goals']}
+    milestones = [
         Milestone("intro", "Get through the intro (RuleBrain mashes A)",
                   done=lambda o: o.position is not None),
         Milestone("leave_bedroom", "Leave the bedroom (2F stairs -> 1F)",
@@ -241,6 +264,13 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
                   else Target.warp(*FR_VIRIDIAN_CITY) if m(o) == FR_VIRIDIAN_MART else to_pallet(o)),
         Milestone("pewter_city", "Continue north toward Pewter (not implemented yet)", placeholder=True),
     ]
+    for milestone in milestones:
+        item = config.get(milestone.id)
+        if item:
+            milestone.label = item['label']
+            milestone.placeholder = bool(item.get('placeholder', False))
+            milestone.script_button = item.get('script_button', milestone.script_button)
+    return milestones
 
 
 class GoalPlanner:

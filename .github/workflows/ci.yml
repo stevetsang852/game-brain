@@ -16,4 +16,6 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Run tests without a ROM
+        run: python -m pytest -q tests/test_goals_cache.py tests/test_nav.py
+      - name: Run the rest of the suite
         run: python -m pytest -q

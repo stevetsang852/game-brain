@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest==8.3.3"]
+dev = ["pytest==8.3.3", "lodis==1.1.0"]
 ml = ["gymnasium>=1.0", "numpy>=1.26"]
 
 [tool.setuptools.packages.find]
