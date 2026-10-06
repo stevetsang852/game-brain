@@ -178,7 +178,7 @@ def party_status(ram: dict, last: Optional[list] = None) -> list:
 
 
 def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto", brains: str = FULL_BRAINS,
-        seed: Optional[int] = 0, steps: int = 0, step_delay: float = 0.25, screenshot_every: int = 1,
+        seed: Optional[int] = 0, steps: int = 0, step_delay: float = 0.25, screenshot_every: int = 2,
         out_dir: str = "runs", quiet: bool = False, battle_confidence: Optional[float] = None,
         save_dir: Optional[str] = None, save_every: int = savestate.DEFAULT_SAVE_EVERY,
         resume: Optional[str] = None, keep_periodic: int = savestate.DEFAULT_KEEP_PERIODIC,
@@ -308,7 +308,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--host", default="127.0.0.1", help="loopback only; 0.0.0.0 is accepted only inside the game-brain container")
     ap.add_argument("--steps", type=int, default=0, help="0 = run until Ctrl-C")
     ap.add_argument("--step-delay", type=float, default=0.25, help="seconds between steps (so humans can watch)")
-    ap.add_argument("--screenshot-every", type=int, default=1, help="attach a live frame every N steps (0 = never)")
+    ap.add_argument("--screenshot-every", type=int, default=2, help="attach a live frame every N steps (0 = never)")
     ap.add_argument("-q", "--quiet", action="store_true")
     return ap
 

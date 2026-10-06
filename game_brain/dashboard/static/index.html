@@ -1090,7 +1090,8 @@ function onMilestones(d) {
 function onObservation(env) {
   const p = env.payload; state.lastObs = p;
   $("frame").textContent = p.frame;
-  if (p.screenshot_b64) {
+  if (p.screenshot_b64 && state.lastShot !== p.screenshot_b64) {
+    state.lastShot = p.screenshot_b64;
     state.imgFrame = env.frame;
     img.src = "data:image/png;base64," + p.screenshot_b64;
     $("screenNote").textContent = `即時畫面 · ${p.game || ""}`;
@@ -1363,6 +1364,9 @@ function renderParty(list) {
   const box = $("partyList");
   if (!box) return;
   const mons = Array.isArray(list) ? list : [];
+  const key = mons.map(mon => [mon.slot, mon.species_id, mon.egg, mon.hp, mon.status, mon.active, mon.level].join(":")).join("|");
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
   if (!mons.length) {
     box.innerHTML = '<div class="persist-empty">尚未有隊伍資料</div>';
     return;
