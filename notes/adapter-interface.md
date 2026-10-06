@@ -25,7 +25,9 @@ For each `ButtonPress(button, frames, release_frames)` in order:
 
 Return value must equal `action.total_frames`. Durations are **frames, not ms** — no
 wall-clock sleeps, so a run is deterministic: same start state + same Actions ⇒ same
-frames. `game_brain.runlog.replay()` relies on this (it compares `frame` and `ram` per step).
+frames. `game_brain.runlog.replay()` relies on this (it compares `frame` and `ram` per step;
+only RAM fields present in the logged observation are compared, so adding a RAM field doesn't break
+replay of older logs).
 
 Button names: `A B SELECT START RIGHT LEFT UP DOWN R L NONE`
 (GBA KEYINPUT bits 0..9 in that order, excluding NONE).
