@@ -36,7 +36,9 @@
 | 已有 Python／mGBA | `export GAME_BRAIN_ROM=<美版 FireRed 路徑>`，然後 `python -m game_brain.dashboard --adapter mgba` |
 | 冇 ROM，只想睇流程 | `python -m game_brain.demo --adapter mock --steps 60 --mode auto` |
 
-預設大腦係 `battle,path,rule`。模式可以喺網頁切：Auto 全自動、Assist 人手可插隊、Manual 只人手、Shadow 只提議。
+預設大腦係 `battle,path,rule`。模式可以喺網頁切：Auto 全自動、Assist 人手可插隊、Manual 只人手、Shadow 只提議。右上角可選繁中或 English，預設繁中。
+
+畫面預設每 2 步先送一次。未合併的原始畫面串流在 PR #86。Probe 唔係預設，要用 `--brains battle,path,probe,rule`。
 
 ## 方案取捨（2026-10-05）
 
@@ -71,7 +73,7 @@
 
 驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。徽章同圖鑑 RAM 未驗證，進度分而家只會喺 observation 有呢啲欄位時先計到。
 
-## 目前進度（2026-10-06）
+## 目前進度（2026-10-06，main `8572c2e`）
 
 已喺真 ROM 由開機行到：主角屋 → 真新鎮 → 研究所攞御三家 → 勁敵戰 → 1 號道路 → 常磐市，再返研究所攞圖鑑（M1／M2／M3 + `oaks_parcel`／圖鑑）。Wild／勁敵戰鬥交俾 RuleBattleBrain。輸咗會喺屋企醒，可以再行出去。存檔／續玩、live 共用 setup、`--starter random` 都已經落地。
 
@@ -83,14 +85,17 @@
 | RuleBrain / RandomBrain | ✅ 後備。RuleBrain 過開場後只會亂行 |
 | LLMBrain | ⛔ stub，未接 provider。呼叫會 fallback |
 | 存檔／續玩 | ✅ `--save-dir`／`--resume latest`、里程碑＋periodic＋final；`live.py` 同 CLI 共用 `setup.py`；`--starter random`（或固定御三家） |
-| Party RAM | ✅ `ram["party"]` 解密讀取（#41）。⛔ 未有 party 入 `status`／側欄 UI；⛔ `/icons` endpoint（只有 [`notes/party-and-icons.md`](notes/party-and-icons.md)） |
+| Party RAM | ✅ `ram["party"]` 解密讀取。Dashboard 隊伍列表顯示種族、等級、HP、狀態同 ROM 小圖示 `/icons/<id>.png` |
+| 讀檔目標 | ✅ 未有第一隻就重行劇本。只得御三家就自由探索。已有之後的里程碑會保留 |
+| ProbeBrain | ✅ 新地圖或 NPC 會記一條未驗證目標。唔寫入 `goals.json`，預設未啟用 |
+| 靜態資料 | ✅ `goals.json`、招式表同 imitation model 用 lodis 快取。ROM、存檔、run log 不快取 |
 | 學習／Go-Explore | ✅ `ExperienceMemory`（`memory.py`）＋ `go_explore.py`：tabular Q、cell archive＋savestate、跨次續跑；另有人手 imitation。長局未全面驗證（森林以後未驗證） |
 | Gym／RL env（#59） | ✅ `rl/anti_loop.py`、`rl/env.py`（Gymnasium adapter wrapper）、`rl/curriculum.py`；進度分 `rl/progress.py`。徽章／圖鑑 RAM 未驗證 |
 | 短局 runner（#60） | ✅ `rl/short.py`：starter 短局（CPU），做 deep PPO 之前嘅門檻。**唔會**取代預設 `battle,path,rule` |
 | PPO | ⚠️ `rl/ppo.py` 目前係未接入執行策略的全域按鍵權重 baseline，唔係 PPO。⛔ 真正 PPO／GPU 未開始 |
-| Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、戰鬥 panel、24 fps、ROM picker、本機存檔瀏覽、存檔掣。⛔ 未有完整 mobile layout PR；⛔ `brain_state` v2 只係協定 |
+| Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、戰鬥 panel、隊伍列表、繁中／英文、ROM picker、存檔。畫面有變先重畫。⛔ 未有完整 mobile layout |
 | Docker / 本機啟動 | ✅ `start_in_docker.bat`、`start_local.bat`。ROM 只讀掛入，唔會 COPY 入 image |
-| CI / License | ⛔ 未有 CI。License 未揀；repo 係 **PUBLIC** |
+| CI / License | ✅ push 同 pull request 跑 `pytest`，真 ROM 測試會 skip。License 未揀；repo 係 **PUBLIC** |
 
 呢隻驗證 ROM 嘅御三家只識 METRONOME（揮指），勁敵戰結果係隨機。戰鬥邏輯要讀 RAM，唔好假設識邊招。
 
