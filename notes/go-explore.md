@@ -2,7 +2,7 @@
 
 # Go-Explore 規格（game-brain，FireRed）
 
-> 作者：Research Manager，2026-10-02。這份只是規格，沒有程式碼。實作由 Fullstack 負責，使用 Backend 的 `GameBrainEnv`（`game_brain/gym_env.py`）。
+> 作者：Research Manager，2026-10-02。這份只是規格，沒有程式碼。實作見 `game_brain/go_explore.py`（直接用 adapter 的 save state）。RL 用的 env 是 `game_brain/rl/env.py` 的 `FireRedEnv`（可從 bytes／`.state`／#28 sidecar reset），Gymnasium spaces 由 `game_brain/rl/gym_wrapper.py` 的 `FireRedGymEnv` 提供（`pip install .[ml]`）。早期草稿提到的 `GameBrainEnv`（`game_brain/gym_env.py`）沒有合併，已由以上兩者取代。
 > 參考：Ecoffet et al., *Go-Explore*（2019 / Nature 2021）；PWhiddy *PokemonRedExperiments* 與 pokemonred_puffer 的「新格子」探索獎勵（見 `notes/references.md`、`notes/ml-decision.md`）。
 
 > **2026-10-03 實作狀態：** `game_brain/go_explore.py` 提供 Go-Explore 式自主探索：持久化 tabular Q-learning 以新 cell、里程碑和明確完成訊號作獎勵，探索時以 epsilon-greedy 配合 sticky random actions；持久化 cell index 與代表 savestate、依 cell visits/frontier 加權抽樣、重新執行時從存檔繼續。舊 archive 會以空 Q 表遷移。`GoalPlanner` 只用於 cell progress 評分，不選探索動作；戰鬥可用 RuleBattleBrain 協助。CLI、限制及指令見 README「無人手示範 → 自主探索」。未做 score-based cell replacement、eviction、軌跡壓縮或 PPO。真 ROM 未提供；通用完成旗標及完整通關路線未驗證，所以本版只可以按步數／時間或明確 `game_completed` 訊號停止，唔保證打完整個遊戲。
@@ -12,8 +12,8 @@
 | 項目 | 內容 |
 |---|---|
 | 第一個目標 | 從開機（或 #28 的開機存檔）開始，**不使用 PathBrain 或任何寫死的 milestone 路線來選動作**，自己探索到常青市（map 3/1） |
-| 可以用的 | `GameBrainEnv` 的觀察值、RAM 特徵、獎勵分項（`info["reward_parts"]`）、save state 讀寫 |
-| 不能用的 | `GoalPlanner` 的目標座標或路徑來**選動作**。planner 只能用來**計分**和定義 cell 的進度維度（env 已經是這樣做） |
+| 可以用的 | adapter 的觀察值與 RAM 特徵、save state 讀寫；用 RL env 時是 `FireRedEnv`／`FireRedGymEnv` 的觀察值與獎勵分項（`info["reward_parts"]`） |
+| 不能用的 | `GoalPlanner` 的目標座標或路徑來**選動作**。planner 只能用來**計分**和定義 cell 的進度維度（`go_explore.py` 已經是這樣做） |
 | 戰鬥 | 預設 `--battle-policy rule`：`in_battle` 為 True 時，把動作交給 RuleBattleBrain。這不算路線提示，只是避免隨機亂按讓戰鬥拖太長。另設 `--battle-policy random` 做對照 |
 | 執行環境 | 只用本機 CPU，不需要 GPU，也沒有付費 API |
 | 存檔位置 | 一律放在 repo 以外（`check_save_dir` 規則照舊），因為 repo 是公開的 |
@@ -32,7 +32,7 @@ progress = (party_count, milestones_done_count)
 | `map_bank`, `map_id` | `ram` | 不同地圖一定是不同的 cell |
 | `x // G`, `y // G` | `ram`，預設 `G = 2` | 2×2 格合成一個 cell。真新鎮的房屋大約只有 10×8 格，`G = 4` 會太粗；1 號道路比較長，`G = 2` 的 cell 數量仍可接受。`--cell-grid` 可以調 |
 | `party_count` | `ram["party_count"]` | 拿到御三家前是 0，拿到後是 1。同一個位置拿到前後要分開，否則「研究所裡有寶可夢的狀態」會被「沒有寶可夢的舊存檔」佔住 |
-| `milestones_done_count` | env 的 planner（只用來計分） | 粗略的劇情進度。例如送完包裹後回到同一格，要算作新的 cell |
+| `milestones_done_count` | runner 的 planner（只用來計分） | 粗略的劇情進度。例如送完包裹後回到同一格，要算作新的 cell |
 
 **不建立 cell 的時刻**（這些步驟仍會執行，只是不會寫入 archive）：
 - `in_battle` 為 True，或座標是 `null`（戰鬥中、過場或轉圖中）。戰鬥結束、回到 overworld 後的第一步，才判斷是否為新 cell。

@@ -7,6 +7,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest==8.3.3"]
+ml = ["gymnasium>=1.0", "numpy>=1.26"]
 
 [tool.setuptools.packages.find]
 include = ["game_brain*"]

@@ -215,6 +215,23 @@ class MgbaFireRedAdapter(Adapter):
         if written != len(data):
             raise OSError("mGBA could not load the complete battery save")
 
+    def screen_rgbx(self) -> Optional[bytes]:
+        """The current frame as raw RGBX bytes (240x160, 4 bytes per pixel, row-major), or None.
+        Used by the RL env (no PNG encode, no file)."""
+        if self._image is None or not hasattr(self._image, "buffer"):
+            return None
+        from mgba._pylib import ffi  # pylint: disable=no-name-in-module
+        return bytes(ffi.buffer(self._image.buffer))
+
+    def clear_screen(self) -> None:
+        """Zero the frame buffer. The GBA doesn't redraw it during forced blank (e.g. right after
+        power-on), so without this the pixels would be left over from earlier frames."""
+        if self._image is None or not hasattr(self._image, "buffer"):
+            return
+        from mgba._pylib import ffi  # pylint: disable=no-name-in-module
+        size = len(ffi.buffer(self._image.buffer))
+        ffi.memmove(self._image.buffer, bytes(size), size)
+
     def screenshot(self, path: str) -> Optional[str]:
         if self._image is None or not hasattr(self._image, "save_png"):
             return None
