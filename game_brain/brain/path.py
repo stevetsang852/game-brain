@@ -103,6 +103,7 @@ class PathBrain(Brain):
         self._free: Set[str] = set()           # placeholder milestones whose dialogue is finished
         self._visits: Dict[tuple, int] = {}    # (map, x, y) visits during free explore after goal 17
         self._explore_dir: Optional[str] = None
+        self._explore_walk: Optional[tuple] = None  # (map/x/y key, direction) of the last free-explore step
         self.stats = {"steps": 0, "turns": 0, "bumps": 0, "a_presses": 0, "warps": 0, "replans": 0,
                       "script_presses": 0, "frozen": 0, "npc_blocked_tiles": 0}
 
@@ -195,6 +196,13 @@ class PathBrain(Brain):
         map_key = grid.key if grid is not None else obs.ram.get("map_id")
         key = (map_key, pos[0], pos[1])
         self._visits[key] = self._visits.get(key, 0) + 1
+        walked, self._explore_walk = self._explore_walk, None
+        if walked and walked[0] == key:
+            # the last step didn't move us (unlisted obstacle): count the tile we bumped into as
+            # visited, otherwise it stays the least-visited choice and we walk into it forever
+            dx, dy = _DELTA[walked[1]]
+            bumped = (map_key, pos[0] + dx, pos[1] + dy)
+            self._visits[bumped] = self._visits.get(bumped, 0) + 1
         stuck = self._last_pos == pos and self._visits[key] > 2
         self._last_pos = pos
         if stuck and self._visits[key] % 4 == 0:
@@ -203,12 +211,16 @@ class PathBrain(Brain):
                 "free explore", "position unchanged, press A to clear dialogue, then keep walking",
                 goal="自由探索（goal 17 之後）", path=[pos])
         npcs = self._npc_tiles(obs) if self.avoid_npcs else set()
+        # a usable warp whose stand tile is here (door mat: press DOWN into the wall; door: walk
+        # into it) is a move too, otherwise free explore can never leave a building
+        warps = {w.enter: w for w in (grid.usable_warps() if grid is not None else ())
+                 if grid.warp_stand_tile(w) == pos and (grid.key, w) not in self._dead_warps}
         choices = []
         for name, (dx, dy) in _DELTA.items():
             nx, ny = pos[0] + dx, pos[1] + dy
             if (nx, ny) in npcs:
                 continue
-            if grid is not None and not grid.is_walkable(nx, ny):
+            if grid is not None and not grid.is_walkable(nx, ny) and name not in warps:
                 continue
             choices.append((self._visits.get((map_key, nx, ny), 0), 0 if name == self._explore_dir else 1, name))
         if not choices:
@@ -225,7 +237,15 @@ class PathBrain(Brain):
             return self._act(direction, self.turn_frames, self.turn_release), self._dec(
                 "free explore", f"turn {direction}, then step ({cells} cells)",
                 goal="自由探索（goal 17 之後）", path=[pos, nxt])
+        if direction in warps:
+            w = warps[direction]
+            self._visits[(map_key,) + nxt] = self._visits.get((map_key,) + nxt, 0) + 1  # ranks like a visited tile
+            self._last = ("warp", (grid.key, w))      # wait out the fade like a normal warp
+            return self._act(direction, self.step_frames, self.warp_release), self._dec(
+                "free explore", f"at {pos}: press {direction} to take warp ({w.x},{w.y}) -> {w.dest} ({cells} cells)",
+                goal="自由探索（goal 17 之後）", path=[pos])
         self.stats["steps"] += 1
+        self._explore_walk = (key, direction)
         return self._act(direction, self.step_frames, self.step_release), self._dec(
             "free explore", f"walk {direction} ({cells} cells)",
             goal="自由探索（goal 17 之後）", path=[pos, nxt])

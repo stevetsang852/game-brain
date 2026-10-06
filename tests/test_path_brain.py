@@ -126,6 +126,59 @@ def test_placeholder_milestone_free_explores():
     assert dec.milestones == [{"id": "later", "label": "not yet", "done": False}]
 
 
+def _explorer():
+    return PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]), settle_checks=0)
+
+
+def test_free_explore_takes_a_door_mat_warp():
+    """New (not in 1252fcc): on a mat warp whose ``enter`` points into a wall (Oak's lab door,
+    (6,12) + DOWN), pressing ``enter`` counts as a move, so free explore can leave the building."""
+    rows = ["###",
+            "#.#",
+            "#.#",
+            "###"]
+    mat = {"x": 1, "y": 2, "dest_bank": 3, "dest_map": 0, "enter": "DOWN", "behavior": 101}
+    b = _explorer()
+    settle(b, obs(1, 1, "DOWN", rows=rows, warps=[mat]))
+    act, dec = b.decide(obs(1, 1, "DOWN", rows=rows, warps=[mat]))
+    assert act.presses[0].button == "DOWN" and "walk DOWN" in dec.reason      # only way: onto the mat
+    act, dec = b.decide(obs(1, 2, "DOWN", rows=rows, warps=[mat]))
+    assert act.presses[0].button == "DOWN" and "take warp (1,2) -> (3, 0)" in dec.reason
+    act, dec = b.decide(Observation(frame=0, ram={"facing": "DOWN"}))          # fade: no position
+    assert act.presses[0].button == "NONE" and dec.plan == "warp transition"
+
+
+def test_free_explore_takes_a_door_from_the_tile_below():
+    rows = ["#####",                                       # (2,0) is the door: blocked, enter UP
+            "#...#",
+            "#####"]
+    door = {"x": 2, "y": 0, "dest_bank": 4, "dest_map": 3, "enter": "UP", "behavior": 0}
+    b = _explorer()
+    settle(b, obs(2, 1, "UP", rows=rows, warps=[door]))
+    b._visits.update({((9, 9), 1, 1): 3, ((9, 9), 3, 1): 3})   # both side tiles already explored
+    act, dec = b.decide(obs(2, 1, "UP", rows=rows, warps=[door]))
+    assert act.presses[0].button == "UP" and "take warp (2,0) -> (4, 3)" in dec.reason
+
+
+def test_free_explore_does_not_walk_into_an_unlisted_obstacle_forever():
+    """New: a step that didn't move us marks the bumped tile visited (Pallet Town (7,19) looks
+    walkable in the collision map but blocks), so another direction is tried."""
+    rows = ["#######",
+            "#.....#",
+            "#.....#",
+            "#######"]
+    b = _explorer()
+    settle(b, obs(3, 1, "RIGHT", rows=rows))
+    facing, pressed = "RIGHT", []
+    for _ in range(12):                                   # the position never changes
+        act, dec = b.decide(obs(3, 1, facing, rows=rows))
+        btn = act.presses[0].button
+        facing = btn if btn in ("UP", "DOWN", "LEFT", "RIGHT") else facing
+        pressed.append(btn)
+    dirs = [p for p in pressed if p in ("UP", "DOWN", "LEFT", "RIGHT")]
+    assert len(set(dirs)) >= 2, pressed                   # verbatim 1252fcc: one direction forever
+
+
 def test_placeholder_milestone_in_battle_finishes_dialogue_first():
     pl = GoalPlanner([Milestone("later", "not yet", placeholder=True, script_button="B")])
     b = PathBrain(planner=pl, settle_checks=0)
