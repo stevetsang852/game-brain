@@ -43,7 +43,8 @@ def test_real_firered_rival_battle_route_1_viridian_parcel_pokedex(tmp_path, mon
     Parcel errand: into the Viridian Mart (5/3; the clerk's script freezes you on the exit warp and
     hands over the parcel), back out, south over Route 1 (ledges: A* treats them as walls) to Pallet
     Town and the lab, where Oak takes the two Pokedexes off the table (objects local_id 9/10
-    disappear from ram["npcs"]) and gives you one; after his speech you are free and idle."""
+    disappear from ram["npcs"]) and gives you one; goal 17 is a placeholder -> free explore (at step
+    4300 his speech is still running)."""
     from game_brain.adapters import make_adapter
 
     monkeypatch.delenv("GAME_BRAIN_START_STATE", raising=False)
@@ -88,7 +89,7 @@ def test_real_firered_rival_battle_route_1_viridian_parcel_pokedex(tmp_path, mon
                 r["observation"]["ram"].get("player_x"), r["observation"]["ram"].get("player_y")) == (4, 3, 6, 4)]
     assert any({4, 9, 10} <= ids(r) for r in at_stand)            # (one disappears a step before the other)
     assert 4 in ids(steps[first]) and not {9, 10} & ids(steps[first])
-    assert "not implemented yet -> idle" in reasons[-1] and fr["facing"] != "UP"   # speech over, player free
+    assert steps[-1]["decision"]["plan"] == "free explore"   # goal 17 placeholder: free explore, no idling
     assert all(r["decision"].get("milestones") for r in steps)
     assert replay(s["log"], make_adapter("mgba")) == []
     # milestone saves for the parcel errand; resume from the one after leaving the mart (parcel in
