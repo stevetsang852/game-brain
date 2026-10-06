@@ -264,18 +264,17 @@ class GoalPlanner:
         return None
 
     def apply_loaded_goals(self, party_count: int) -> str:
-        """Save load: no starter restarts the script; a starter switches to free explore."""
+        """Save load: no starter restarts the script. Later saved goals stay intact."""
         if int(party_count or 0) < 1:
             self.reset()
             self.free_after_starter = False
             return "restart_until_starter"
-        self.reset()
-        for milestone in self.milestones:
-            self._done[milestone.id] = True
-            if milestone.id == "get_starter":
-                break
-        self.free_after_starter = True
-        return "explore_after_starter"
+        done = [m.id for m in self.milestones if self._done[m.id]]
+        if "get_starter" in done and done[-1] == "get_starter":
+            self.free_after_starter = True
+            return "explore_after_starter"
+        self.free_after_starter = False
+        return "keep_saved_goals"
 
     def restore(self, done_ids) -> None:
         """Mark milestones done from a save sidecar (resume); unknown ids are ignored."""
