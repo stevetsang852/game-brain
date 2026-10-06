@@ -244,7 +244,15 @@ def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held
             arbiter = sess.arbiter
             obs = adapter.observe()
             if pacer.want_screenshot(step, getattr(server, "client_count", 1) > 0):
-                obs.screenshot_b64 = _screenshot_b64(adapter, tmp)
+                raw = adapter.screen_rgbx() if hasattr(adapter, "screen_rgbx") else None
+                if raw:
+                    tiles = changed_tiles(getattr(server, "_prev_frame", b""), raw)
+                    server._prev_frame = raw
+                    if tiles:
+                        server.broadcast_binary(pack_frame(obs.frame, tiles))
+                        pacer.sent_screenshot(obs.frame)
+                else:
+                    obs.screenshot_b64 = _screenshot_b64(adapter, tmp)
             result = arbiter.step(obs)
             advanced = adapter.act(result.executed) if result.executed else 0
             sess.record_step(log, step, obs, result, advanced)

@@ -1395,6 +1395,31 @@ function renderParty(list) {
   }
 }
 
+
+function drawRawFrame(buffer) {
+  const view = new DataView(buffer);
+  if (view.getUint32(0, true) !== 0x31464247) return;
+  const count = view.getUint16(8, true);
+  let offset = 10;
+  canvas.width = 240; canvas.height = 160;
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < count; i++) {
+    const x = view.getUint8(offset), y = view.getUint8(offset + 1);
+    const w = view.getUint8(offset + 2), h = view.getUint8(offset + 3);
+    offset += 4;
+    for (let row = 0; row < h; row++) {
+      for (let col = 0; col < w; col++) {
+        const di = ((y + row) * 240 + x + col) * 4;
+        img.data[di] = view.getUint8(offset++);
+        img.data[di + 1] = view.getUint8(offset++);
+        img.data[di + 2] = view.getUint8(offset++);
+        img.data[di + 3] = 255;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 function onStatus(env) {
   const s = env.payload;
   $("step").textContent = s.step; state.step = s.step; $("adapter").textContent = "adapter: " + s.adapter;
@@ -1569,7 +1594,9 @@ function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`); state.ws = ws;
   ws.onopen = () => { state.displayChecked = false; $("conn").textContent = "已連線"; $("conn").className = "pill on"; event("已連線"); };
   ws.onclose = () => { $("conn").textContent = "未連線，重試中…"; $("conn").className = "pill off"; setTimeout(connect, 1500); };
+  ws.binaryType = "arraybuffer";
   ws.onmessage = (m) => {
+    if (m.data instanceof ArrayBuffer) { drawRawFrame(m.data); return; }
     let env; try { env = JSON.parse(m.data); } catch { return; }
     if (env.type === "observation") onObservation(env);
     else if (env.type === "decision") onDecision(env);

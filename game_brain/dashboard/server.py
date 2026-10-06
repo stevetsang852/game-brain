@@ -242,6 +242,9 @@ class _Client:
             except OSError:
                 self.alive = False
 
+    def send_binary(self, payload: bytes) -> None:
+        self.send_raw(ws.OP_BIN, payload)
+
     def send_raw(self, opcode: int, payload: bytes = b"") -> None:
         with self.lock:
             try:
@@ -506,6 +509,13 @@ class DashboardServer:
             clients = list(self._clients)
         for c in clients:
             c.send_text(text)
+
+    def broadcast_binary(self, payload: bytes) -> None:
+        with self._clients_lock:
+            self._clients = [c for c in self._clients if c.alive]
+            clients = list(self._clients)
+        for c in clients:
+            c.send_binary(payload)
 
     # ------------------------------------------------------------------ inbound
     def poll(self) -> List[Any]:
