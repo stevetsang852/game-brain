@@ -169,10 +169,25 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
               + (f" resumed_from={c['resumed_from']}" if c['resumed_from'] else ""))
     tmp = Path(tempfile.mkdtemp(prefix="gb-dash-"))
     pacer = Pacer(step_delay, screenshot_every)
+    t0 = time.time()
+    held = {"party": []}  # last status.party, also for the forced-stop status
+    try:
+        return _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held)
+    except ForcedStop as exc:
+        # second signal: no final save / summary, but still tell open tabs why the run ended
+        server.broadcast({"type": "status", "frame": getattr(adapter, "frame", -1), "ts": time.time(),
+                          "payload": {"step": sess.current_step, "mode": sess.arbiter.mode.value,
+                                      "adapter": adapter.name, "notes": [], "finished": True,
+                                      "party": held["party"], "phase": "stopped", "stopped": {"reason": exc.args[0],
+                                                                      "step": sess.current_step,
+                                                                      "forced": True}}})
+        raise
+
+
+def _run_loop(server, sess, adapter, arbiter, pacer, tmp, steps, quiet, t0, held) -> dict:
     step = sess.start_step
     result = None
-    party: list = []
-    t0 = time.time()
+    party: list = held["party"]
     with sess, RunLogWriter(sess.log_path) as log, StopSignals() as stop:
         log.header(**sess.header_info(steps=steps, dashboard=server.url))
         obs = sess.start(log)
@@ -192,7 +207,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
             if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
                 pacer.sent_screenshot(obs.frame)
             server.broadcast(to_envelope(result.decision, obs.frame))
-            party = party_status(obs.ram, party)
+            party = held["party"] = party_status(obs.ram, party)
             server.broadcast({"type": "status", "frame": obs.frame, "ts": time.time(), "payload": {
                 "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,
                 "proposed_action": result.proposed.to_dict() if result.proposed else None,
@@ -200,11 +215,12 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                 "frames_advanced": advanced, "pending_manual": arbiter.pending_manual,
                 "notes": list(result.notes) + outcomes, "display": pacer.status(),
                 "starter": dict(sess.starter_info),
-                "persistence": sess.dashboard_status(), "party": party,
+                "persistence": sess.dashboard_status(), "party": party, "phase": sess.phase,
             }})
             if not quiet and outcomes:
                 print(f"step {step} frame {obs.frame}: " + "; ".join(outcomes))
             step += 1
+            sess.current_step = step
             pacer.stepped()
             delay = pacer.sleep_after(started)
             if delay:
@@ -213,6 +229,8 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
             log.event("stopped", signal=stop.name, step=step)
             # stderr, even with -q: say why the run ended early
             print(f"{stop.name}: stopping after step {step} (final save + summary)", file=sys.stderr)
+        stopped = {"reason": stop.name or "steps", "step": step}
+        log.event("phase", phase="stopped", step=step, reason=stopped["reason"], previous=sess.phase)
         sess.finish(log, step, result, reason=stop.name or "step_limit")
         summary = {"steps": step - sess.start_step, "final_frame": adapter.frame, "mode_final": arbiter.mode.value,
                    "log": str(sess.log_path), "saves": sess.saves,
@@ -225,7 +243,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
             "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,
             "pending_manual": arbiter.pending_manual, "notes": [], "display": pacer.status(),
             "starter": dict(sess.starter_info), "persistence": sess.dashboard_status(),
-            "party": party, "finished": True,
+            "party": party, "finished": True, "phase": "stopped", "stopped": stopped,
         }})
     return summary
 
