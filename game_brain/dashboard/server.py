@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from .. import savestate
@@ -45,7 +45,9 @@ STATIC = Path(__file__).with_name("static")
 
 #: envelope types the page may send. Everything else is refused.
 INBOUND_TYPES = ("mode_command", "action", "view_config", "frame_ack", "save_game", "save_learning",
-                 "load_saved_game", "new_game")
+                 "load_saved_game", "new_game", "command")
+#: ``{"type": "command", "cmd": ...}`` names the backend accepts (notes/dashboard-protocol.md)
+COMMANDS = ("set_auto_learn",)
 #: dashboard-only display messages, never part of the game schema (see pacing.py)
 _VIEW_TYPES = {"view_config": ViewConfig.from_envelope, "frame_ack": FrameAck.from_envelope}
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
@@ -71,6 +73,38 @@ class LoadSaveCommand:
 @dataclass(frozen=True)
 class SavedGameCommand:
     save_id: str
+
+
+class CommandError(SchemaError):
+    """A refused ``command`` message; the ``error`` envelope carries its ``cmd``."""
+
+    def __init__(self, msg: str, cmd: Optional[str]):
+        super().__init__(msg)
+        self.cmd = cmd
+
+
+@dataclass(frozen=True)
+class AutoLearnCommand:
+    """``{"type": "command", "cmd": "set_auto_learn", "enabled": <bool>}``. ``reply_error(reason)``
+    sends an ``error`` envelope with ``cmd: "set_auto_learn"`` to the tab that sent it, if
+    applying it fails in the live loop (the page then rolls its switch back)."""
+    enabled: bool
+    reply_error: Callable[[str], None] = lambda reason: None
+
+    cmd = "set_auto_learn"
+
+
+def parse_command(env: Dict[str, Any], reply_error: Callable[[str], None] = lambda reason: None) -> AutoLearnCommand:
+    """Validate a flat ``command`` message (other keys are ignored)."""
+    cmd = env.get("cmd")
+    if not isinstance(cmd, str):
+        raise CommandError("command requires a string 'cmd'", None)
+    if cmd not in COMMANDS:
+        raise CommandError(f"unknown command {cmd[:64]!r} (known: {', '.join(COMMANDS)})", cmd[:64])
+    enabled = env.get("enabled")
+    if type(enabled) is not bool:   # noqa: E721 -- 1 / "true" are not booleans
+        raise CommandError("set_auto_learn requires 'enabled': true or false", cmd)
+    return AutoLearnCommand(enabled, reply_error)
 
 
 def imported_save_command(payload: Any) -> LoadSaveCommand:
@@ -501,6 +535,10 @@ class DashboardServer:
                     raise SchemaError("load_saved_game requires a save id from the Dashboard")
                 self._inbox.put(SavedGameCommand(save_id))
                 return
+            if t == "command":
+                self._inbox.put(parse_command(
+                    env, lambda reason: self.send_error(client, reason, cmd="set_auto_learn")))
+                return
             if t in ("save_game", "save_learning", "new_game"):
                 if not isinstance(env.get("payload"), dict) or env["payload"]:
                     raise SchemaError(f"{t} payload must be an empty object")
@@ -513,7 +551,15 @@ class DashboardServer:
         except (ValueError, TypeError, KeyError, SchemaError) as exc:
             reason = f"refused inbound message: {exc}"
             self.refused.append(reason)
-            client.send_text(json.dumps({"type": "error", "frame": -1, "ts": 0, "payload": {"reason": reason}}))
+            if isinstance(exc, CommandError) and exc.cmd is not None:
+                self.send_error(client, reason, cmd=exc.cmd)
+            else:
+                self.send_error(client, reason)
+
+    def send_error(self, client: "_Client", reason: str, **extra: Any) -> None:
+        """``error`` envelope to one tab only (never broadcast, never part of the snapshot);
+        ``extra`` e.g. ``cmd`` for a refused / failed ``command``."""
+        client.send_text(json.dumps({"type": "error", "frame": -1, "ts": 0, "payload": {"reason": reason, **extra}}))
 
     def _upgrade(self, h: BaseHTTPRequestHandler) -> None:
         key = h.headers.get("Sec-WebSocket-Key")
