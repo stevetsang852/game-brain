@@ -1,6 +1,8 @@
 """Dashboard HTTP + WebSocket server (standard library only).
 
 * ``GET /``    -> the single-page dashboard (``static/index.html``)
+* ``GET /icons/<id>.png`` -> 32x64 party icon decoded from the current ROM (see :mod:`.icons`);
+  404 when no readable FireRed (BPRE 1.0) ROM is available or the id is outside 0-439.
 * ``GET /ws``  -> WebSocket. Server pushes envelopes ``{type, frame, ts, payload}``;
   the page sends back ``mode_command`` and ``action`` envelopes, plus the display-only
   ``view_config`` / ``frame_ack`` (see :mod:`.pacing`).
@@ -21,6 +23,7 @@ import json
 import logging
 import os
 import queue
+import re
 import socket
 import threading
 from dataclasses import dataclass
@@ -33,6 +36,7 @@ from urllib.parse import urlparse
 from .. import savestate
 from ..schema import Action, ModeCommand, SchemaError, from_envelope
 from . import ws
+from .icons import IconCache, IconError
 from .pacing import FrameAck, ViewConfig
 from .roms import MAX_ROM_BYTES, MIN_ROM_BYTES, RomSelection
 
@@ -47,6 +51,7 @@ _VIEW_TYPES = {"view_config": ViewConfig.from_envelope, "frame_ack": FrameAck.fr
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 MAX_IMPORTED_SAVE_BYTES = 32 * 1024 * 1024
 MAX_SAVE_UPLOAD_BYTES = 48 * 1024 * 1024
+_ICON_PATH = re.compile(r"/icons/([0-9]{1,3})\.png")
 
 
 @dataclass(frozen=True)
@@ -224,6 +229,7 @@ class DashboardServer:
         self._snapshot: Dict[str, str] = {}  # latest envelope per type, replayed to new tabs
         self.refused: List[str] = []  # audit trail of refused inbound messages
         self.rom_selection = RomSelection()
+        self.icons = IconCache()
         self.save_dir = Path(save_dir).expanduser().resolve() if save_dir else None
         server = self
 
@@ -247,11 +253,36 @@ class DashboardServer:
                     server._upgrade(self)
                 elif path == "/api/rom":
                     self.send_json(200, server.rom_selection.status())
+                elif _ICON_PATH.fullmatch(path):
+                    self.send_icon(int(_ICON_PATH.fullmatch(path).group(1)))
                 elif path == "/api/saves":
                     self.send_json(200, {"saves": savestate.list_game_saves(server.save_dir)
                                          if server.save_dir else []})
                 else:
                     self.send_error(404)
+
+            def send_icon(self, icon_id):
+                try:
+                    body, digest = server.icons.get(icon_id)
+                except IconError as exc:
+                    log.debug("icon %s: %s", icon_id, exc)
+                    self.send_error(404)
+                    return
+                etag = f'"{digest[:16]}-{icon_id}"'
+                if self.headers.get("If-None-Match") == etag:
+                    self.send_response(304)
+                    self.send_header("ETag", etag)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("ETag", etag)
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
 
             def send_json(self, status, payload):
                 body = json.dumps(payload).encode("utf-8")
