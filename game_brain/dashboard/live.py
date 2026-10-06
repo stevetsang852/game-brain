@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import json
 import os
 import sqlite3
 import sys
@@ -134,6 +135,19 @@ def apply_commands(server: DashboardServer, arbiter: Arbiter, log=None, step: in
     return outcomes
 
 
+def party_status(ram: dict, last: Optional[list] = None) -> list:
+    """``status.party``: a copy of ``ram["party"]`` (mGBA adapter, firered_party.py: one dict per slot
+    with slot / species_id / species / egg / level / hp / max_hp / status / sleep_turns (sleeping
+    only) / active / moves [{id, name, pp, max_pp}]; a corrupt slot is ``{slot, bad_egg: True}``).
+    ``[]`` before the starter and when the adapter has no party data. The adapter skips the party
+    read on a few transition frames (no player position, not in battle): then the last list seen is
+    kept, so the panel does not blink empty."""
+    party = ram.get("party") if isinstance(ram, dict) else None
+    if isinstance(party, list):
+        return json.loads(json.dumps(party))
+    return json.loads(json.dumps(last)) if isinstance(last, list) else []
+
+
 def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto", brains: str = FULL_BRAINS,
         seed: Optional[int] = 0, steps: int = 0, step_delay: float = 0.25, screenshot_every: int = 1,
         out_dir: str = "runs", quiet: bool = False, battle_confidence: Optional[float] = None,
@@ -157,6 +171,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
     pacer = Pacer(step_delay, screenshot_every)
     step = sess.start_step
     result = None
+    party: list = []
     t0 = time.time()
     with sess, RunLogWriter(sess.log_path) as log, StopSignals() as stop:
         log.header(**sess.header_info(steps=steps, dashboard=server.url))
@@ -177,6 +192,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
             if obs.screenshot_b64:  # time the page from the moment the frame actually leaves
                 pacer.sent_screenshot(obs.frame)
             server.broadcast(to_envelope(result.decision, obs.frame))
+            party = party_status(obs.ram, party)
             server.broadcast({"type": "status", "frame": obs.frame, "ts": time.time(), "payload": {
                 "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,
                 "proposed_action": result.proposed.to_dict() if result.proposed else None,
@@ -184,7 +200,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
                 "frames_advanced": advanced, "pending_manual": arbiter.pending_manual,
                 "notes": list(result.notes) + outcomes, "display": pacer.status(),
                 "starter": dict(sess.starter_info),
-                "persistence": sess.dashboard_status(),
+                "persistence": sess.dashboard_status(), "party": party,
             }})
             if not quiet and outcomes:
                 print(f"step {step} frame {obs.frame}: " + "; ".join(outcomes))
@@ -209,7 +225,7 @@ def run(server: DashboardServer, adapter_name: str = "mock", mode: str = "auto",
             "step": step, "mode": arbiter.mode.value, "adapter": adapter.name,
             "pending_manual": arbiter.pending_manual, "notes": [], "display": pacer.status(),
             "starter": dict(sess.starter_info), "persistence": sess.dashboard_status(),
-            "finished": True,
+            "party": party, "finished": True,
         }})
     return summary
 
