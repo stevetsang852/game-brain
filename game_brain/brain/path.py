@@ -270,6 +270,9 @@ class PathBrain(Brain):
 
     # ------------------------------------------------------------------ decide
     def decide(self, obs: Observation):
+        if getattr(self.planner, "free_after_starter", False) and obs.position is not None:
+            pos = (int(obs.position[0]), int(obs.position[1]))
+            return self._free_explore(obs, self.planner.current or self.planner.milestones[-1], pos)
         self._t += 1
         milestone = self.planner.update(obs)
         pos = obs.position

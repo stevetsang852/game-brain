@@ -301,6 +301,7 @@ class Session:
             for b in self.brains:          # milestone progress from the sidecar (PathBrain also recomputes)
                 if hasattr(b, "planner"):
                     b.planner.restore(side.get("milestones_done"))
+                    b.planner.apply_loaded_goals(side.get("party_count") or 0)
             self.start_step = int(side["step"])
             self.resumed_from = {"sidecar": side["_path"], "state": side["_state_path"],
                                  "state_sha1": side["state_sha1"], "step": self.start_step, "frame": side["frame"],
@@ -475,6 +476,7 @@ class Session:
         for brain in self.brains:
             if hasattr(brain, "planner"):
                 brain.planner.restore(side.get("milestones_done"))
+                brain.planner.apply_loaded_goals(side.get("party_count") or 0)
         self.sidecar_extra.update(starter=self.starter_info, seed=self.seed)
         self._reset_milestone_tracking(side.get("milestones_done"))
         if self.memory:

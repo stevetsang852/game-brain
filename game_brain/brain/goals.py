@@ -277,6 +277,7 @@ def firered_milestones(starter: str = FR_STARTER) -> List[Milestone]:
 class GoalPlanner:
     def __init__(self, milestones: Optional[List[Milestone]] = None):
         self.milestones = milestones if milestones is not None else firered_milestones()
+        self.free_after_starter = False
         self.reset()
 
     def reset(self) -> None:
@@ -292,6 +293,19 @@ class GoalPlanner:
                 continue
             return m
         return None
+
+    def apply_loaded_goals(self, party_count: int) -> str:
+        """Save load: no starter restarts the script. Later saved goals stay intact."""
+        if int(party_count or 0) < 1:
+            self.reset()
+            self.free_after_starter = False
+            return "restart_until_starter"
+        done = [m.id for m in self.milestones if self._done[m.id]]
+        if "get_starter" in done and done[-1] == "get_starter":
+            self.free_after_starter = True
+            return "explore_after_starter"
+        self.free_after_starter = False
+        return "keep_saved_goals"
 
     def restore(self, done_ids) -> None:
         """Mark milestones done from a save sidecar (resume); unknown ids are ignored."""
