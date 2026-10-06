@@ -1,0 +1,107 @@
+{
+  "game": "firered",
+  "goals": [
+    {
+      "id": "intro",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Get through the intro (RuleBrain mashes A)"
+    },
+    {
+      "id": "leave_bedroom",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Leave the bedroom (2F stairs -> 1F)"
+    },
+    {
+      "id": "leave_house",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Leave the house (1F door mat -> outside)"
+    },
+    {
+      "id": "pallet_town",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Stand in Pallet Town"
+    },
+    {
+      "id": "oak_stops_you",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Walk to Pallet Town's north exit (Prof. Oak stops you)"
+    },
+    {
+      "id": "oak_lab",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Prof. Oak walks you to his lab (scripted; advance text with A)"
+    },
+    {
+      "id": "get_starter",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Choose Bulbasaur (ball at (8, 4)): face it, A, YES"
+    },
+    {
+      "id": "rival_battle",
+      "placeholder": false,
+      "script_button": "B",
+      "label": "Walk to the lab exit; the rival stops you and the battle starts"
+    },
+    {
+      "id": "rival_battle_over",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Finish the rival battle (win or lose, the story goes on)"
+    },
+    {
+      "id": "leave_lab",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Leave Oak's lab (exit mat -> Pallet Town)"
+    },
+    {
+      "id": "route_1",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Walk off Pallet Town's north edge onto Route 1"
+    },
+    {
+      "id": "viridian_city",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Walk north through Route 1 to Viridian City (wild battles: battle brain)"
+    },
+    {
+      "id": "viridian_mart",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Enter the Viridian City Poke Mart (the clerk calls you over)"
+    },
+    {
+      "id": "oaks_parcel",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Receive Oak's Parcel from the clerk (scripted, A), then leave the mart"
+    },
+    {
+      "id": "back_to_pallet",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Walk back south: Viridian City -> Route 1 -> Pallet Town"
+    },
+    {
+      "id": "deliver_parcel",
+      "placeholder": false,
+      "script_button": "A",
+      "label": "Give the parcel to Prof. Oak in his lab and receive the Pokedex"
+    },
+    {
+      "id": "pewter_city",
+      "placeholder": true,
+      "script_button": "A",
+      "label": "Continue north toward Pewter (not implemented yet)"
+    }
+  ]
+}
