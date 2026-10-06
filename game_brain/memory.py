@@ -173,6 +173,9 @@ class ExperienceMemory:
                 self._discover("party", n)
 
     def start(self, obs: Observation, step: int) -> None:
+        self.episode_id = uuid.uuid4().hex
+        self._new_discoveries = 0
+        self._new_cells = 0
         progress = self._progress(obs)
         self.goal_seen = self._success(obs)
         with self.db:
@@ -180,16 +183,13 @@ class ExperienceMemory:
             self._begin_episode(obs, step, self.origin)
             self._visit(obs, progress, step - 1)
         self._dashboard_totals = {
-            "runs": self.db.execute("SELECT COUNT(*) FROM runs WHERE namespace=?",
-                                    (self.namespace,)).fetchone()[0],
-            "transitions": self.db.execute("SELECT COUNT(*) FROM transitions WHERE namespace=?",
-                                           (self.namespace,)).fetchone()[0],
-            "reward": self.db.execute("SELECT COALESCE(SUM(reward),0) FROM transitions WHERE namespace=?",
-                                      (self.namespace,)).fetchone()[0],
-            "cells": self.db.execute("SELECT COUNT(*) FROM cells WHERE namespace=?",
-                                     (self.namespace,)).fetchone()[0],
-            "discoveries": self.db.execute("SELECT COUNT(*) FROM discoveries WHERE namespace=?",
-                                           (self.namespace,)).fetchone()[0],
+            # Keep startup bounded for large archives: live totals cover this run only,
+            # rather than aggregating every transition/cell in the ROM namespace.
+            "runs": 1,
+            "transitions": 0,
+            "reward": 0.0,
+            "cells": self._new_cells,
+            "discoveries": self._new_discoveries,
         }
 
     def _begin_episode(self, obs: Observation, step: int, parent=None) -> None:
@@ -352,7 +352,7 @@ class ExperienceMemory:
             cells.append({"map": loc[0:2], "position": loc[2:4], "party_count": loc[4],
                           "progress": loc[5], "visits": visits,
                           "save": Path(save).name if save else None})
-        unique_cells = self.db.execute("SELECT COUNT(*) FROM cells WHERE namespace=?", (self.namespace,)).fetchone()[0]
+        unique_cells = int((self._dashboard_totals or {}).get("cells", 0))
         best = self.db.execute("SELECT MAX(reward) FROM transitions WHERE run_id=?", (self.run_id,)).fetchone()[0]
         return {"enabled": True, "namespace": self.namespace, "run_id": self.run_id,
                 "episode_id": self.episode_id, "policy_version": self.policy_version,

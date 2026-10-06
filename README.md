@@ -37,7 +37,7 @@
 
 短局入口：`python -m game_brain.rl.short --adapter mock-house`。成功條件係 `party_count` 變 1。真 ROM 用 `--adapter mgba`。
 
-已落地的第一階段：`rl/anti_loop.py` 位置窗同連續按鍵罰、`rl/env.py` Gymnasium 形狀的 Adapter wrapper、`rl/curriculum.py` 由出屋到第一個徽章的階段。深度 PPO 同 Pokédex RAG 未開始。
+已落地的第一階段：`rl/anti_loop.py` 位置窗同連續按鍵罰（位置包含 map ID）、`rl/env.py` 可選 Gymnasium-shaped Adapter wrapper（支援由已校驗的 sidecar／state 存檔重設，恢復 frame 同 adapter state）、`rl/curriculum.py` 由出屋到第一個徽章的階段。課程訓練閉環、真正的 PPO 同 Pokédex RAG 未開始。
 
 ## 同事接手（2026-10-04）
 
@@ -52,10 +52,10 @@
 | 段 | 內容 | 狀態 |
 |---|---|---|
 | 進度分 | `game_brain/rl/progress.py`。通關 1000、徽章 50、圖鑑種類 20、新地圖 1、重複 −0.2、每步 −0.01 | ✅ 已落地 |
-| 短局 PPO | `python -m game_brain.rl.ppo --namespace ... --output policy.json`。CPU、tabular softmax，由經驗庫學方向同 A/B | ✅ 訓練入口已落地，未跑贏劇本腦 |
+| 短局按鍵權重 baseline | `python -m game_brain.rl.ppo --namespace ... --output policy.json`。CPU、全域 softmax 權重，從記錄獎勵更新；唔係 PPO，未接入執行策略 | ⚠️ 實驗入口，未跑贏劇本腦 |
 | 長局 | 通關獎勵接上完整一局 | ⏳ 未做 |
 
-預設大腦仍然係 `battle,path,rule`。劇本 PathBrain 只負責已驗證路段同對照，唔再係正式策略。短局 PPO 未證明可以由開機到圖鑑、再由常磐市去第一個徽章之前，唔好換做預設。
+預設大腦仍然係 `battle,path,rule`。劇本 PathBrain 只負責已驗證路段同對照，唔再係正式策略。短局按鍵權重 baseline 未證明可以由開機到圖鑑、再由常磐市去第一個徽章之前，唔好換做預設。
 
 驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。徽章同圖鑑 RAM 未驗證，進度分而家只會喺 observation 有呢啲欄位時先計到。
 
@@ -75,7 +75,7 @@
 | 學習／Go-Explore | ✅ `ExperienceMemory`（`memory.py`）＋ `go_explore.py`：tabular Q、cell archive＋savestate、跨次續跑；另有人手 imitation。長局未全面驗證（森林以後未驗證） |
 | Gym／RL env（#59） | ✅ `rl/anti_loop.py`、`rl/env.py`（Gymnasium adapter wrapper）、`rl/curriculum.py`；進度分 `rl/progress.py`。徽章／圖鑑 RAM 未驗證 |
 | 短局 runner（#60） | ✅ `rl/short.py`：starter 短局（CPU），做 deep PPO 之前嘅門檻。**唔會**取代預設 `battle,path,rule` |
-| PPO | ✅ 短局入口 `rl/ppo.py` 已有（CPU tabular）。⛔ 深度 PPO／GPU 未開始（要 YIN 批准） |
+| PPO | ⚠️ `rl/ppo.py` 目前係未接入執行策略的全域按鍵權重 baseline，唔係 PPO。⛔ 真正 PPO／GPU 未開始 |
 | Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、戰鬥 panel、24 fps、ROM picker、本機存檔瀏覽、存檔掣。⛔ 未有完整 mobile layout PR；⛔ `brain_state` v2 只係協定 |
 | Docker / 本機啟動 | ✅ `start_in_docker.bat`、`start_local.bat`。ROM 只讀掛入，唔會 COPY 入 image |
 | CI / License | ⛔ 未有 CI。License 未揀；repo 係 **PUBLIC** |
@@ -193,7 +193,7 @@ Dashboard 可以控制遊戲，所以**只會 bind 嗰部機嘅 127.0.0.1**。�
 
 Image 入面會由 source build mGBA 0.10.5（開 Python bindings 同 `USE_FFMPEG`），再裝 game-brain；mGBA build 同最終 image 共用執行期套件層，避免重複安裝。測試檔同測試用範例會保留（可用 `docker run ... python3 -m pytest`），設計文件唔會放入 image。**ROM 同 save state 唔會 COPY 入 image**，淨係喺行嘅時候用 `-v ...:ro` 唯讀掛入去。Image 只喺本機用，唔好 push 去任何 registry。
 
-喺 Windows 用 `start_in_docker.bat` 啟動時，首次會輸入 ROM 路徑並儲存到 `%USERPROFILE%\.game-brain\rom-path.txt`；之後會自動沿用。若檔案搬走或刪除，啟動時會要求輸入新路徑。ROM 路徑只保存在本機，唔會加入 repo 或 Docker image。**唔用 Docker** 請用 `start_local.bat`：優先用本機 Python + mGBA bindings，冇就用獨立 Ubuntu WSL（唔用 Docker Desktop 嘅 distro）。首次喺 Administrator PowerShell 行 `wsl --install -d Ubuntu`（需要時重啟），再雙擊 `setup_local_wsl.bat` build mGBA；完成後行 `start_local.bat`，喺 Windows 瀏覽器開 http://127.0.0.1:8765/。詳細路徑及依賴見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)。
+喺 Windows 用 `start_in_docker.bat` 啟動時，首次會輸入 ROM 路徑並儲存到 `%USERPROFILE%\.game-brain\rom-path.txt`；之後會自動沿用。若檔案搬走或刪除，啟動時會要求輸入新路徑。ROM 路徑只保存在本機，唔會加入 repo 或 Docker image。**唔用 Docker** 請用 `start_local.bat`：優先用本機 Python + mGBA bindings，冇就用 Ubuntu WSL（唔用 Docker Desktop 嘅 distro）。Launcher 會自動揀已安裝嘅 `Ubuntu` 或唯一一個 `Ubuntu-*` 發行版（例如 `Ubuntu-F`）；唔會自動安裝 WSL。若未安裝，喺 Administrator PowerShell 用 `wsl --install -d Ubuntu --location F:\WSL\Ubuntu` 將發行版放喺 F:（需要時重啟），再雙擊 `setup_local_wsl.bat` build mGBA；完成後行 `start_local.bat`，喺 Windows 瀏覽器開 http://127.0.0.1:8765/。詳細路徑及依賴見 [`notes/mgba-bridge.md`](notes/mgba-bridge.md)。
 
 ```bash
 docker build -t game-brain:local .        # 第一次大約幾分鐘（要 build mGBA）

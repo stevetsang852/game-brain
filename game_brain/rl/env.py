@@ -42,6 +42,7 @@ def load_start(spec: StartSpec) -> Dict[str, Any]:
             raise ValueError("start snapshot dict needs 'state' bytes")
         return {"state": bytes(spec["state"]), "frame": int(spec.get("frame") or 0),
                 "adapter_state": spec.get("adapter_state"),
+                "adapter": spec.get("adapter"), "rom_sha1": spec.get("rom_sha1"),
                 "milestones_done": list(spec.get("milestones_done") or []), "source": spec.get("source")}
     if isinstance(spec, (bytes, bytearray)):
         return {"state": bytes(spec), "frame": 0, "adapter_state": None, "milestones_done": [],
@@ -52,6 +53,7 @@ def load_start(spec: StartSpec) -> Dict[str, Any]:
         side = _savestate.load_sidecar(sidecar)
         return {"state": _savestate.read_state(side), "frame": int(side.get("frame") or 0),
                 "adapter_state": side.get("adapter_state"),
+                "adapter": side.get("adapter"), "rom_sha1": side.get("rom_sha1"),
                 "milestones_done": list(side.get("milestones_done") or []), "source": side["_path"]}
     if path.suffix == ".json":
         raise FileNotFoundError(f"save sidecar not found: {path}")
@@ -81,7 +83,14 @@ class FireRedEnv:
             raise ValueError(f"adapter {getattr(self.adapter, 'name', self.adapter)!r} has no save states")
         key = str(Path(spec).expanduser().resolve()) if isinstance(spec, (str, Path)) else None
         if self._start is None or key is None or key != self._start_key:
-            self._start = load_start(spec)
+            start = load_start(spec)
+            adapter_name = getattr(self.adapter, "name", self.adapter)
+            if start.get("adapter") and start["adapter"] != adapter_name:
+                raise ValueError(f"save is for adapter {start['adapter']!r}, not {adapter_name!r}")
+            rom = getattr(self.adapter, "rom_sha1", None)
+            if start.get("rom_sha1") and rom and start["rom_sha1"] != rom:
+                raise ValueError("save was made with a different ROM")
+            self._start = start
             self._start_key = key
         return self._start
 
@@ -122,8 +131,10 @@ class FireRedEnv:
         obs = self.adapter.observe()
         current = obs.to_dict() if hasattr(obs, "to_dict") else {"ram": obs.ram}
         pos = obs.position
+        if pos is not None:
+            pos = (obs.ram.get("map_bank"), obs.ram.get("map_id"), *pos)
         parts = progress_delta(self._prev or {}, current)
-        parts["loop"] = self._loop.penalty(None if pos is None else tuple(pos), button)
+        parts["loop"] = self._loop.penalty(pos, button)
         parts["reward"] += parts["loop"]
         self._prev = current
         self._steps += 1

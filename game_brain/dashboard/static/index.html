@@ -1114,7 +1114,7 @@ function renderPersistence(p) {
   const cards = [
     ["探索格", memory.unique_cells ?? totals.cells ?? "–"],
     ["新發現", totals.discoveries ?? "–"],
-    ["累積獎勵", totals.reward == null ? "–" : Number(totals.reward).toFixed(2)],
+    ["本次獎勵", totals.reward == null ? "–" : Number(totals.reward).toFixed(2)],
     ["本局最高", memory.best_reward == null ? "–" : Number(memory.best_reward).toFixed(2)],
     ["步數", totals.transitions ?? "–"],
   ];
@@ -1125,10 +1125,10 @@ function renderPersistence(p) {
     learn.appendChild(sp);
   }
   if (memory.enabled) {
-    metric("累積操作", String(totals.transitions ?? 0));
-    metric("探索位置", String(totals.cells ?? 0));
-    metric("發現項目", String(totals.discoveries ?? 0));
-    metric("新奇／劇情指標", Number(totals.reward ?? 0).toFixed(1));
+    metric("本次操作", String(totals.transitions ?? 0));
+    metric("本次探索位置", String(totals.cells ?? 0));
+    metric("本次發現項目", String(totals.discoveries ?? 0));
+    metric("本次新奇／劇情指標", Number(totals.reward ?? 0).toFixed(1));
   }
   records.replaceChildren();
   const recent = memory.enabled && Array.isArray(memory.recent) ? memory.recent : [];
