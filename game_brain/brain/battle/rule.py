@@ -77,6 +77,11 @@ class RuleBattleBrain(Brain):
         """Called by the arbiter before every decide() (handoff only makes sense in ASSIST)."""
         self.mode = Mode.parse(mode) if not isinstance(mode, Mode) else mode
 
+    def observe(self, obs: Observation) -> dict:
+        if obs.ram.get("in_battle") is not True:
+            self._compiler, self._handoff_waits, self._unready, self._trusted = None, 0, 0, False
+        return {}
+
     @property
     def src(self) -> str:
         return f"brain:{self.name}"

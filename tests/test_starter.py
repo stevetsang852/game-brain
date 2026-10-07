@@ -185,7 +185,7 @@ def test_auto_seed_run_is_reproduced_by_resume_and_by_the_recorded_seed(tmp_path
     explicit = list(iter_steps(str(_log(tmp_path, "explicit"))))
     key = lambda r: (r["step"], r["frame"], r["observation"]["ram"], r.get("executed_action"), r["decision"]["brain"])
     assert [key(r) for r in auto] == [key(r) for r in explicit]
-    side = next((tmp_path / "saves").glob("*/0000150_periodic.json"))
+    side = next((tmp_path / "saves").glob("*/0000150_*.json"))
     assert _main(demo, ["--steps", "150", "--resume", str(side)], tmp_path, "resumed") == 0
     recs = list(read_log(str(_log(tmp_path, "resumed"))))
     assert recs[0]["seed"] == 424242 and recs[0]["seed_source"] == "resume"
