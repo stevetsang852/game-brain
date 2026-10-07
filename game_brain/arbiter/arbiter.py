@@ -2,24 +2,15 @@
 
 Modes (``game_brain.schema.Mode``):
 
-* AUTO   -- the first available brain decides; its action is executed.
-* ASSIST -- the brain acts as in AUTO, but actions submitted via
-            :meth:`Arbiter.submit_manual` (dashboard/human) jump the queue: while any are
-            queued, the oldest one is executed instead of consulting the brain
-            (``Decision.actor == "human"``). Once the queue is empty the brain resumes.
-* MANUAL -- brains are not consulted and any brain action is rejected. Only actions
-            submitted via :meth:`Arbiter.submit_manual` (dashboard/human) are executed;
-            with none queued, the game idles for ``idle_frames``.
-* SHADOW -- the brain decides and the Decision + proposed Action are logged, but the
-            action is NOT executed; the game idles for the proposal's duration so time
-            still moves forward. Dashboard actions are rejected.
+* AUTO   -- choose a low-level brain from the situation, then execute its action.
+* ASSIST -- same choice as AUTO, but queued human actions preempt the brain.
+* MANUAL -- brains are not consulted. Only dashboard actions are executed.
+* SHADOW -- same choice as AUTO, but the action is not executed.
 
-Dashboard/manual actions are accepted only in MANUAL and ASSIST; AUTO and SHADOW reject them.
-Every Decision carries ``actor`` ("brain" | "human" | "none") so the run log records
-who actually acted; replay just re-executes ``executed_action`` and stays deterministic.
-
-Brain selection: ``brains`` is a priority list. A brain raising ``BrainUnavailable``
-(or any exception) is skipped and the next one is used; the skip is recorded.
+Brain selection in AUTO, ASSIST, and SHADOW uses :func:`select_order`: battle asks
+``llm`` then ``battle``; a verified route asks ``path``; an unverified probe asks
+``llm`` then ``path``; ``rl_ready`` asks ``rl`` outside battle. A brain that raises
+``BrainUnavailable`` or any exception is skipped. Original order is kept inside a role.
 """
 
 from __future__ import annotations
@@ -30,18 +21,19 @@ from typing import Deque, List, Optional, Sequence
 
 from ..brain import Brain, BrainUnavailable
 from ..schema import Action, Decision, Mode, ModeCommand, Observation
+from .select import select_order
 
-#: Modes in which human/dashboard actions are accepted.
 HUMAN_INPUT_MODES = (Mode.MANUAL, Mode.ASSIST)
+SITUATION_MODES = (Mode.AUTO, Mode.ASSIST, Mode.SHADOW)
 
 
 @dataclass
 class StepResult:
     mode: Mode
     decision: Decision
-    proposed: Optional[Action]          # what a brain wanted (None in MANUAL)
-    executed: Optional[Action]          # what was actually sent to the adapter (may be an idle wait)
-    notes: List[str] = field(default_factory=list)  # fallbacks / rejections this step
+    proposed: Optional[Action]
+    executed: Optional[Action]
+    notes: List[str] = field(default_factory=list)
 
 
 class Arbiter:
@@ -52,21 +44,19 @@ class Arbiter:
         self.mode = Mode.parse(mode)
         self.idle_frames = idle_frames
         self._manual: Deque[Action] = deque()
-        self.rejected: List[str] = []   # audit trail of rejected inputs
+        self.rejected: List[str] = []
         self.mode_history: List[ModeCommand] = [ModeCommand(self.mode, issued_by="init")]
 
-    # ------------------------------------------------------------------ inputs
     def apply_mode(self, cmd: "ModeCommand | Mode | str") -> Mode:
         if not isinstance(cmd, ModeCommand):
             cmd = ModeCommand(Mode.parse(cmd))
         self.mode = cmd.mode
         self.mode_history.append(cmd)
         if self.mode not in HUMAN_INPUT_MODES:
-            self._manual.clear()  # don't let stale human input leak into brain-only modes
+            self._manual.clear()
         return self.mode
 
     def submit_manual(self, action: Action, origin: str = "dashboard") -> bool:
-        """Queue a human/dashboard action. Accepted only in MANUAL and ASSIST modes."""
         if self.mode not in HUMAN_INPUT_MODES:
             self.rejected.append(f"{origin} action rejected: mode is {self.mode.value}, "
                                  "actions only accepted in manual or assist")
@@ -81,25 +71,23 @@ class Arbiter:
     def pending_manual(self) -> int:
         return len(self._manual)
 
-    # ------------------------------------------------------------------ step
     def _ask_brains(self, obs: Observation, notes: List[str]):
         context: dict = {}
-        for brain in self.brains:
+        brains = select_order(self.brains, obs) if self.mode in SITUATION_MODES else list(self.brains)
+        for brain in brains:
             try:
-                if hasattr(brain, "set_mode"):   # e.g. RuleBattleBrain: handoff only in ASSIST
+                if hasattr(brain, "set_mode"):
                     brain.set_mode(self.mode)
                 action, decision = brain.decide(obs)
-                # Brains after this one were not asked; those with ``observe`` still see the
-                # observation (e.g. PathBrain notices the battle start/end while the battle brain
-                # acts) and may return context such as milestones.
-                for later in self.brains[self.brains.index(brain) + 1:]:
-                    if hasattr(later, "observe"):
-                        try:
-                            for k, v in (later.observe(obs) or {}).items():
-                                context.setdefault(k, v)
-                        except Exception as exc:
-                            notes.append(f"{later.name} observe error: {type(exc).__name__}: {exc}")
-                for k, v in context.items():  # e.g. PathBrain's milestones while RuleBrain acts
+                for later in self.brains:
+                    if later is brain or not hasattr(later, "observe"):
+                        continue
+                    try:
+                        for k, v in (later.observe(obs) or {}).items():
+                            context.setdefault(k, v)
+                    except Exception as exc:
+                        notes.append(f"{later.name} observe error: {type(exc).__name__}: {exc}")
+                for k, v in context.items():
                     if getattr(decision, k, None) is None:
                         setattr(decision, k, v)
                 return brain, action, decision
@@ -107,7 +95,7 @@ class Arbiter:
                 notes.append(f"{brain.name} unavailable: {exc}")
                 for k, v in getattr(exc, "context", {}).items():
                     context.setdefault(k, v)
-            except Exception as exc:  # a buggy brain must not kill the run
+            except Exception as exc:
                 notes.append(f"{brain.name} error: {type(exc).__name__}: {exc}")
         self._unavailable_context = context
         return None, None, None
@@ -128,7 +116,6 @@ class Arbiter:
             return StepResult(mode, dec, None, act, notes)
 
         if mode is Mode.ASSIST and self._manual:
-            # Human takes over momentarily; the brain is not consulted this step.
             act = self._manual.popleft()
             dec = Decision(brain="human", plan="assist: human override",
                            reason=f"queued human action preempted the brain ({len(self._manual)} more queued)",
@@ -153,7 +140,6 @@ class Arbiter:
             dec.executed = False
             return StepResult(mode, dec, proposed, Action.wait(max(1, proposed.total_frames)), notes)
 
-        # AUTO and ASSIST
         dec.executed = True
         return StepResult(mode, dec, proposed, proposed, notes)
 
