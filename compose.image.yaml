@@ -1,0 +1,14 @@
+# Copy the ROM into the local image. The image stays local and is never pushed.
+# Usage: GAME_BRAIN_ROM_FILE=/abs/path/to/firered.gba docker compose -f compose.yaml -f compose.image.yaml up --build
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROM_MODE: image
+    volumes: !override
+      - ./runs:/app/runs
+      - ${GAME_BRAIN_SAVE_DIR_HOST:-${USERPROFILE:-${HOME}}/.game-brain/saves}:/saves
+      - brain-memory:/memory
+      - brain-config:/config

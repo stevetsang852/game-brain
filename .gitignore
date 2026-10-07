@@ -59,3 +59,5 @@ venv/
 build/
 dist/
 .env
+
+docker/rom.gba
