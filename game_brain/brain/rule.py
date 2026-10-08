@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Optional, Sequence, Tuple
 
 from ..schema import Action, ButtonPress, Decision, Observation
+from ..rl.signal import ProgressSignal
 from .base import Brain
 
 DEFAULT_PATTERN = ("DOWN", "DOWN", "LEFT", "LEFT", "UP", "UP", "RIGHT", "RIGHT")
@@ -26,6 +27,7 @@ class RuleBrain(Brain):
         self.tap_frames = tap_frames
         self.tap_release = tap_release
         self.stuck_after = stuck_after
+        self.signal = ProgressSignal()
         self.reset()
 
     def reset(self) -> None:
@@ -33,6 +35,7 @@ class RuleBrain(Brain):
         self._last_pos: Optional[tuple] = None
         self._last_was_walk = False
         self._stuck = 0
+        self.signal.reset()
 
     @property
     def src(self) -> str:
@@ -68,5 +71,6 @@ class RuleBrain(Brain):
         direction = self.pattern[self._i % len(self.pattern)]
         self._i = (self._i + 1) % len(self.pattern)
         self._last_was_walk = True
+        parts = self.signal.note(obs, direction)
         act = Action([ButtonPress(direction, self.step_frames, 0)], source=self.src)
-        return act, self._decision("explore with walk pattern", f"overworld at {pos} -> step {direction}")
+        return act, self._decision("explore with walk pattern", f"overworld at {pos} -> step {direction}; reward {parts['reward']:.2f}")
