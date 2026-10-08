@@ -121,6 +121,7 @@ whether a PNG is attached to the live `observation`, so logs and replay are iden
     stops blocking after 1 s (closed tab).
   - `fps` outside 1..60 is clamped; a non-number, NaN, bool or unknown `mode` is refused with an `error` envelope.
 - `{"type": "frame_ack", "frame": <int >= 0>}`: sent by the page after it has drawn a screenshot (auto only).
+  A raw changed-tile frame is acknowledged the same way. The page keeps its own 240×160 buffer, paints only the changed tiles into that buffer, and does not read the canvas back, so an unchanged region cannot flash black.
 - Until the page sends `view_config`, the CLI `--step-delay` / `--screenshot-every` apply unchanged (`mode: "cli"`).
 - Every `status` carries `display: {mode, fps, target_fps, actual_fps, frame_fps, page_ms}`; the page shows it under the slider.
 - Every `status` carries `starter: {requested, picked, seed}`: `requested` = `random` | `bulbasaur` | `charmander` | `squirtle` (`--starter`, default `random`), `picked` = the starter taken in Oak's lab or `null` before that, `seed` = the seed a random pick comes from: `--seed`, or (no `--seed` with `--starter random`) a seed drawn at random at start, never a placeholder; on `--resume` the save's. The same object is in the log header, the run summary and every save sidecar.

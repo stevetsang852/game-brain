@@ -1014,6 +1014,7 @@ function ensureScreenSize(w, h) {
 }
 img.onload = () => {
   ensureScreenSize(img.width, img.height); ctx.drawImage(img, 0, 0);
+  screenBuf = null;
   if (state.displayMode === "auto" && state.imgFrame !== undefined)
     send({ type: "frame_ack", frame: state.imgFrame, ts: Date.now() / 1000, payload: {} });
 };
@@ -1222,7 +1223,7 @@ function onObservation(env) {
     state.imgFrame = env.frame;
     img.src = "data:image/png;base64," + p.screenshot_b64;
     $("screenNote").textContent = `即時畫面 · ${p.game || ""}`;
-  } else {
+  } else if (!state.rawFrame) {
     $("screenNote").textContent = "adapter 沒有截圖，以 RAM 座標畫示意圖";
   }
   const pc = (p.ram || {}).party_count;
@@ -1607,14 +1608,18 @@ function renderParty(list) {
 }
 
 
+let screenBuf = null;
 function drawRawFrame(buffer) {
   const view = new DataView(buffer);
-  if (view.getUint32(0, true) !== 0x31464247) return;
+  if (buffer.byteLength < 10 || view.getUint32(0, true) !== 0x31464247) return;
+  const frameNo = view.getUint32(4, true);
   const count = view.getUint16(8, true);
   let offset = 10;
   state.rawFrame = true;
   ensureScreenSize(240, 160);
-  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  if (!screenBuf || screenBuf.width !== canvas.width || screenBuf.height !== canvas.height)
+    screenBuf = ctx.createImageData(canvas.width, canvas.height);
+  const img = screenBuf;
   for (let i = 0; i < count; i++) {
     const x = view.getUint8(offset), y = view.getUint8(offset + 1);
     const w = view.getUint8(offset + 2), h = view.getUint8(offset + 3);
@@ -1630,6 +1635,11 @@ function drawRawFrame(buffer) {
     }
   }
   ctx.putImageData(img, 0, 0);
+  const note = $("screenNote");
+  if (note && (note.textContent === "等待畫面…" || note.textContent.indexOf("沒有截圖") >= 0))
+    note.textContent = "即時畫面";
+  if (state.displayMode === "auto")
+    send({ type: "frame_ack", frame: frameNo, ts: Date.now() / 1000, payload: {} });
 }
 
 function onStatus(env) {
