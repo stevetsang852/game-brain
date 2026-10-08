@@ -23,6 +23,11 @@ def test_page_has_auto_learn_switch_and_mobile_targets():
     assert "grid-template-columns: repeat(3, 48px)" in html
     assert "width: 56px; height: 56px" in html
     assert "repeat(3, 34px)" not in html
+    assert "等待畫面…" in html and "等待第一個 observation" not in html
+    assert "#navSection { order: 2; }" in html and ".party-card { order: 3; }" in html
+    assert "free-stripe" in html and ".bar div.free { animation: none; }" in html
+    goal = html.split('id="goal"', 1)[1].split('id="milestones"', 1)[0]
+    assert goal.index('id="msBar"') < goal.index('id="phaseSub"')
 
 
 HARNESS = r"""
@@ -62,7 +67,7 @@ function snap() {
     checked: btn.getAttribute("aria-checked"), note: $("autoLearnNote").textContent,
     bar: bar.hidden ? null : bar.children[0].style.width, spin: !$("autoLearnSpin").hidden,
     phase: $("phase").textContent, sub: $("phaseSub").textContent, toast: $("toast").hidden ? null : $("toast").textContent,
-    conn: $("conn").className
+    conn: $("conn").className, free: $("msBar").classList.contains("free")
   };
 }
 const out = {};
@@ -121,6 +126,7 @@ def test_auto_learn_switch_states_in_node():
     assert out["early"]["note"] == "" and out["early"]["bar"] is None
     assert out["manual"]["disabled"] is False and out["manual"]["on"] and out["manual"]["note"] == "只喺 Auto 模式生效"
     assert "真新鎮" in out["switched"]["sub"] and "4029" in out["switched"]["sub"] and out["switched"]["note"] == ""
+    assert out["switched"]["free"] is True and out["off"]["free"] is False
     assert out["toastOnce"] == out["switched"]["toast"]
     assert out["hint"] == "AI 停咗 300 步，開 Auto Learn 可以自動繼續"
     assert out["waiting"]["spin"] and out["waiting"]["checked"] == "false"

@@ -539,6 +539,14 @@ tr.actor-row-human td { color: var(--gba-amber); }
 .goal-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0 12px; }
 .bar { flex: 1; height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
 .bar div { height: 100%; width: 0; background: var(--gba-cyan); border-radius: 999px; transition: width .45s cubic-bezier(.4,0,.2,1); }
+.bar div.free {
+  width: 100% !important;
+  background-color: var(--gba-cyan);
+  background-image: repeating-linear-gradient(-45deg, rgba(255,255,255,0.38) 0 4px, transparent 4px 8px);
+  background-size: 16px 16px;
+  animation: free-stripe 2.8s linear infinite;
+}
+@keyframes free-stripe { to { background-position: 16px 0; } }
 #msCount { color: var(--fg-dim); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ms { display: flex; flex-direction: column; gap: 4px; }
 .ms.all { max-height: 320px; overflow-y: auto; }
@@ -560,6 +568,7 @@ tr.actor-row-human td { color: var(--gba-amber); }
   .ms > div.current::before { animation: none; }
   .ms > div { animation: none !important; }
   .bar div { transition: none; }
+  .bar div.free { animation: none; }
 }
 
 /* ======================= EVENTS ======================= */
@@ -718,9 +727,9 @@ tr.actor-row-human td { color: var(--gba-amber); }
   .gb-col { display: contents; }
   .gb-card { order: 10; }
   .screen-card { order: 1; }
-  .party-card { order: 2; }
-  .mode-card { order: 3; }
-  #navSection { order: 4; }
+  #navSection { order: 2; }
+  .party-card { order: 3; }
+  .mode-card { order: 4; }
   .party-ico, .party-fallback { width: 32px; height: 32px; }
   body:not(.mode-manual) #pad,
   body:not(.mode-manual) .pad-note,
@@ -751,15 +760,15 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <div class="screen-wrap">
         <canvas id="screen" width="240" height="160"></canvas>
       </div>
-      <div id="screenNote">等待第一個 observation…</div>
+      <div id="screenNote">等待畫面…</div>
     </section>
 
     <section id="navSection" class="gb-card">
       <h2 data-i18n="goals">目標與里程碑</h2>
       <div class="goal-kicker">目前目標</div>
       <div id="goal">–</div>
-      <div id="phaseSub" class="phase-sub"></div>
       <div class="goal-progress"><div class="bar"><div id="msBar"></div></div><span id="msCount"></span></div>
+      <div id="phaseSub" class="phase-sub"></div>
       <div class="ms" id="milestones"><span class="ms-empty">（大腦沒有提供里程碑）</span></div>
       <button id="msToggle" class="linkbtn" type="button" style="display:none"></button>
     </section>
@@ -1808,6 +1817,8 @@ function toast(text) {
 }
 function renderPhase(s) {
   const phase = s.phase || "running";
+  const bar = $("msBar");
+  if (bar) bar.classList.toggle("free", phase === "free_explore");
   const sub = $("phaseSub");
   const pill = $("phase");
   const conn = $("conn");
