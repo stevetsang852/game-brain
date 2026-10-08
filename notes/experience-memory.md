@@ -43,7 +43,7 @@
 |---|---|---|
 | `go_explore.py` | `GoExploreArchive`：`<memory-dir>/archive.json`（預設 `~/.game-brain/go-explore`，**單一 archive per dir，不是 spec 的 `<run_id>/`**），cell key = `[bank, map, x//G, y//G, party_count, sorted(progress)]`（G=2）、`visits/times_chosen/chosen_since_new`、tabular Q（`q_values` 存在 JSON）；`select()` 用 count-based 權重 ×2 前線 | **完全不寫 `ExperienceMemory`**；cell 定義與 `memory._cell` 不同（G=2 vs 精確 tile） |
 | `rl/env.py` `FireRedEnv`（#59） | 6 鍵、reward = `progress_delta` + `AntiLoop.penalty` | 不寫記憶 |
-| `rl/progress.py` | 通關 1000、徽章 50、圖鑑 20、隊伍 2、換圖 1、重複 −0.2、每步 −0.01 | mGBA adapter **沒有** `badges`/`champion`/`pokedex_*`，實際只得 party／換圖／步罰 |
+| `rl/progress.py` | 通關 1000、徽章 50、圖鑑 20、隊伍 2、換圖 1、重複 −0.2、每步 −0.01 | mGBA adapter 而家有 `pokedex_seen`／`pokedex_owned`（`notes/badge-pokedex-ram.md`）；**沒有** `badges`／`champion`（徽章位元未驗證）。未有圖鑑欄位嗰陣先至只得 party／換圖／步罰 |
 | `rl/short.py`（#60） | 自己的 `seen` dict（只在本 run） | 跨 run 計數正是記憶可提供的 |
 | `rl/ppo.py` | 讀 `transitions`，用 `progress_delta` 重算 reward，學一組**與 state 無關**的 6 鍵 logits | 是離線消費者 |
 | `brain/path.py` | `_blocked`（撞兩次的 tile，TTL `block_ttl`）只在本 run | 跨 run 牆／NPC 阻擋可預先餵入 |

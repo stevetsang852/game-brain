@@ -20,6 +20,13 @@ IN_BATTLE_BIT = 0x02
 #: script / text box (Oak's speech, talking to an NPC), the START menu, a door warp + auto-walk
 SCRIPT_CONTEXT2_ENABLED = 0x03000F9C
 G_SAVEBLOCK1_PTR = 0x03005008    # struct SaveBlock1 *; pos @+0 (s16 x,y), location @+4 (s8 group, s8 num)
+G_SAVEBLOCK2_PTR = 0x0300500C    # struct SaveBlock2 *; pokedex owned/seen (notes/badge-pokedex-ram.md)
+# SaveBlock2.pokedex is at +0x18. owned[] is pokedex+0x10, seen[] is pokedex+0x44.
+# Bit 0 of byte 0 is national dex 1 (the game decrements the dex number before the bit test).
+# Kanto national numbers 1-151 are FireRed's internal species ids. Hoenn bits are not decoded.
+POKEDEX_OWNED_OFFSET = 0x28
+POKEDEX_SEEN_OFFSET = 0x5C
+KANTO_DEX_COUNT = 151
 G_PLAYER_AVATAR = 0x02037078     # struct PlayerAvatar; objectEventId @+5
 G_OBJECT_EVENTS = 0x02036E38     # struct ObjectEvent[16], 0x24 bytes each; facingDirection = low nibble @+0x18
 
@@ -40,6 +47,23 @@ WARP_ENTER = {
 FACING = {1: "DOWN", 2: "UP", 3: "LEFT", 4: "RIGHT"}
 
 EWRAM = range(0x02000000, 0x02040000)
+
+
+def kanto_dex_species(flags: bytes) -> list:
+    """Species ids whose Kanto dex bit is set.
+
+    pokefirered stores national dex ``n`` at bit ``n - 1`` (it decrements before dividing by 8).
+    For Kanto, that national number is also FireRed's internal species id. Bits past 151 are ignored.
+    """
+    out = []
+    for i, byte in enumerate(flags):
+        for bit in range(8):
+            national = i * 8 + bit + 1
+            if national > KANTO_DEX_COUNT:
+                return out
+            if byte & (1 << bit):
+                out.append(national)
+    return out
 
 
 class FireRedRam:
@@ -77,6 +101,7 @@ class FireRedRam:
             # field controls locked (script / text box / START menu / warp); notes/mgba-bridge.md
             "controls_locked": bool(self.u8(SCRIPT_CONTEXT2_ENABLED)),
         }
+        ram.update(self._pokedex())
         if cb2 != CB2_OVERWORLD:
             ram["scene"] = "other"
             return ram  # no player_x/y outside the overworld (RuleBrain mashes A)
@@ -95,6 +120,19 @@ class FireRedRam:
             ram["facing"] = FACING[face]
         ram.update(self._map_info(ram["map_bank"], ram["map_id"]))
         return ram
+
+    def _pokedex(self) -> Dict[str, Any]:
+        """``pokedex_owned`` / ``pokedex_seen``: Kanto species ids. Empty lists once SaveBlock2
+        exists and nothing is registered. Absent when the pointer is not in EWRAM (title screen).
+        Badge flags are not read: no gym has been beaten on this ROM, so those bits stay unverified
+        (notes/badge-pokedex-ram.md)."""
+        sb2 = self.u32(G_SAVEBLOCK2_PTR)
+        if sb2 not in EWRAM:
+            return {}
+        return {
+            "pokedex_owned": kanto_dex_species(self.block(sb2 + POKEDEX_OWNED_OFFSET, 19)),
+            "pokedex_seen": kanto_dex_species(self.block(sb2 + POKEDEX_SEEN_OFFSET, 19)),
+        }
 
     # ------------------------------------------------------------------ map layout
     def _map_info(self, bank: int, num: int) -> Dict[str, Any]:
