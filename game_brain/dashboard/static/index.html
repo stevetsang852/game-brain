@@ -1007,8 +1007,13 @@ const REWARD_LABEL = { new_tile: "新格", new_map: "新地圖", milestone: "劇
 const state = { mode: null, lastDecision: null, lastObs: null, ws: null, autoLearn: { pending: null, toastStuck: null } };
 const canvas = $("screen"), ctx = canvas.getContext("2d");
 const img = new Image();
+function ensureScreenSize(w, h) {
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w; canvas.height = h;
+  }
+}
 img.onload = () => {
-  canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0);
+  ensureScreenSize(img.width, img.height); ctx.drawImage(img, 0, 0);
   if (state.displayMode === "auto" && state.imgFrame !== undefined)
     send({ type: "frame_ack", frame: state.imgFrame, ts: Date.now() / 1000, payload: {} });
 };
@@ -1131,7 +1136,9 @@ function redrawMaps() {
     : (hasCollision ? "碰撞格來自 RAM" : "adapter 沒有碰撞資料，只畫座標")
       + (Array.isArray(ram.npcs) ? ` · NPC ${ram.npcs.length} 個` : "")
       + (path && path.length > 1 ? ` · 路徑 ${path.length - 1} 格，終點 (${path[path.length - 1].join(",")})` : " · 沒有規劃路徑");
-  if (!state.lastObs?.screenshot_b64) { canvas.width = 240; canvas.height = 160; drawMap(canvas, ram, path); }
+  if (!state.lastObs?.screenshot_b64 && !state.rawFrame) {
+    ensureScreenSize(240, 160); drawMap(canvas, ram, path);
+  }
 }
 
 $("minimap").addEventListener("mousemove", e => {
@@ -1605,7 +1612,8 @@ function drawRawFrame(buffer) {
   if (view.getUint32(0, true) !== 0x31464247) return;
   const count = view.getUint16(8, true);
   let offset = 10;
-  canvas.width = 240; canvas.height = 160;
+  state.rawFrame = true;
+  ensureScreenSize(240, 160);
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
   for (let i = 0; i < count; i++) {
     const x = view.getUint8(offset), y = view.getUint8(offset + 1);
