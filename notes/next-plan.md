@@ -12,7 +12,7 @@ Repo privacy does not allow committing a FireRed ROM, battery save, savestate, o
 
 ## Next plan
 
-1. Merge situation selection after CI is green.
-2. Badge and Pokédex RAM crosswalk on this ROM only.
+1. Situation selection is merged (#91). Path-cache performance is merged (#95).
+2. Badge and Pokédex RAM crosswalk on this ROM only. Needs the verified ROM; do not guess addresses.
 3. Keep four low-level brains switchable. Master LLM may read logs and write brain content, not emit the current `ButtonPress`.
-4. Store experiment summaries under `experiments/`. Do not commit ROM or screenshots.
+4. `python -m game_brain.experiments` writes a JSON and markdown summary under `experiments/`. It refuses ROM, savestate, and screenshot fields.
