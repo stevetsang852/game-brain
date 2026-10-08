@@ -68,7 +68,7 @@ class RuleBrain(Brain):
                 "explore with walk pattern",
                 f"position {pos} unchanged after {self.stuck_after} steps -> press A, rotate direction")
 
-        direction = self.signal.divert(self.pattern[self._i % len(self.pattern)], self._stuck > 0)
+        direction = self.pattern[self._i % len(self.pattern)]
         self._i = (self._i + 1) % len(self.pattern)
         self._last_was_walk = True
         parts = self.signal.note(obs, direction)
