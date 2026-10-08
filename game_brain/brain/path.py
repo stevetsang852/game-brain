@@ -105,8 +105,9 @@ class PathBrain(Brain):
         self._explore_dir: Optional[str] = None
         self._explore_walk: Optional[tuple] = None  # (map/x/y key, direction) of the last free-explore step
         self._forced_explore: Optional[str] = None  # set by force_free_explore() (stuck detection)
+        self._path_cache = None  # (map, goals, blocked) -> path; reused while the player stays on it
         self.stats = {"steps": 0, "turns": 0, "bumps": 0, "a_presses": 0, "warps": 0, "replans": 0,
-                      "script_presses": 0, "frozen": 0, "npc_blocked_tiles": 0}
+                      "script_presses": 0, "frozen": 0, "npc_blocked_tiles": 0, "path_cache_hits": 0}
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -127,6 +128,24 @@ class PathBrain(Brain):
         line = {"UP": [(x, 0) for x in range(w)], "DOWN": [(x, h - 1) for x in range(w)],
                 "LEFT": [(0, y) for y in range(h)], "RIGHT": [(w - 1, y) for y in range(h)]}[direction]
         return {t for t in line if grid.is_walkable(*t)}
+
+
+    def _route(self, grid, pos, goals, blocked):
+        """A* once per map/goal/blocked set, then slice the cached path while we stay on it."""
+        key = (grid.key, frozenset(goals), frozenset(blocked))
+        cached = self._path_cache
+        if cached is not None and cached[0] == key:
+            path = cached[1]
+            try:
+                index = path.index(pos)
+            except ValueError:
+                index = -1
+            if 0 <= index < len(path) - 1:
+                self.stats["path_cache_hits"] += 1
+                return path[index:]
+        path = astar(grid, pos, goals, blocked=blocked)
+        self._path_cache = (key, path) if path else None
+        return path
 
     def _blocked_tiles(self) -> Set[Tile]:
         self._blocked = {k: v for k, v in self._blocked.items() if v > self._t}
@@ -465,12 +484,14 @@ class PathBrain(Brain):
         npcs = self._npc_tiles(obs) if self.avoid_npcs else set()
         npcs.discard(pos)
         remembered = self._blocked_tiles()
-        path = astar(grid, pos, goals, blocked=remembered | npcs)
+        path = self._route(grid, pos, goals, remembered | npcs)
         if path is None and remembered:
             self.stats["replans"] += 1
-            path = astar(grid, pos, goals, blocked=npcs)  # the "NPC" may have moved: forget bumps
+            self._path_cache = None
+            path = self._route(grid, pos, goals, npcs)  # the "NPC" may have moved: forget bumps
         if path is None and npcs:
-            path = astar(grid, pos, goals)  # an NPC stands in the only way: walk up and bump
+            self._path_cache = None
+            path = self._route(grid, pos, goals, set())  # an NPC stands in the only way: walk up and bump
         if path is None or len(path) < 2:
             raise self._unavailable(f"no path from {pos} to {sorted(goals)}", milestone)
         if npcs:

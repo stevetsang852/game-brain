@@ -407,3 +407,18 @@ def test_real_firered_pathbrain_gets_starter(tmp_path):
     assert (r.u32(p + 0x20 + 12 * growth) ^ key) & 0xFFFF == 1
     name = bytes(r.u8(p + 8 + i) for i in range(9))
     assert name == bytes([0xBC, 0xCF, 0xC6, 0xBC, 0xBB, 0xCD, 0xBB, 0xCF, 0xCC])  # "BULBASAUR"
+
+
+def test_path_cache_reuses_the_same_route_after_a_step():
+    b = tile_brain(4, 1)
+    settle(b, obs(1, 1, "UP"))
+    _, first = b.decide(obs(1, 1, "UP"))  # plans once, then turns
+    assert b.stats["path_cache_hits"] == 0
+    assert first.path[0] == [1, 1] and first.path[1] == [2, 1]
+    _, stepped = b.decide(obs(1, 1, "RIGHT"))
+    assert b.stats["path_cache_hits"] == 1
+    assert stepped.path == first.path
+    _, second = b.decide(obs(2, 1, "RIGHT"))
+    assert b.stats["path_cache_hits"] == 2
+    assert second.path[0] == [2, 1] and second.path[-1] == [4, 1]
+    assert second.path == first.path[1:]

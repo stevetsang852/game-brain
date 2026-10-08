@@ -96,7 +96,8 @@ class ExperienceMemory:
             if version not in (0, SCHEMA_VERSION):
                 raise ValueError(f"memory schema {version} is not supported (expected {SCHEMA_VERSION})")
             self.db.execute("PRAGMA journal_mode=WAL")
-            self.db.execute("PRAGMA synchronous=FULL")
+            # NORMAL is safe with WAL for this local experience DB and avoids an fsync per step.
+            self.db.execute("PRAGMA synchronous=NORMAL")
             self.db.executescript("""
                 CREATE TABLE IF NOT EXISTS runs (
                     run_id TEXT PRIMARY KEY, namespace TEXT NOT NULL, rom_hash TEXT,
