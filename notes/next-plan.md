@@ -1,18 +1,15 @@
-# Current code and next plan (2026-10-07)
+# Current code and next plan (2026-10-08)
 
-Repo privacy does not allow committing a FireRed ROM, battery save, savestate, or gameplay screenshot. Those stay ignored. `experiments/` may hold policy JSON, reward JSONL, and notes.
+Daily plan source of truth: README 「目前進度」／「下一步計劃（2026-10-08）」. Repo stays PUBLIC. Never commit ROM, battery save, savestate, screenshot, model, or secrets. `experiments/` may hold policy JSON, reward JSONL, and notes.
 
-## Current code
+## Current code (summary)
 
-- Adapter / Brain / Arbiter. Default brains remain `battle,path,rule`.
-- Auto, Assist, and Shadow situation selection is on branch `feat/auto-brain-select`, not necessarily merged: battle asks `llm` then `battle`; verified route asks `path`; unverified probe asks `llm` then `path`; `rl_ready` asks `rl`.
-- `llm` is still a stub. PokéLLMon is a Showdown battle reference, not a local model and not the GBA engine.
-- RL short-horizon runner and progress score exist. `rl/ppo.py` is a key-weight baseline, not executed PPO.
-- Screen refresh flash: `drawRawFrame` must not reset `canvas.width` every changed-tile frame. Noted on `fix/screen-refresh-flash`.
+- Default brains: `battle,path,rule`. Situation selection (#91) is on main.
+- Path route reuse + experience-db fsync NORMAL (#95). Progress signal on rule/random (#94).
+- Experiments CLI (#96): `python -m game_brain.experiments` — no ROM data.
+- Party list + `/icons/<id>.png` on main. `set_auto_learn` protocol on main; dashboard HTML still lacks the toggle.
+- Badge / Pokédex RAM still unverified on this FireRed ROM only.
 
-## Next plan
+## Next plan (2026-10-08)
 
-1. Situation selection is merged (#91). Path-cache performance is merged (#95).
-2. Badge and Pokédex RAM crosswalk on this ROM only. Needs the verified ROM; do not guess addresses.
-3. Keep four low-level brains switchable. Master LLM may read logs and write brain content, not emit the current `ButtonPress`.
-4. `python -m game_brain.experiments` writes a JSON and markdown summary under `experiments/`. It refuses ROM, savestate, and screenshot fields.
+See README 「下一步計劃（2026-10-08）」: Fullstack auto-learn e2e; Backend badge/Pokédex RAM crosswalk (verified ROM SHA1 only); Frontend Auto Learn toggle + mobile; Designer placement/sidebar spec; Research RAM candidate offsets only.
