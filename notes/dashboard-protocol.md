@@ -183,8 +183,7 @@ It is a flat message (no `payload`); other keys are ignored. `enabled` must be a
   that already happened; `stuck` stays until a new game or loading a save.
 - **Manual / assist / shadow mode: the toggle is accepted and stored.** The detector stays
   inactive (`stuck_steps` 0) until the mode is `auto`, and then it counts with the stored
-  setting. The status note says 「只喺 Auto 模式生效」. The page greys the switch out outside
-  `auto` using `status.mode`.
+  setting. Outside `auto` the switch stays usable and still shows on or off. The page writes 「只喺 Auto 模式生效」 under it and hides the stuck-step line. The switch is fully disabled only when `auto_learn` is absent.
 - **Failure.** An `error` envelope goes only to the tab that sent it; it is never broadcast and
   never replayed to a new tab:
   `{"type": "error", "frame": -1, "ts": 0, "payload": {"reason": "...", "cmd": "set_auto_learn"}}`.

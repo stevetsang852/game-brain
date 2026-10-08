@@ -105,7 +105,7 @@ body {
 /* ======================= LAYOUT ======================= */
 .gb-main {
   display:grid;
-  grid-template-columns: minmax(320px, 500px) 1fr;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap:16px;
   padding:16px;
   max-width: 1600px;
@@ -624,13 +624,109 @@ tr.actor-row-human td { color: var(--gba-amber); }
   .gb-main { grid-template-columns: 1fr; }
 }
 @media (max-width: 480px) {
+  body { overflow-x: hidden; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
   .gb-header { padding: 12px 14px; }
   .gb-main { padding: 12px; gap: 12px; }
-  .pad { gap: 12px 18px; padding: 14px; }
-  .dpad { grid-template-columns: repeat(3, 34px); grid-template-rows: repeat(3, 34px); }
-  .face-btn { width: 46px; height: 46px; font-size: 14px; }
+  .pad { gap: 8px; padding: 14px; }
+  .dpad { grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); gap: 8px; }
+  .face-btn { width: 56px; height: 56px; font-size: 16px; }
+  .modes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) and (orientation: landscape) {
+  .gb-col:first-child { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; }
+  .gb-col:first-child > section:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .gb-col:first-child > section:nth-child(3) { grid-column: 2; grid-row: 1; }
+  .gb-col:first-child > section:nth-child(2),
+  .gb-col:first-child > section:nth-child(4) { grid-column: 1 / -1; }
 }
 .party-row{display:flex;align-items:center;gap:8px;margin:4px 0}.party-icon{width:16px;height:32px;image-rendering:pixelated;background:#1118}
+
+.al-row {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 44px; margin-top: 10px;
+  padding: 8px 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+  color: var(--fg); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.al-row.unsupported { opacity: .45; cursor: not-allowed; }
+.al-knob {
+  flex: 0 0 auto; width: 48px; height: 28px; border-radius: 999px;
+  background: #5c6570; position: relative;
+}
+.al-knob::after {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 22px; height: 22px; border-radius: 50%; background: #fff;
+}
+.al-row.on .al-knob { background: var(--gba-cyan); }
+.al-row.on .al-knob::after { left: 23px; }
+.al-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.al-note { color: var(--fg-dim); font-size: 12px; }
+.al-bar { display: block; height: 4px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+.al-bar[hidden] { display: none; }
+.al-bar > span { display: block; height: 100%; width: 0; background: #eab308; }
+.al-spin {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.35); border-top-color: var(--gba-cyan);
+  animation: al-spin .8s linear infinite;
+}
+.al-spin[hidden] { display: none; }
+@keyframes al-spin { to { transform: rotate(360deg); } }
+.phase-sub { color: var(--fg-dim); font-size: 12px; margin-top: 4px; }
+.pill.stopped { background: #3a3f4b; color: #c8cdd6; }
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  max-width: min(420px, calc(100% - 32px));
+  padding: 10px 14px; border-radius: 10px;
+  background: #1c2230; color: var(--fg); border: 1px solid var(--line);
+  font-size: 14px; z-index: 20;
+}
+@media (prefers-reduced-motion: reduce) {
+  .al-spin, .party-slot.flash { animation: none; }
+}
+
+#mapName { font-size: 15px; font-weight: 700; margin: 0 0 8px; }
+#mapName:empty { display: none; }
+.party-slot {
+  display: flex; gap: 8px; align-items: flex-start;
+  min-height: 48px; padding: 6px 8px; margin: 0 0 6px;
+  border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+}
+.party-slot.empty { border-style: dashed; border-color: var(--line); color: var(--fg-dim); cursor: default; }
+.party-slot.active { border-color: var(--gba-violet); }
+.party-slot.fainted { opacity: 0.4; }
+.party-slot.flash { animation: party-flash .6s ease-out; }
+@keyframes party-flash { 0% { background: rgba(34,211,238,0.35); } 100% { background: transparent; } }
+.party-ico, .party-fallback {
+  width: 40px; height: 40px; flex: 0 0 auto; image-rendering: pixelated; background: #111;
+}
+.party-ico { object-fit: cover; object-position: top center; }
+.party-fallback {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; color: #fff; font-weight: 700;
+}
+.party-main { flex: 1; min-width: 0; }
+.party-line { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.party-tag { margin-left: 6px; font-size: 12px; color: var(--gba-violet); }
+.party-hp { height: 4px; margin-top: 4px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+.party-hp > span { display: block; height: 100%; width: 0; }
+.party-hp > span.hi { background: var(--gba-green); }
+.party-hp > span.mid { background: #eab308; }
+.party-hp > span.low { background: var(--gba-red); }
+.party-moves { display: none; margin-top: 4px; font-size: 12px; color: var(--fg-dim); }
+.party-slot.open .party-moves { display: block; }
+@media (max-width: 800px) {
+  .gb-col { display: contents; }
+  .gb-card { order: 10; }
+  .screen-card { order: 1; }
+  .party-card { order: 2; }
+  .mode-card { order: 3; }
+  #navSection { order: 4; }
+  .party-ico, .party-fallback { width: 32px; height: 32px; }
+  body:not(.mode-manual) #pad,
+  body:not(.mode-manual) .pad-note,
+  body:not(.mode-manual) .padrow { display: none; }
+}
+
 </style>
 </head>
 <body>
@@ -639,6 +735,7 @@ tr.actor-row-human td { color: var(--gba-amber); }
   <h1>game-brain</h1>
   <label>語言 <select id="lang" aria-label="language"><option value="zh-Hant">繁中</option><option value="en">English</option></select></label>
   <span id="conn" class="pill off">未連線</span>
+  <span id="phase" class="pill">進行中</span>
   <span id="adapter" class="pill">adapter: –</span>
   <span id="party" class="pill" title="ram.party_count">隊伍：–</span>
   <span class="meta">step <b id="step">–</b> · frame <b id="frame">–</b></span>
@@ -649,13 +746,24 @@ tr.actor-row-human td { color: var(--gba-amber); }
   <!-- ================= LEFT ================= -->
   <div class="gb-col">
 
-    <section class="gb-card">
+    <section class="gb-card screen-card">
       <h2 data-i18n="screen">遊戲畫面</h2>
       <div class="screen-wrap">
         <canvas id="screen" width="240" height="160"></canvas>
       </div>
       <div id="screenNote">等待第一個 observation…</div>
     </section>
+
+    <section id="navSection" class="gb-card">
+      <h2 data-i18n="goals">目標與里程碑</h2>
+      <div class="goal-kicker">目前目標</div>
+      <div id="goal">–</div>
+      <div id="phaseSub" class="phase-sub"></div>
+      <div class="goal-progress"><div class="bar"><div id="msBar"></div></div><span id="msCount"></span></div>
+      <div class="ms" id="milestones"><span class="ms-empty">（大腦沒有提供里程碑）</span></div>
+      <button id="msToggle" class="linkbtn" type="button" style="display:none"></button>
+    </section>
+
 
     <section class="gb-card">
       <h2 data-i18n="rom">ROM 檔案</h2>
@@ -671,7 +779,7 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <div class="persist-subhead">請選擇合法持有的 FireRed／相容改版 .gba（最大 32 MiB）。保存後重新啟動 Dashboard；Docker：docker compose restart dashboard。不同 ROM 的遊戲存檔不可混用。</div>
     </section>
 
-    <section class="gb-card">
+    <section class="gb-card mode-card">
       <h2 data-i18n="mode">模式</h2>
       <div class="modes" id="modes">
         <button data-mode="auto"   title="大腦決定並執行">Auto</button>
@@ -679,6 +787,15 @@ tr.actor-row-human td { color: var(--gba-amber); }
         <button data-mode="manual" title="只執行人手按鍵">Manual</button>
         <button data-mode="shadow" title="大腦只提議、不執行">Shadow</button>
       </div>
+      <button id="autoLearn" class="al-row" type="button" role="switch" aria-checked="false">
+        <span class="al-knob" aria-hidden="true"></span>
+        <span class="al-copy">
+          <span data-i18n="autoLearn">Auto Learn 自動學習</span>
+          <span id="autoLearnNote" class="al-note"></span>
+          <span id="autoLearnBar" class="al-bar" hidden><span></span></span>
+        </span>
+        <span id="autoLearnSpin" class="al-spin" hidden></span>
+      </button>
 
       <div class="fpsrow" title="只改畫面更新速度（步與步之間的等待和截圖頻率），不影響遊戲本身和 run log">
         <span>畫面速度</span>
@@ -737,18 +854,10 @@ tr.actor-row-human td { color: var(--gba-amber); }
   <!-- ================= RIGHT ================= -->
   <div class="gb-col">
 
-    <section id="navSection" class="gb-card">
-      <h2 data-i18n="goals">目標與里程碑</h2>
-      <div class="goal-kicker">目前目標</div>
-      <div id="goal">–</div>
-      <div class="goal-progress"><div class="bar"><div id="msBar"></div></div><span id="msCount"></span></div>
-      <div class="ms" id="milestones"><span class="ms-empty">（大腦沒有提供里程碑）</span></div>
-      <button id="msToggle" class="linkbtn" type="button" style="display:none"></button>
-    </section>
-
-    <section class="gb-card">
+    <section class="gb-card party-card">
+      <div id="mapName"></div>
       <h2 data-i18n="partyList">隊伍</h2>
-      <div id="partyList"><div class="persist-empty">尚未有隊伍資料</div></div>
+      <div id="partyList"></div>
     </section>
 
     <section id="battleSection" class="gb-card idle">
@@ -850,14 +959,15 @@ tr.actor-row-human td { color: var(--gba-amber); }
 
   </div>
 
+<div id="toast" class="toast" role="status" hidden></div>
 </main>
 
 <script>
 "use strict";
 
 const I18N = {
-  "zh-Hant": {screen:"遊戲畫面",rom:"ROM 檔案",mode:"模式",ram:"RAM 摘要",goals:"目標與里程碑",battle:"戰鬥",map:"地圖與規劃路徑",plan:"目前計劃",memory:"跨次經驗記憶",saves:"遊戲存檔",steps:"最近步驟",events:"事件",romSave:"保存並於下次使用",saveLearn:"保存 AI 學習資料",saveGame:"保存遊戲",newGame:"New Game · 重新開始",loadSave:"載入本機 JSON 存檔",party:"隊伍",offline:"未連線",online:"已連線"},
-  en: {screen:"Screen",rom:"ROM file",mode:"Mode",ram:"RAM",goals:"Goals",battle:"Battle",map:"Map and path",plan:"Current plan",memory:"Experience memory",saves:"Saves",steps:"Recent steps",events:"Events",romSave:"Save for next start",saveLearn:"Save learning data",saveGame:"Save game",newGame:"New Game",loadSave:"Load local JSON save",party:"Party",offline:"offline",online:"online"}
+  "zh-Hant": {screen:"遊戲畫面",rom:"ROM 檔案",mode:"模式",ram:"RAM 摘要",goals:"目標與里程碑",battle:"戰鬥",map:"地圖與規劃路徑",plan:"目前計劃",memory:"跨次經驗記憶",saves:"遊戲存檔",steps:"最近步驟",events:"事件",romSave:"保存並於下次使用",saveLearn:"保存 AI 學習資料",saveGame:"保存遊戲",newGame:"New Game · 重新開始",loadSave:"載入本機 JSON 存檔",party:"隊伍",partyList:"隊伍",autoLearn:"Auto Learn 自動學習",offline:"未連線",online:"已連線"},
+  en: {screen:"Screen",rom:"ROM file",mode:"Mode",ram:"RAM",goals:"Goals",battle:"Battle",map:"Map and path",plan:"Current plan",memory:"Experience memory",saves:"Saves",steps:"Recent steps",events:"Events",romSave:"Save for next start",saveLearn:"Save learning data",saveGame:"Save game",newGame:"New Game",loadSave:"Load local JSON save",party:"Party",partyList:"Party",autoLearn:"Auto Learn",offline:"offline",online:"online"}
 };
 let LANG = localStorage.getItem("game-brain-lang") || "zh-Hant";
 if (!I18N[LANG]) LANG = "zh-Hant";
@@ -884,7 +994,7 @@ const MAX_STEPS = 60, MAX_EVENTS = 40;
 const HUMAN_MODES = ["manual", "assist"];
 const ACTOR_LABEL = { brain: "大腦", human: "人手", none: "等待" };
 const REWARD_LABEL = { new_tile: "新格", new_map: "新地圖", milestone: "劇情", party: "隊伍", battle_win: "勝利", whiteout: "落敗" };
-const state = { mode: null, lastDecision: null, lastObs: null, ws: null };
+const state = { mode: null, lastDecision: null, lastObs: null, ws: null, autoLearn: { pending: null, toastStuck: null } };
 const canvas = $("screen"), ctx = canvas.getContext("2d");
 const img = new Image();
 img.onload = () => {
@@ -1100,6 +1210,7 @@ function onObservation(env) {
   }
   const pc = (p.ram || {}).party_count;
   $("party").textContent = `${t("party")}: ${Number.isInteger(pc) ? pc : "–"}`;
+  renderMapName(p.ram);
   redrawMaps();
   renderBattle();
   const tb = $("ram").tBodies[0]; tb.innerHTML = "";
@@ -1355,44 +1466,127 @@ function renderBattle() {
 
 function setMode(mode) {
   state.mode = mode;
+  if (document.body) {
+    document.body.classList.remove("mode-auto", "mode-assist", "mode-manual", "mode-shadow");
+    if (mode) document.body.classList.add("mode-" + mode);
+  }
   for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("active", b.dataset.mode === mode);
   for (const b of document.querySelectorAll("#pad button")) b.disabled = !HUMAN_MODES.includes(mode);
 }
 
 
+function renderMapName(ram) {
+  const el = $("mapName");
+  if (!el) return;
+  if (!ram || ram.map_bank == null || ram.map_id == null) { el.textContent = ""; return; }
+  el.textContent = mapLabel([ram.map_bank, ram.map_id]);
+}
+const PARTY_STATUS = { poison: "毒", toxic: "毒", paralysis: "麻", sleep: "眠", burn: "燒", freeze: "凍" };
+const PARTY_COLORS = ["#7c5cff", "#22d3ee", "#34d399", "#eab308", "#fb7185", "#60a5fa"];
 function renderParty(list) {
   const box = $("partyList");
   if (!box) return;
   const mons = Array.isArray(list) ? list : [];
-  const key = mons.map(mon => [mon.slot, mon.species_id, mon.egg, mon.hp, mon.status, mon.active, mon.level].join(":")).join("|");
-  if (box.dataset.key === key) return;
-  box.dataset.key = key;
-  if (!mons.length) {
-    box.innerHTML = '<div class="persist-empty">尚未有隊伍資料</div>';
-    return;
-  }
+  const bySlot = new Array(6).fill(null);
+  mons.forEach((mon, i) => {
+    const slot = Number.isInteger(mon.slot) ? mon.slot : i;
+    if (slot >= 0 && slot < 6) bySlot[slot] = mon;
+  });
+  const open = box.querySelector(".party-slot.open");
+  const openSlot = open ? open.dataset.slot : "";
+  const prev = state.partySeen || null;
+  const seen = {};
   box.innerHTML = "";
-  for (const mon of mons) {
+  bySlot.forEach((mon, i) => {
     const row = document.createElement("div");
-    row.className = "party-row";
-    const icon = document.createElement("img");
-    icon.className = "party-icon";
-    icon.alt = "";
-    const iconId = mon.egg ? 412 : mon.species_id;
-    if (Number.isInteger(iconId)) icon.src = `/icons/${iconId}.png`;
-    row.appendChild(icon);
-    const text = document.createElement("span");
-    if (mon.bad_egg) text.textContent = `#${mon.slot + 1} Bad Egg`;
-    else {
-      const name = mon.species || mon.species_id || "?";
-      const hp = Number.isInteger(mon.hp) ? `${mon.hp}/${mon.max_hp ?? "?"}` : "–";
-      const status = mon.status ? ` · ${mon.status}` : "";
-      const active = mon.active ? " · active" : "";
-      text.textContent = `#${(mon.slot ?? 0) + 1} ${name} Lv${mon.level ?? "?"} ${hp}${status}${active}`;
+    row.className = "party-slot";
+    row.dataset.slot = String(i);
+    const empty = !mon || mon.bad_egg;
+    if (empty) {
+      row.classList.add("empty");
+      row.textContent = LANG === "en" ? "Empty" : "空";
+      box.appendChild(row);
+      return;
     }
-    row.appendChild(text);
+    const egg = mon.egg === true;
+    const name = egg ? (LANG === "en" ? "Egg" : "蛋") : (mon.species || "?");
+    const iconId = egg ? 412 : mon.species_id;
+    if (Number.isInteger(iconId)) {
+      const img = document.createElement("img");
+      img.className = "party-ico";
+      img.alt = "";
+      img.src = "/icons/" + iconId + ".png";
+      img.onerror = () => {
+        const fb = document.createElement("span");
+        fb.className = "party-fallback";
+        fb.textContent = String(name).slice(0, 1) || "?";
+        fb.style.background = PARTY_COLORS[(Number(iconId) || 0) % PARTY_COLORS.length];
+        img.replaceWith(fb);
+      };
+      row.appendChild(img);
+    }
+    const main = document.createElement("div");
+    main.className = "party-main";
+    const line = document.createElement("div");
+    line.className = "party-line";
+    const left = document.createElement("span");
+    left.textContent = name;
+    if (mon.active) {
+      const tag = document.createElement("span");
+      tag.className = "party-tag";
+      tag.textContent = LANG === "en" ? "Out" : "出戰";
+      left.appendChild(tag);
+      row.classList.add("active");
+    }
+    const status = PARTY_STATUS[mon.status];
+    if (status && !egg) {
+      const tag = document.createElement("span");
+      tag.className = "party-tag";
+      tag.textContent = status;
+      left.appendChild(tag);
+    }
+    line.appendChild(left);
+    if (!egg) {
+      const hp = Number(mon.hp), max = Number(mon.max_hp);
+      const fainted = hp === 0;
+      const right = document.createElement("span");
+      right.textContent = "Lv" + (mon.level ?? "?") + "  " + (Number.isInteger(mon.hp) ? mon.hp + "/" + (mon.max_hp ?? "?") : "");
+      if (fainted) {
+        row.classList.add("fainted");
+        right.textContent = (LANG === "en" ? "Fainted" : "昏倒") + " " + right.textContent;
+      }
+      line.appendChild(right);
+      main.appendChild(line);
+      const bar = document.createElement("div");
+      bar.className = "party-hp";
+      const fill = document.createElement("span");
+      const pct = max > 0 ? Math.max(0, Math.min(100, Math.round(100 * hp / max))) : 0;
+      fill.style.width = fainted ? "0%" : pct + "%";
+      fill.className = pct > 50 ? "hi" : pct >= 20 ? "mid" : "low";
+      bar.appendChild(fill);
+      main.appendChild(bar);
+    } else {
+      main.appendChild(line);
+    }
+    if (!egg) {
+      const moves = document.createElement("div");
+      moves.className = "party-moves";
+      if (Array.isArray(mon.moves)) {
+        moves.textContent = mon.moves.slice(0, 4).map(mv => (mv.name || mv.id) + " " + (mv.pp ?? "?") + "/" + (mv.max_pp ?? "?")).join(" · ");
+      }
+      main.appendChild(moves);
+    }
+    row.appendChild(main);
+    if (String(i) === openSlot) row.classList.add("open");
+    const before = prev && prev[i];
+    const ident = egg ? "egg" : mon.species_id;
+    seen[i] = { hp: mon.hp, level: mon.level, ident: ident };
+    if (before && (before.ident !== ident || (mon.level > before.level) || (Number.isInteger(mon.hp) && mon.hp < before.hp)))
+      row.classList.add("flash");
+    if (!empty && !egg) row.addEventListener("click", () => row.classList.toggle("open"));
     box.appendChild(row);
-  }
+  });
+  state.partySeen = seen;
 }
 
 
@@ -1450,6 +1644,9 @@ function onStatus(env) {
     renderAvailableSaves(state.availableSaves || [], s.persistence.active_save_id);
   }
   if (s.display) onDisplay(s.display);
+  state.lastStatus = s;
+  renderPhase(s);
+  renderAutoLearn(s);
   renderParty(s.party);
 }
 
@@ -1514,6 +1711,7 @@ function sendPersistenceCommand(kind) {
 }
 
 document.querySelectorAll("#modes button").forEach(b => b.onclick = () => sendMode(b.dataset.mode));
+$("autoLearn").addEventListener("click", toggleAutoLearn);
 document.querySelectorAll("#pad button").forEach(b => b.onclick = () => sendPress(b.dataset.btn));
 $("saveGameNow").addEventListener("click", () => sendPersistenceCommand("save_game"));
 $("newGameNow").addEventListener("click", () => {
@@ -1590,6 +1788,122 @@ document.addEventListener("keydown", e => {
   e.preventDefault(); sendPress(KEYS[e.key]);
 });
 
+
+const MAP_ZH = { "3/0": "真新鎮", "4/0": "自家一樓", "4/1": "自家二樓", "4/3": "研究所", "3/19": "1 號道路", "3/1": "常青市", "5/3": "友好商店" };
+const MAP_EN = { "3/0": "Pallet Town", "4/0": "Player house 1F", "4/1": "Player house 2F", "4/3": "Oak's Lab", "3/19": "Route 1", "3/1": "Viridian City", "5/3": "Viridian Mart" };
+function mapLabel(map) {
+  if (!Array.isArray(map) || map.length < 2) return LANG === "en" ? "unknown map" : "未知地圖";
+  const key = map[0] + "/" + map[1];
+  const table = LANG === "en" ? MAP_EN : MAP_ZH;
+  return table[key] || ((LANG === "en" ? "map " : "地圖 ") + key);
+}
+let toastTimer = null;
+function toast(text) {
+  const el = $("toast");
+  if (!el) return;
+  el.hidden = false;
+  el.textContent = text;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 4000);
+}
+function renderPhase(s) {
+  const phase = s.phase || "running";
+  const sub = $("phaseSub");
+  const pill = $("phase");
+  const conn = $("conn");
+  if (phase === "stopped") {
+    if (pill) pill.textContent = LANG === "en" ? "Stopped" : "已停止";
+    const reason = s.stopped && s.stopped.reason;
+    if (sub) sub.textContent = reason ? (LANG === "en" ? "Reason: " + reason : "原因：" + reason) : "";
+    if (conn && state.ws && state.ws.readyState === 1) { conn.textContent = LANG === "en" ? "Stopped" : "已停止"; conn.className = "pill stopped"; }
+    return;
+  }
+  if (conn && state.ws && state.ws.readyState === 1 && conn.className.indexOf("off") < 0) {
+    conn.textContent = LANG === "en" ? "online" : "已連線";
+    conn.className = "pill on";
+  }
+  if (phase === "free_explore") {
+    if (pill) pill.textContent = LANG === "en" ? "Free explore" : "自由探索中";
+    const stuck = s.stuck;
+    if (stuck && stuck.step != null) {
+      const n = (s.auto_learn && s.auto_learn.threshold) || 300;
+      const where = mapLabel(stuck.map);
+      const text = LANG === "en"
+        ? "Stuck for " + n + " steps at step " + stuck.step + " on " + where + ", switched to free explore"
+        : "第 " + stuck.step + " 步喺 " + where + " 停咗 " + n + " 步，自動轉自由探索";
+      if (sub) sub.textContent = text;
+      const key = String(stuck.step);
+      if (state.autoLearn.toastStuck !== key) { state.autoLearn.toastStuck = key; toast(text); }
+    } else if (sub) {
+      sub.textContent = LANG === "en" ? "Main goals are done. The AI is exploring." : "主線目標已完成，AI 自行探索";
+    }
+    return;
+  }
+  if (pill) pill.textContent = LANG === "en" ? "Running" : "進行中";
+  if (sub) sub.textContent = "";
+}
+function renderAutoLearn(s) {
+  const btn = $("autoLearn");
+  if (!btn) return;
+  const note = $("autoLearnNote");
+  const bar = $("autoLearnBar");
+  const spin = $("autoLearnSpin");
+  const al = s.auto_learn;
+  const setNote = (text) => { if (note) note.textContent = text; };
+  const hideBar = () => { if (bar) bar.hidden = true; };
+  if (!al || typeof al.enabled !== "boolean") {
+    btn.disabled = true;
+    btn.classList.add("unsupported");
+    btn.classList.remove("on", "wait");
+    btn.setAttribute("aria-checked", "false");
+    setNote(LANG === "en" ? "Not supported by this backend" : "後端未支援");
+    hideBar();
+    if (spin) spin.hidden = true;
+    state.autoLearn.pending = null;
+    return;
+  }
+  btn.disabled = false;
+  btn.classList.remove("unsupported");
+  if (state.autoLearn.pending !== null && al.enabled === state.autoLearn.pending) state.autoLearn.pending = null;
+  const waiting = state.autoLearn.pending !== null;
+  btn.classList.toggle("wait", waiting);
+  btn.classList.toggle("on", al.enabled === true);
+  btn.setAttribute("aria-checked", al.enabled ? "true" : "false");
+  if (spin) spin.hidden = !waiting;
+  hideBar();
+  if (s.mode && s.mode !== "auto") { setNote(LANG === "en" ? "Only counts in Auto mode" : "只喺 Auto 模式生效"); return; }
+  if (s.stuck) { setNote(""); return; }
+  const steps = Number(al.stuck_steps) || 0;
+  const thr = Number(al.threshold) || 300;
+  if (!al.enabled && steps >= thr) {
+    setNote(LANG === "en"
+      ? "The AI has been still for " + thr + " steps. Turn on Auto Learn to continue."
+      : "AI 停咗 " + thr + " 步，開 Auto Learn 可以自動繼續");
+    return;
+  }
+  if (al.enabled && steps >= 30) {
+    setNote(LANG === "en" ? "Still for " + steps + " / " + thr + " steps" : "已停 " + steps + "／" + thr + " 步");
+    if (bar) { bar.hidden = false; const fill = bar.querySelector("span"); if (fill) fill.style.width = Math.min(100, Math.round(100 * steps / thr)) + "%"; }
+    return;
+  }
+  setNote("");
+}
+function toggleAutoLearn() {
+  const btn = $("autoLearn");
+  if (!btn || btn.disabled || btn.classList.contains("wait")) return;
+  const next = btn.getAttribute("aria-checked") !== "true";
+  state.autoLearn.pending = next;
+  btn.classList.add("wait");
+  const spin = $("autoLearnSpin");
+  if (spin) spin.hidden = false;
+  send({ type: "command", cmd: "set_auto_learn", enabled: next });
+}
+function onAutoLearnError(payload) {
+  if (!payload || payload.cmd !== "set_auto_learn") return;
+  state.autoLearn.pending = null;
+  toast(LANG === "en" ? "Could not change Auto Learn" : "自動學習切換失敗");
+  if (state.lastStatus) renderAutoLearn(state.lastStatus);
+}
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`); state.ws = ws;
   ws.onopen = () => { state.displayChecked = false; $("conn").textContent = "已連線"; $("conn").className = "pill on"; event("已連線"); };
@@ -1601,10 +1915,11 @@ function connect() {
     if (env.type === "observation") onObservation(env);
     else if (env.type === "decision") onDecision(env);
     else if (env.type === "status") onStatus(env);
-    else if (env.type === "error") event(env.payload.reason, true);
+    else if (env.type === "error") { event((env.payload || {}).reason, true); onAutoLearnError(env.payload || {}); }
   };
 }
 setMode(null);
+renderParty([]);
 connect();
 loadRomSelection();
 refreshAvailableSaves();
