@@ -1,5 +1,8 @@
 # game-brain + mGBA 0.10.5 (Python bindings, USE_FFMPEG) in one local image.
-# ROMs and save states are NEVER copied in: mount them read-only at run time (-v ...:ro).
+# ROM delivery has two options:
+#   bind  - mount the host file read-only at /data/rom.gba (default, compose.yaml)
+#   image - copy docker/rom.gba into the local image at build time (compose.image.yaml)
+# Never push an image that used ROM_MODE=image.
 # This image is for local use only; do not push it to a registry.
 
 # ---------- shared runtime dependencies ----------
@@ -39,6 +42,7 @@ RUN mkdir build && cd build && cmake .. \
 
 # ---------- stage 2: runtime ----------
 FROM runtime
+ARG ROM_MODE=bind
 COPY --from=mgba-build /opt/mgba-dist/lib/ /opt/mgba/lib/
 COPY --from=mgba-build /opt/mgba-dist/python/ /opt/mgba/python/
 WORKDIR /app
@@ -47,6 +51,8 @@ COPY tests/ tests/
 COPY examples/ examples/
 COPY pyproject.toml ./
 RUN useradd --create-home --uid 1000 brain && mkdir -p /app/runs /memory /config && chown brain /app/runs /memory /config
+COPY docker/rom.gba* /tmp/rom-src/
+RUN if [ "$ROM_MODE" = image ]; then cp /tmp/rom-src/rom.gba /data/rom.gba && chown brain /data/rom.gba; fi && rm -rf /tmp/rom-src
 USER brain
 # GAME_BRAIN_IN_CONTAINER=1 lets the dashboard bind 0.0.0.0 *inside* the container
 # (needed for -p to reach it). Publish it on the host as 127.0.0.1:8765:8765 only.
