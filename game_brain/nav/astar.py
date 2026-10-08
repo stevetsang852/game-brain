@@ -33,9 +33,16 @@ def astar(grid: MapGrid, start: Tile, goals: Iterable[Tile], blocked: Iterable[T
     block = {tuple(b) for b in blocked}
     if start in goal_set:
         return [start]
+    walkable = grid.is_walkable
+    goals = tuple(goal_set)
+    if len(goals) == 1:
+        gx, gy = goals[0]
 
-    def h(t: Tile) -> int:
-        return min(abs(t[0] - g[0]) + abs(t[1] - g[1]) for g in goal_set)
+        def h(t: Tile) -> int:
+            return abs(t[0] - gx) + abs(t[1] - gy)
+    else:
+        def h(t: Tile) -> int:
+            return min(abs(t[0] - g[0]) + abs(t[1] - g[1]) for g in goals)
 
     counter = 0
     open_heap = [(h(start), 0, counter, start)]
@@ -52,7 +59,7 @@ def astar(grid: MapGrid, start: Tile, goals: Iterable[Tile], blocked: Iterable[T
             continue
         for _, dx, dy in DIRS:
             nxt = (cur[0] + dx, cur[1] + dy)
-            if not grid.is_walkable(*nxt) or nxt in block:
+            if nxt in block or not walkable(*nxt):
                 continue
             ng = g + 1
             if ng < cost.get(nxt, 1 << 30):
