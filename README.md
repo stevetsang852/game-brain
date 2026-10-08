@@ -71,7 +71,7 @@
 
 預設大腦仍然係 `battle,path,rule`。劇本 PathBrain 只負責已驗證路段同對照，唔再係正式策略。短局按鍵權重 baseline 未證明可以由開機到圖鑑、再由常磐市去第一個徽章之前，唔好換做預設。
 
-驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。徽章同圖鑑 RAM 未驗證，進度分而家只會喺 observation 有呢啲欄位時先計到。
+驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。圖鑑 `pokedex_seen`／`pokedex_owned` 已喺呢隻 ROM 驗證（`notes/badge-pokedex-ram.md`），進度分會計已見過嘅種類。八個徽章位元未驗證（冇打過道館，位元冇由 0 變 1），所以唔輸出 `ram["badges"]`，徽章分仍然唔會計。
 
 ## 目前進度（2026-10-08，main `62a3fc0`）
 
@@ -79,7 +79,7 @@
 
 **今日（2026-10-08）已合入 main：** #93 Docker ROM bind／copy 選項、#94 rule／random 進度 signal、#95 path route 重用＋experience-db fsync `NORMAL`、#96 實驗摘要 CLI（`python -m game_brain.experiments`，唔寫 ROM／截圖）。#96 trial-merge 真 ROM pytest：**429 passed**（約 486s）。
 
-而家能力：預設大腦仍係 `battle,path,rule`；situation select（#91）已上 main；path cache、progress signal、experiments CLI、party 列表＋`/icons/<id>.png` 都有；`set_auto_learn` 協定已喺 server／live／setup，但 dashboard HTML **未有** Auto Learn 掣。徽章／圖鑑 RAM 仍然未驗證。
+而家能力：預設大腦仍係 `battle,path,rule`；situation select（#91）已上 main；path cache、progress signal、experiments CLI、party 列表＋`/icons/<id>.png` 都有；`set_auto_learn` 協定已喺 server／live／setup，但 dashboard HTML **未有** Auto Learn 掣。圖鑑 owned／seen RAM 已驗證；八個徽章位元未驗證，唔輸出 `ram["badges"]`。
 
 | 項目 | 狀態 |
 |---|---|
@@ -97,7 +97,7 @@
 | ProbeBrain | ✅ 新地圖或 NPC 會記一條未驗證目標。唔寫入 `goals.json`，預設未啟用 |
 | 靜態資料 | ✅ `goals.json`、招式表同 imitation model 用 lodis 快取。ROM、存檔、run log 不快取 |
 | 學習／Go-Explore | ✅ `ExperienceMemory`（`memory.py`）＋ `go_explore.py`：tabular Q、cell archive＋savestate、跨次續跑；#95 experience-db fsync `NORMAL`。長局未全面驗證（森林以後未驗證） |
-| Gym／RL env（#59） | ✅ `rl/anti_loop.py`、`rl/env.py`（Gymnasium adapter wrapper）、`rl/curriculum.py`；進度分 `rl/progress.py`。徽章／圖鑑 RAM 未驗證 |
+| Gym／RL env（#59） | ✅ `rl/anti_loop.py`、`rl/env.py`（Gymnasium adapter wrapper）、`rl/curriculum.py`；進度分 `rl/progress.py`。圖鑑 seen／owned 已驗證；徽章位元未驗證 |
 | 短局 runner（#60） | ✅ `rl/short.py`：starter 短局（CPU），做 deep PPO 之前嘅門檻。**唔會**取代預設 `battle,path,rule` |
 | PPO | ⚠️ `rl/ppo.py` 目前係未接入執行策略的全域按鍵權重 baseline，唔係 PPO。⛔ 真正 PPO／GPU 未開始 |
 | Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、戰鬥 panel、隊伍列表、繁中／英文、ROM picker、存檔。畫面有變先重畫。⛔ 未有完整 mobile layout；⛔ 未有 Auto Learn UI |

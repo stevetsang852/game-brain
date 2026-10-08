@@ -234,3 +234,11 @@ Checked by Fullstack while doing M3; **Backend, please re-check**.
   reports `"unknown"`. In pokefirered, 3 is `B_OUTCOME_DREW`. **Backend:** please confirm it and map it to `"draw"`.
   It whites out the same as a loss (notes/nav.md "Whiteout"). Is the
   controller address the same for all normal battles?
+
+## Pokédex owned/seen, and badges that are not verified
+
+`ram["pokedex_owned"]` and `ram["pokedex_seen"]` (Kanto species ids) come from
+`gSaveBlock2Ptr` (`0x0300500C`). `FLAG_SYS_POKEDEX_GET` was checked on the same saves and is
+not a separate ram key. The eight Kanto badge bits were read as `0x00` and are **not** exposed:
+no save has earned a badge, so a 0-to-1 was never seen. Measurements, raw bytes, and which
+saves proved each field: `notes/badge-pokedex-ram.md`.

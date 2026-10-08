@@ -8,7 +8,7 @@ Daily plan source of truth: README 「目前進度」／「下一步計劃（202
 - Path route reuse + experience-db fsync NORMAL (#95). Progress signal on rule/random (#94).
 - Experiments CLI (#96): `python -m game_brain.experiments` — no ROM data.
 - Party list + `/icons/<id>.png` on main. `set_auto_learn` protocol on main; dashboard HTML still lacks the toggle.
-- Badge / Pokédex RAM still unverified on this FireRed ROM only.
+- Pokédex owned/seen RAM verified on this FireRed ROM (`notes/badge-pokedex-ram.md`). The eight Kanto badge bits are still unverified (no gym save, so `ram["badges"]` is not set).
 
 ## Next plan (2026-10-08)
 
