@@ -24,7 +24,8 @@ def test_page_has_auto_learn_switch_and_mobile_targets():
     assert "width: 56px; height: 56px" in html
     assert "repeat(3, 34px)" not in html
     assert "等待畫面…" in html and "等待第一個 observation" not in html
-    assert "#navSection { order: 2; }" in html and ".party-card { order: 3; }" in html
+    assert ".screen-card { order: 1; }" in html and ".party-card { order: 2; }" in html and ".mode-card { order: 3; }" in html
+    assert 'id="nowLine"' in html and 'id="devInfo"' in html and "<summary>開發者資訊</summary>" in html
     assert "free-stripe" in html and ".bar div.free { animation: none; }" in html
     goal = html.split('id="goal"', 1)[1].split('id="milestones"', 1)[0]
     assert goal.index('id="msBar"') < goal.index('id="phaseSub"')

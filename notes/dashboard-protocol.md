@@ -86,6 +86,8 @@ steps (default 1) as base64 PNG in `observation.payload.screenshot_b64`. Frames 
 to a temp dir outside the repo and are never logged (`Observation.summary()` drops them).
 Without screenshots (e.g. `MockAdapter`) the page draws a grid from `ram.player_x/player_y`.
 
+The default page is the human view: the screen, one status sentence, the mode and Auto Learn switch, the map name, and the active Pokémon (icon, name, level, HP bar). Exact HP, moves, the other five party slots, step, frame, and the logs sit in the collapsed 開發者資訊 section. The recent-steps table scrolls inside its own box.
+
 ## Goal / path / milestones (PR #8 optional `Decision` fields)
 
 The page renders these when present and falls back gracefully when absent (old logs, RuleBrain):

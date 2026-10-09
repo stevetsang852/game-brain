@@ -64,6 +64,7 @@ const out = {
   fainted: rows[2].className,
   faintText: line(rows[2]),
   burn: line(rows[1]),
+  burnDetail: rows[1].children[1].children[2].textContent,
   mid: fill(rows[1]).className,
   hi: fill(rows[0]).className,
   zero: fill(rows[2]).style.width
@@ -107,6 +108,8 @@ def test_party_rows_in_node():
     assert out["icon"].endswith("/icons/1.png") and out["eggIcon"].endswith("/icons/412.png")
     assert out["egg"] == "蛋" and out["eggKids"] == 1
     assert "fainted" in out["fainted"] and "昏倒" in out["faintText"]
-    assert "燒" in out["burn"] and out["mid"] == "mid" and out["hi"] == "hi" and out["zero"] == "0%"
-    assert out["opened"] and "TACKLE 35/35" in out["moves"]
+    assert "22/22" not in out["lead"] and "燒" not in out["burn"]
+    assert "燒" in out["burnDetail"] and "8/20" in out["burnDetail"]
+    assert out["mid"] == "mid" and out["hi"] == "hi" and out["zero"] == "0%"
+    assert out["opened"] and "TACKLE 35/35" in out["moves"] and "22/22" in out["moves"]
     assert out["fallback"] == "C" and out["map"] == "3/0" and out["flash"] is True
