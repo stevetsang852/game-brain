@@ -728,14 +728,28 @@ tr.actor-row-human td { color: var(--gba-amber); }
   .gb-col { display: contents; }
   .gb-card { order: 10; }
   .screen-card { order: 1; }
-  #navSection { order: 2; }
-  .party-card { order: 3; }
-  .mode-card { order: 4; }
+  .party-card { order: 2; }
+  .mode-card { order: 3; }
+  .dev-info { order: 4; }
   .party-ico, .party-fallback { width: 32px; height: 32px; }
   body:not(.mode-manual) #pad,
   body:not(.mode-manual) .pad-note,
   body:not(.mode-manual) .padrow { display: none; }
 }
+
+
+.now-line { margin: 12px 0 0; font-size: 16px; font-weight: 600; min-height: 1.4em; }
+.dev-info { grid-column: 1 / -1; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px 16px; }
+.dev-info summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; }
+.dev-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 12px; color: var(--fg-dim); font-size: 12px; }
+.dev-grid { display: flex; flex-direction: column; gap: 16px; }
+.steps-scroll { max-height: 220px; overflow: auto; }
+.party-card .party-slot { display: none; }
+.party-card .party-slot.lead { display: flex; }
+.party-card.show-rest .party-slot { display: flex; }
+body:not(.mode-manual) #pad,
+body:not(.mode-manual) .pad-note,
+body:not(.mode-manual) .padrow { display: none; }
 
 </style>
 </head>
@@ -744,16 +758,11 @@ tr.actor-row-human td { color: var(--gba-amber); }
 <header class="gb-header">
   <h1>game-brain</h1>
   <label>語言 <select id="lang" aria-label="language"><option value="zh-Hant">繁中</option><option value="en">English</option></select></label>
-  <span id="conn" class="pill off">未連線</span>
-  <span id="phase" class="pill">進行中</span>
-  <span id="adapter" class="pill">adapter: –</span>
-  <span id="party" class="pill" title="ram.party_count">隊伍：–</span>
-  <span class="meta">step <b id="step">–</b> · frame <b id="frame">–</b></span>
+  <span id="liveStatus" class="pill off">未連線</span>
 </header>
 
 <main class="gb-main">
 
-  <!-- ================= LEFT ================= -->
   <div class="gb-col">
 
     <section class="gb-card screen-card">
@@ -761,32 +770,7 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <div class="screen-wrap">
         <canvas id="screen" width="240" height="160"></canvas>
       </div>
-      <div id="screenNote">等待畫面…</div>
-    </section>
-
-    <section id="navSection" class="gb-card">
-      <h2 data-i18n="goals">目標與里程碑</h2>
-      <div class="goal-kicker">目前目標</div>
-      <div id="goal">–</div>
-      <div class="goal-progress"><div class="bar"><div id="msBar"></div></div><span id="msCount"></span></div>
-      <div id="phaseSub" class="phase-sub"></div>
-      <div class="ms" id="milestones"><span class="ms-empty">（大腦沒有提供里程碑）</span></div>
-      <button id="msToggle" class="linkbtn" type="button" style="display:none"></button>
-    </section>
-
-
-    <section class="gb-card">
-      <h2 data-i18n="rom">ROM 檔案</h2>
-      <dl>
-        <dt>本次 ROM</dt><dd id="romActive" class="persist-path">讀取中…</dd>
-        <dt>下次啟動</dt><dd id="romSelected" class="persist-path">讀取中…</dd>
-      </dl>
-      <div class="rom-picker">
-        <input id="romFile" type="file" accept=".gba" aria-label="選擇合法的 GBA ROM 檔案">
-        <button id="romUpload" type="button" disabled data-i18n="romSave">保存並於下次使用</button>
-      </div>
-      <div id="romMessage" role="status" aria-live="polite">只保存到本機，不會切換正在運行的遊戲。</div>
-      <div class="persist-subhead">請選擇合法持有的 FireRed／相容改版 .gba（最大 32 MiB）。保存後重新啟動 Dashboard；Docker：docker compose restart dashboard。不同 ROM 的遊戲存檔不可混用。</div>
+      <p id="nowLine" class="now-line"></p>
     </section>
 
     <section class="gb-card mode-card">
@@ -801,8 +785,6 @@ tr.actor-row-human td { color: var(--gba-amber); }
         <span class="al-knob" aria-hidden="true"></span>
         <span class="al-copy">
           <span data-i18n="autoLearn">Auto Learn 自動學習</span>
-          <span id="autoLearnNote" class="al-note"></span>
-          <span id="autoLearnBar" class="al-bar" hidden><span></span></span>
         </span>
         <span id="autoLearnSpin" class="al-spin" hidden></span>
       </button>
@@ -816,7 +798,10 @@ tr.actor-row-human td { color: var(--gba-amber); }
         <input id="fpsSlider" type="range" min="1" max="60" step="1" value="24">
         <input id="fpsNum" type="number" min="1" max="60" step="1" value="24">
         <span id="fpsUnit">fps</span>
-        <div id="fpsStat">–</div>
+      </div>
+      <div class="persist-actions">
+        <button id="saveGameNow" type="button" disabled data-i18n="saveGame">保存遊戲</button>
+        <button id="saveLearningNow" type="button" disabled data-i18n="saveLearn">保存 AI 學習資料</button>
       </div>
 
       <div class="pad-note">
@@ -854,20 +839,60 @@ tr.actor-row-human td { color: var(--gba-amber); }
       </div>
     </section>
 
-    <section class="gb-card">
-      <h2 data-i18n="ram">RAM 摘要</h2>
-      <table id="ram"><tbody><tr><td colspan="2">–</td></tr></tbody></table>
-    </section>
-
   </div>
 
-  <!-- ================= RIGHT ================= -->
   <div class="gb-col">
 
     <section class="gb-card party-card">
       <div id="mapName"></div>
-      <h2 data-i18n="partyList">隊伍</h2>
       <div id="partyList"></div>
+      <button id="partyRest" class="linkbtn" type="button">其餘隊伍</button>
+    </section>
+
+  </div>
+
+  <details id="devInfo" class="dev-info">
+  <summary>開發者資訊</summary>
+  <div class="dev-meta">
+    <span id="conn" class="pill off">未連線</span>
+    <span id="phase" class="pill">進行中</span>
+    <span id="adapter" class="pill">adapter: –</span>
+    <span id="party" class="pill" title="ram.party_count">隊伍：–</span>
+    <span class="meta">step <b id="step">–</b> · frame <b id="frame">–</b></span>
+    <div id="fpsStat">–</div>
+    <div id="screenNote">等待畫面…</div>
+    <span id="autoLearnNote" class="al-note"></span>
+    <span id="autoLearnBar" class="al-bar" hidden><span></span></span>
+  </div>
+  <div class="dev-grid">
+
+    <section id="navSection" class="gb-card">
+      <h2 data-i18n="goals">目標與里程碑</h2>
+      <div class="goal-kicker">目前目標</div>
+      <div id="goal">–</div>
+      <div class="goal-progress"><div class="bar"><div id="msBar"></div></div><span id="msCount"></span></div>
+      <div id="phaseSub" class="phase-sub"></div>
+      <div class="ms" id="milestones"><span class="ms-empty">（大腦沒有提供里程碑）</span></div>
+      <button id="msToggle" class="linkbtn" type="button" style="display:none"></button>
+    </section>
+
+    <section class="gb-card">
+      <h2 data-i18n="rom">ROM 檔案</h2>
+      <dl>
+        <dt>本次 ROM</dt><dd id="romActive" class="persist-path">讀取中…</dd>
+        <dt>下次啟動</dt><dd id="romSelected" class="persist-path">讀取中…</dd>
+      </dl>
+      <div class="rom-picker">
+        <input id="romFile" type="file" accept=".gba" aria-label="選擇合法的 GBA ROM 檔案">
+        <button id="romUpload" type="button" disabled data-i18n="romSave">保存並於下次使用</button>
+      </div>
+      <div id="romMessage" role="status" aria-live="polite">只保存到本機，不會切換正在運行的遊戲。</div>
+      <div class="persist-subhead">請選擇合法持有的 FireRed／相容改版 .gba（最大 32 MiB）。保存後重新啟動 Dashboard；Docker：docker compose restart dashboard。不同 ROM 的遊戲存檔不可混用。</div>
+    </section>
+
+    <section class="gb-card">
+      <h2 data-i18n="ram">RAM 摘要</h2>
+      <table id="ram"><tbody><tr><td colspan="2">–</td></tr></tbody></table>
     </section>
 
     <section id="battleSection" class="gb-card idle">
@@ -916,9 +941,6 @@ tr.actor-row-human td { color: var(--gba-amber); }
     <section class="gb-card">
       <h2 data-i18n="memory">跨次經驗記憶</h2>
       <div id="memoryMeta" class="persist-meta">等待記憶資料…</div>
-      <div class="persist-actions">
-        <button id="saveLearningNow" type="button" disabled data-i18n="saveLearn">保存 AI 學習資料</button>
-      </div>
       <div class="persist-subhead">經驗記錄會逐步自動寫入；按鈕會立即同步保存學習資料庫。</div>
       <div id="learningResults" class="persist-stats"></div>
       <div id="memoryStats" class="persist-stats"></div>
@@ -935,7 +957,6 @@ tr.actor-row-human td { color: var(--gba-amber); }
       <h2 data-i18n="saves">遊戲存檔</h2>
       <div id="saveMeta" class="persist-meta">等待存檔資料…</div>
       <div class="persist-actions">
-        <button id="saveGameNow" type="button" disabled data-i18n="saveGame">保存遊戲</button>
         <button id="newGameNow" type="button" disabled data-i18n="newGame">New Game · 重新開始</button>
         <button id="loadLocalSave" type="button" disabled data-i18n="loadSave">載入本機 JSON 存檔</button>
         <input id="localSaveFiles" type="file" accept=".json,.state,.sav" multiple hidden>
@@ -951,7 +972,7 @@ tr.actor-row-human td { color: var(--gba-amber); }
 
     <section class="gb-card">
       <h2 data-i18n="steps">最近步驟</h2>
-      <table id="steps">
+      <div class="steps-scroll"><table id="steps">
         <thead>
           <tr>
             <th>step</th><th>frame</th><th>模式</th><th>出手</th>
@@ -959,7 +980,7 @@ tr.actor-row-human td { color: var(--gba-amber); }
           </tr>
         </thead>
         <tbody></tbody>
-      </table>
+      </table></div>
     </section>
 
     <section class="gb-card">
@@ -968,6 +989,7 @@ tr.actor-row-human td { color: var(--gba-amber); }
     </section>
 
   </div>
+</details>
 
 <div id="toast" class="toast" role="status" hidden></div>
 </main>
@@ -1231,6 +1253,7 @@ function onObservation(env) {
   renderMapName(p.ram);
   redrawMaps();
   renderBattle();
+  humanNow(state.lastStatus || { phase: "running" });
   const tb = $("ram").tBodies[0]; tb.innerHTML = "";
   const entries = Object.entries(p.ram || {});
   if (!entries.length) tb.innerHTML = "<tr><td colspan=2>（空）</td></tr>";
@@ -1513,6 +1536,8 @@ function renderParty(list) {
   const open = box.querySelector(".party-slot.open");
   const openSlot = open ? open.dataset.slot : "";
   const prev = state.partySeen || null;
+  let lead = bySlot.findIndex(mon => mon && mon.active && !mon.bad_egg && mon.egg !== true);
+  if (lead < 0) lead = bySlot.findIndex(mon => mon && !mon.bad_egg);
   const seen = {};
   box.innerHTML = "";
   bySlot.forEach((mon, i) => {
@@ -1557,21 +1582,18 @@ function renderParty(list) {
       row.classList.add("active");
     }
     const status = PARTY_STATUS[mon.status];
-    if (status && !egg) {
-      const tag = document.createElement("span");
-      tag.className = "party-tag";
-      tag.textContent = status;
-      left.appendChild(tag);
-    }
     line.appendChild(left);
     if (!egg) {
       const hp = Number(mon.hp), max = Number(mon.max_hp);
       const fainted = hp === 0;
       const right = document.createElement("span");
-      right.textContent = "Lv" + (mon.level ?? "?") + "  " + (Number.isInteger(mon.hp) ? mon.hp + "/" + (mon.max_hp ?? "?") : "");
+      right.textContent = "Lv" + (mon.level ?? "?");
       if (fainted) {
         row.classList.add("fainted");
-        right.textContent = (LANG === "en" ? "Fainted" : "昏倒") + " " + right.textContent;
+        const tag = document.createElement("span");
+        tag.className = "party-tag";
+        tag.textContent = LANG === "en" ? "Fainted" : "昏倒";
+        left.appendChild(tag);
       }
       line.appendChild(right);
       main.appendChild(line);
@@ -1589,12 +1611,15 @@ function renderParty(list) {
     if (!egg) {
       const moves = document.createElement("div");
       moves.className = "party-moves";
-      if (Array.isArray(mon.moves)) {
-        moves.textContent = mon.moves.slice(0, 4).map(mv => (mv.name || mv.id) + " " + (mv.pp ?? "?") + "/" + (mv.max_pp ?? "?")).join(" · ");
-      }
+      const bits = [];
+      if (status) bits.push(status);
+      if (Number.isInteger(mon.hp)) bits.push(mon.hp + "/" + (mon.max_hp ?? "?"));
+      if (Array.isArray(mon.moves)) bits.push(mon.moves.slice(0, 4).map(mv => (mv.name || mv.id) + " " + (mv.pp ?? "?") + "/" + (mv.max_pp ?? "?")).join(" · "));
+      moves.textContent = bits.join(" · ");
       main.appendChild(moves);
     }
     row.appendChild(main);
+    if (i === lead) row.classList.add("lead");
     if (String(i) === openSlot) row.classList.add("open");
     const before = prev && prev[i];
     const ident = egg ? "egg" : mon.species_id;
@@ -1834,7 +1859,39 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, 4000);
 }
+function humanNow(s) {
+  const el = $("nowLine");
+  if (!el) return;
+  const phase = (s && s.phase) || "running";
+  let text = "";
+  if (phase === "stopped") text = LANG === "en" ? "Stopped" : "已停止";
+  else if (phase === "free_explore") {
+    const stuck = s && s.stuck;
+    if (stuck && stuck.map) {
+      const where = mapLabel(stuck.map);
+      text = LANG === "en" ? "Stopped at " + where + ", exploring" : "喺" + where + "停低咗，而家自己行";
+    } else text = LANG === "en" ? "Main story done, exploring" : "主線完成，自己探索";
+  } else {
+    const ms = (state.lastDecision && state.lastDecision.milestones) || [];
+    const cur = ms.find(m => m && !m.done);
+    const name = cur ? msName(cur) : "";
+    text = name ? (LANG === "en" ? "Now: " + name : "而家：" + name) : "";
+  }
+  el.textContent = text;
+}
+function renderLiveStatus(s) {
+  const el = $("liveStatus");
+  if (!el) return;
+  const connected = state.ws && state.ws.readyState === 1;
+  if (!connected) { el.textContent = LANG === "en" ? "Offline" : "未連線"; el.className = "pill off"; return; }
+  const phase = (s && s.phase) || "running";
+  if (phase === "stopped") { el.textContent = LANG === "en" ? "Stopped" : "已停止"; el.className = "pill stopped"; return; }
+  if (phase === "free_explore") { el.textContent = LANG === "en" ? "Free explore" : "自由探索中"; el.className = "pill"; return; }
+  el.textContent = LANG === "en" ? "Running" : "進行中"; el.className = "pill on";
+}
 function renderPhase(s) {
+  renderLiveStatus(s);
+  humanNow(s);
   const phase = s.phase || "running";
   const bar = $("msBar");
   if (bar) bar.classList.toggle("free", phase === "free_explore");
@@ -1863,7 +1920,11 @@ function renderPhase(s) {
         : "第 " + stuck.step + " 步喺 " + where + " 停咗 " + n + " 步，自動轉自由探索";
       if (sub) sub.textContent = text;
       const key = String(stuck.step);
-      if (state.autoLearn.toastStuck !== key) { state.autoLearn.toastStuck = key; toast(text); }
+      if (state.autoLearn.toastStuck !== key) {
+        state.autoLearn.toastStuck = key;
+        const where = mapLabel(stuck.map);
+        toast(LANG === "en" ? "Stopped at " + where + ", exploring" : "喺" + where + "停低咗，而家自己行");
+      }
     } else if (sub) {
       sub.textContent = LANG === "en" ? "Main goals are done. The AI is exploring." : "主線目標已完成，AI 自行探索";
     }
@@ -1936,8 +1997,8 @@ function onAutoLearnError(payload) {
 }
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`); state.ws = ws;
-  ws.onopen = () => { state.displayChecked = false; $("conn").textContent = "已連線"; $("conn").className = "pill on"; event("已連線"); };
-  ws.onclose = () => { $("conn").textContent = "未連線，重試中…"; $("conn").className = "pill off"; setTimeout(connect, 1500); };
+  ws.onopen = () => { state.displayChecked = false; $("conn").textContent = "已連線"; $("conn").className = "pill on"; renderLiveStatus(state.lastStatus); event("已連線"); };
+  ws.onclose = () => { $("conn").textContent = "未連線，重試中…"; $("conn").className = "pill off"; renderLiveStatus(null); setTimeout(connect, 1500); };
   ws.binaryType = "arraybuffer";
   ws.onmessage = (m) => {
     if (m.data instanceof ArrayBuffer) { drawRawFrame(m.data); return; }
@@ -1948,6 +2009,13 @@ function connect() {
     else if (env.type === "error") { event((env.payload || {}).reason, true); onAutoLearnError(env.payload || {}); }
   };
 }
+const restBtn = document.getElementById("partyRest");
+if (restBtn) restBtn.addEventListener("click", () => {
+  const card = restBtn.closest(".party-card");
+  if (!card) return;
+  card.classList.toggle("show-rest");
+  restBtn.textContent = card.classList.contains("show-rest") ? "收起隊伍" : "其餘隊伍";
+});
 setMode(null);
 renderParty([]);
 connect();
