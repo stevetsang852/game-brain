@@ -73,11 +73,11 @@
 
 驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。圖鑑 `pokedex_seen`／`pokedex_owned` 已喺呢隻 ROM 驗證（`notes/badge-pokedex-ram.md`），進度分會計已見過嘅種類。八個徽章位元未驗證（冇打過道館，位元冇由 0 變 1），所以唔輸出 `ram["badges"]`，徽章分仍然唔會計。
 
-## 目前進度（2026-10-09，main `384407d`）
+## 目前進度（2026-10-10，main `e71e40c`）
 
 已喺真 ROM 由開機行到：主角屋 → 真新鎮 → 研究所攞御三家 → 勁敵戰 → 1 號道路 → 常磐市，再返研究所攞圖鑑（M1／M2／M3 + `oaks_parcel`／圖鑑）。Wild／勁敵戰鬥交俾 RuleBattleBrain。輸咗會喺屋企醒，可以再行出去。存檔／續玩、live 共用 setup、`--starter random` 都已經落地。
 
-**昨晚（2026-10-08 晚，台北時間）已合入 main：** #98 圖鑑 owned／seen RAM（`d2cf5e7`）、#99 Auto Learn 掣＋六格隊伍（`3a321a0`；trial **436 passed**）、#100／#101 畫面閃爍修復＋`frame_ack`（`384407d`；trial **437 passed**，約 514s）。**今日（2026-10-09）合入前檢查：冇開住嘅 PR，冇新 code merge。** 日報排程改為每天 07:30（台北）。
+**已合入 main（截至 2026-10-09）：** #98 圖鑑 owned／seen RAM（`d2cf5e7`）、#99 Auto Learn 掣＋六格隊伍（`3a321a0`；trial **436 passed**）、#100／#101 畫面閃爍修復＋`frame_ack`（`384407d`；trial **437 passed**）、#102 docs README progress 2026-10-09（`e71e40c`）。**今日（2026-10-10，週六 07:30 日報）：冇開住嘅 PR，冇新 code／docs merge；main 仍係 `e71e40c`。** 週末朝早檢查，團隊未有新推送。
 
 而家能力：預設大腦仍係 `battle,path,rule`；situation select（#91）、path cache、progress signal、experiments CLI、party 列表＋`/icons/<id>.png`、`set_auto_learn` 協定＋dashboard 掣、六格隊伍、raw frame buffer／ack 都喺 main。圖鑑 owned／seen 已驗證並接入 `ram`；八個徽章位元未驗證，唔輸出 `ram["badges"]`。YIN 指出而家介面資料太多、更新太快，人類睇唔切——**人類優先版面規格已收緊，但未實作／未合入**（預設只留畫面、地圖名、出戰一隻、一句狀態、Auto Learn 開／關；其餘收摺）。
 
@@ -111,9 +111,9 @@
 
 詳細位址、實測 step 同架構見下面。
 
-## 下一步計劃（2026-10-09）
+## 下一步計劃（2026-10-10）
 
-每人一件具體下一步（README 係日更計劃嘅 source of truth）：
+每人一件具體下一步（README 係日更計劃嘅 source of truth；週末未開工，任務同上日）：
 
 1. **Frontend**：實作人類優先 dashboard（Designer 已收緊）：預設只留遊戲畫面、地圖名、**出戰一隻**（圖／名／Lv／HP 條）、一句狀態（四種文案）、Auto Learn 開／關。另外五隻同精確 HP／招式撳開先睇；其餘全部收進預設摺起嘅「開發者資訊」。出桌面摺起、390×844 摺起、開發者打開三張截圖，Designer 同 Project Mannger 點頭先合。
 2. **Designer**：Frontend 三張截圖到齊後對規格逐張確認（預設唔好同時亮六條 HP；開發者資訊預設摺起；四句狀態文案）。OK 先至准 merge。
