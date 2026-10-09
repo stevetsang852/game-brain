@@ -73,13 +73,13 @@
 
 驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。圖鑑 `pokedex_seen`／`pokedex_owned` 已喺呢隻 ROM 驗證（`notes/badge-pokedex-ram.md`），進度分會計已見過嘅種類。八個徽章位元未驗證（冇打過道館，位元冇由 0 變 1），所以唔輸出 `ram["badges"]`，徽章分仍然唔會計。
 
-## 目前進度（2026-10-08，main `62a3fc0`）
+## 目前進度（2026-10-09，main `384407d`）
 
 已喺真 ROM 由開機行到：主角屋 → 真新鎮 → 研究所攞御三家 → 勁敵戰 → 1 號道路 → 常磐市，再返研究所攞圖鑑（M1／M2／M3 + `oaks_parcel`／圖鑑）。Wild／勁敵戰鬥交俾 RuleBattleBrain。輸咗會喺屋企醒，可以再行出去。存檔／續玩、live 共用 setup、`--starter random` 都已經落地。
 
-**今日（2026-10-08）已合入 main：** #93 Docker ROM bind／copy 選項、#94 rule／random 進度 signal、#95 path route 重用＋experience-db fsync `NORMAL`、#96 實驗摘要 CLI（`python -m game_brain.experiments`，唔寫 ROM／截圖）。#96 trial-merge 真 ROM pytest：**429 passed**（約 486s）。
+**昨晚（2026-10-08 晚，台北時間）已合入 main：** #98 圖鑑 owned／seen RAM（`d2cf5e7`）、#99 Auto Learn 掣＋六格隊伍（`3a321a0`；trial **436 passed**）、#100／#101 畫面閃爍修復＋`frame_ack`（`384407d`；trial **437 passed**，約 514s）。**今日（2026-10-09）合入前檢查：冇開住嘅 PR，冇新 code merge。** 日報排程改為每天 07:30（台北）。
 
-而家能力：預設大腦仍係 `battle,path,rule`；situation select（#91）已上 main；path cache、progress signal、experiments CLI、party 列表＋`/icons/<id>.png` 都有；`set_auto_learn` 協定已喺 server／live／setup，但 dashboard HTML **未有** Auto Learn 掣。圖鑑 owned／seen RAM 已驗證；八個徽章位元未驗證，唔輸出 `ram["badges"]`。
+而家能力：預設大腦仍係 `battle,path,rule`；situation select（#91）、path cache、progress signal、experiments CLI、party 列表＋`/icons/<id>.png`、`set_auto_learn` 協定＋dashboard 掣、六格隊伍、raw frame buffer／ack 都喺 main。圖鑑 owned／seen 已驗證並接入 `ram`；八個徽章位元未驗證，唔輸出 `ram["badges"]`。YIN 指出而家介面資料太多、更新太快，人類睇唔切——**人類優先版面規格已收緊，但未實作／未合入**（預設只留畫面、地圖名、出戰一隻、一句狀態、Auto Learn 開／關；其餘收摺）。
 
 | 項目 | 狀態 |
 |---|---|
@@ -90,8 +90,11 @@
 | Situation select（#91） | ✅ Auto／Assist／Shadow 按情況揀低階腦（battle／path／probe／rl 次序） |
 | LLMBrain | ⛔ stub，未接 provider。呼叫會 fallback |
 | 存檔／續玩 | ✅ `--save-dir`／`--resume latest`、里程碑＋periodic＋final；`live.py` 同 CLI 共用 `setup.py`；`--starter random`（或固定御三家） |
-| Party RAM | ✅ `ram["party"]` 解密讀取。Dashboard 隊伍列表顯示種族、等級、HP、狀態同 ROM 小圖示 `/icons/<id>.png` |
-| Auto Learn | ✅ `set_auto_learn` 協定（server／live／setup／status）已喺 main。⛔ `dashboard/static/index.html` 未有 on／off 掣 |
+| Party RAM | ✅ `ram["party"]` 解密讀取。Dashboard 六格隊伍：種族、等級、HP 條、狀態、迷你 icon `/icons/<id>.png` |
+| Auto Learn（#99） | ✅ `set_auto_learn` 協定＋dashboard on／off 掣；六態（關／開／計步／轉自由探索／後端未支援／Manual 時提示）。Fullstack 真 ROM e2e 已確認 |
+| 畫面閃爍（#100／#101） | ✅ 頁面 buffer 保留 240×160；只畫有變格；Auto 對 raw frame 回 `frame_ack`。開住頁要重新載入 |
+| 圖鑑 RAM（#98） | ✅ `ram["pokedex_owned"]`／`ram["pokedex_seen"]`（SaveBlock2 `+0x28`／`+0x5C`）。開機 pointer 0 時唔出 key。⛔ 畫面未畫圖鑑（等人類版面） |
+| 徽章 RAM | ⛔ 理論 `SaveBlock1+0x0FE4` 未驗證（冇道館 0→1），唔輸出 `ram["badges"]`，徽章分唔計 |
 | 實驗摘要（#96） | ✅ `python -m game_brain.experiments` 寫 JSON／markdown 去 `experiments/`；拒絕 ROM、savestate、截圖欄位 |
 | 讀檔目標 | ✅ 未有第一隻就重行劇本。只得御三家就自由探索。已有之後的里程碑會保留 |
 | ProbeBrain | ✅ 新地圖或 NPC 會記一條未驗證目標。唔寫入 `goals.json`，預設未啟用 |
@@ -100,7 +103,7 @@
 | Gym／RL env（#59） | ✅ `rl/anti_loop.py`、`rl/env.py`（Gymnasium adapter wrapper）、`rl/curriculum.py`；進度分 `rl/progress.py`。圖鑑 seen／owned 已驗證；徽章位元未驗證 |
 | 短局 runner（#60） | ✅ `rl/short.py`：starter 短局（CPU），做 deep PPO 之前嘅門檻。**唔會**取代預設 `battle,path,rule` |
 | PPO | ⚠️ `rl/ppo.py` 目前係未接入執行策略的全域按鍵權重 baseline，唔係 PPO。⛔ 真正 PPO／GPU 未開始 |
-| Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、戰鬥 panel、隊伍列表、繁中／英文、ROM picker、存檔。畫面有變先重畫。⛔ 未有完整 mobile layout；⛔ 未有 Auto Learn UI |
+| Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、戰鬥 panel、六格隊伍、Auto Learn、繁中／英文、ROM picker、存檔。⚠️ **人類優先精簡版未做**：而家仍一次顯示太多（六條 HP、step／frame、開發欄預設打開等）。YIN／Designer 規格已收緊，等 Frontend 實作 |
 | Docker / 本機啟動 | ✅ `start_in_docker.bat`、`start_local.bat`；#93 ROM 可 bind（預設）或本機 image copy（`compose.image.yaml`）。唔好 push 含 ROM 嘅 image |
 | CI / License | ✅ push 同 pull request 跑 `pytest`，真 ROM 測試會 skip。License 未揀；repo 係 **PUBLIC** |
 
@@ -108,15 +111,15 @@
 
 詳細位址、實測 step 同架構見下面。
 
-## 下一步計劃（2026-10-08）
+## 下一步計劃（2026-10-09）
 
 每人一件具體下一步（README 係日更計劃嘅 source of truth）：
 
-1. **Fullstack**：喺 main 確認 `set_auto_learn` 端到端；若 `feat/auto-learn-toggle` 已多餘就 rebase／關閉，否則補齊剩餘接線。
-2. **Backend**：只喺已驗證 FireRed ROM（SHA1 `e0194282c427689768f8e618a285552f264524a4`）做徽章同圖鑑 RAM crosswalk；唔好估地址。
-3. **Frontend**：喺 `dashboard/static/index.html` 加 Auto Learn on／off 掣（協定已有），並繼續 mobile layout 打磨。
-4. **Designer**：為 Frontend 寫 Auto Learn 掣位置同 mobile party sidebar 版面規格。
-5. **Research**：為 Backend 寫短嘅徽章／圖鑑 RAM 候選 note（只限呢隻 ROM）—列出要驗證嘅 offset，唔好估 code。
+1. **Frontend**：實作人類優先 dashboard（Designer 已收緊）：預設只留遊戲畫面、地圖名、**出戰一隻**（圖／名／Lv／HP 條）、一句狀態（四種文案）、Auto Learn 開／關。另外五隻同精確 HP／招式撳開先睇；其餘全部收進預設摺起嘅「開發者資訊」。出桌面摺起、390×844 摺起、開發者打開三張截圖，Designer 同 Project Mannger 點頭先合。
+2. **Designer**：Frontend 三張截圖到齊後對規格逐張確認（預設唔好同時亮六條 HP；開發者資訊預設摺起；四句狀態文案）。OK 先至准 merge。
+3. **Backend**：只喺已驗證 FireRed ROM（SHA1 `e0194282…`）搵／做出打贏道館（Brock）前後存檔，證明徽章 byte `0→1` 先至輸出 `ram["badges"]`。未驗證之前唔好畫、唔好計徽章分。
+4. **Research**：為 Backend 嘅徽章驗證提供可重跑路徑（邊個 milestone／點樣打到 Brock）；金錢／遊戲時間只出候選 offset，未見 0→1 或穩定讀數前唔好寫入 status。
+5. **Fullstack**：人類版面合入後，用現有 JSONL 喺摺起嘅「開發者資訊」加最近約 40 步可展開紀錄（地圖、決定、原因）；唔做自動捲直播欄，唔抄 pokemon-harness 嘅 LLM trace。
 
 ## 架構
 

@@ -1,15 +1,16 @@
-# Current code and next plan (2026-10-08)
+# Current code and next plan (2026-10-09)
 
-Daily plan source of truth: README 「目前進度」／「下一步計劃（2026-10-08）」. Repo stays PUBLIC. Never commit ROM, battery save, savestate, screenshot, model, or secrets. `experiments/` may hold policy JSON, reward JSONL, and notes.
+Daily plan source of truth: README 「目前進度」／「下一步計劃（2026-10-09）」. Repo stays PUBLIC. Never commit ROM, battery save, savestate, screenshot, model, or secrets. `experiments/` may hold policy JSON, reward JSONL, and notes.
 
 ## Current code (summary)
 
 - Default brains: `battle,path,rule`. Situation selection (#91) is on main.
 - Path route reuse + experience-db fsync NORMAL (#95). Progress signal on rule/random (#94).
 - Experiments CLI (#96): `python -m game_brain.experiments` — no ROM data.
-- Party list + `/icons/<id>.png` on main. `set_auto_learn` protocol on main; dashboard HTML still lacks the toggle.
-- Pokédex owned/seen RAM verified on this FireRed ROM (`notes/badge-pokedex-ram.md`). The eight Kanto badge bits are still unverified (no gym save, so `ram["badges"]` is not set).
+- #98 Pokédex owned/seen on `ram` (verified). Badge bits still unverified — no `ram["badges"]`.
+- #99 Auto Learn toggle + six-slot party on dashboard. #100/#101 screen buffer + `frame_ack` (main `384407d`; real-ROM **437 passed**).
+- Human-first UI (default: screen, map, active mon only, one status line, Auto Learn on/off; rest collapsed) is **specced, not implemented**.
 
-## Next plan (2026-10-08)
+## Next plan (2026-10-09)
 
-See README 「下一步計劃（2026-10-08）」: Fullstack auto-learn e2e; Backend badge/Pokédex RAM crosswalk (verified ROM SHA1 only); Frontend Auto Learn toggle + mobile; Designer placement/sidebar spec; Research RAM candidate offsets only.
+See README 「下一步計劃（2026-10-09）」: Frontend human-first layout + screenshots; Designer screenshot OK; Backend badge 0→1 on gym save; Research gym path / money-time candidates only; Fullstack collapsed 40-step JSONL log after human UI merges.
