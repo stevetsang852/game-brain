@@ -270,6 +270,51 @@ def test_free_explore_can_step_off_map_edge_toward_route_1():
     assert not any("off the map edge" in r for r in edge_reasons)
 
 
+def test_pr107_free_explore_pallet_north_edge_reaches_route1():
+    """#107 regression: after goal 17, free explore leaves Pallet (3/0) via the north map edge
+    and arrives on Route 1 (3/19).
+
+    Pallet Town has no warp to Route 1 — only a map connection. Before #107, ``_free_explore``
+    never stepped off walkable edges (only scripted ``Target.edge`` did), so after
+    ``deliver_parcel`` the brain could not re-enter Route 1 from Pallet. This drives
+    MockHouseAdapter's real connection so the map id actually changes 3/0 -> 3/19.
+    """
+    adapter = MockHouseAdapter(intro_presses=0, start_map=(3, 0), start_pos=(12, 0))
+    adapter.oak_done = True
+    adapter.rival_done = True
+    adapter.party = [1]
+    adapter.parcel = True
+    adapter.pokedex = True
+    adapter.facing = "UP"
+
+    brain = PathBrain(settle_checks=0)
+    # PathBrain.__init__ resets the planner; restore after construction.
+    brain.planner.restore([m.id for m in brain.planner.milestones if m.id != "pewter_city"])
+    assert brain.planner.current is not None
+    assert brain.planner.current.id == "pewter_city" and brain.planner.current.placeholder
+
+    o = adapter.observe()
+    assert (o.ram["map_bank"], o.ram["map_id"]) == (3, 0)
+    settle(brain, o)
+
+    # Interior exhausted -> prefer the north-edge exit (same bias as the synthetic #107 unit test).
+    for x in range(o.ram["map_w"]):
+        for y in range(o.ram["map_h"]):
+            if (x, y) != (12, 0):
+                brain._visits[((3, 0), x, y)] = 5
+
+    act, dec = brain.decide(adapter.observe())
+    assert dec.plan == "free explore"
+    assert act.presses[0].button == "UP"
+    assert "off the map edge" in dec.reason
+    assert brain._last and brain._last[0] == "edge"
+
+    adapter.act(act)
+    o2 = adapter.observe()
+    assert (o2.ram["map_bank"], o2.ram["map_id"]) == (3, 19)
+    assert adapter.warps_taken == [((3, 0), (3, 19))]
+
+
 def test_placeholder_milestone_in_battle_finishes_dialogue_first():
     pl = GoalPlanner([Milestone("later", "not yet", placeholder=True, script_button="B")])
     b = PathBrain(planner=pl, settle_checks=0)
