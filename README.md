@@ -73,28 +73,29 @@
 
 驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。圖鑑 `pokedex_seen`／`pokedex_owned` 已喺呢隻 ROM 驗證（`notes/badge-pokedex-ram.md`），進度分會計已見過嘅種類。八個徽章位元未驗證（冇打過道館，位元冇由 0 變 1），所以唔輸出 `ram["badges"]`，徽章分仍然唔會計。
 
-## 目前進度（2026-10-10，main `e71e40c`）
+## 目前進度（2026-10-11，main `cfe72d0`）
 
 已喺真 ROM 由開機行到：主角屋 → 真新鎮 → 研究所攞御三家 → 勁敵戰 → 1 號道路 → 常磐市，再返研究所攞圖鑑（M1／M2／M3 + `oaks_parcel`／圖鑑）。Wild／勁敵戰鬥交俾 RuleBattleBrain。輸咗會喺屋企醒，可以再行出去。存檔／續玩、live 共用 setup、`--starter random` 都已經落地。
 
-**已合入 main（截至 2026-10-09）：** #98 圖鑑 owned／seen RAM（`d2cf5e7`）、#99 Auto Learn 掣＋六格隊伍（`3a321a0`；trial **436 passed**）、#100／#101 畫面閃爍修復＋`frame_ack`（`384407d`；trial **437 passed**）、#102 docs README progress 2026-10-09（`e71e40c`）。**今日（2026-10-10，週六 07:30 日報）：冇開住嘅 PR，冇新 code／docs merge；main 仍係 `e71e40c`。** 週末朝早檢查，團隊未有新推送。
+**已合入 main（截至 2026-10-10）：** 朝早 docs #103（`e268a6f`）之後，同日合入 #104 human-first dashboard（`2816c49`）、#105 開發者資訊最近約 40 步（`1cf5d18`；trial **439 passed**）、#106 `MB_CAVE_DOOR` `0x60` 當 `WARP_ENTER` UP（`22e28d5`）、#108 隊伍 icon 去掉黑底（`bf125bc`）、#107 PathBrain 自由探索死 warp／NPC TTL／地圖邊緣出口（`cfe72d0`；trial **442 passed**）。main 而家喺 `cfe72d0`。
 
-而家能力：預設大腦仍係 `battle,path,rule`；situation select（#91）、path cache、progress signal、experiments CLI、party 列表＋`/icons/<id>.png`、`set_auto_learn` 協定＋dashboard 掣、六格隊伍、raw frame buffer／ack 都喺 main。圖鑑 owned／seen 已驗證並接入 `ram`；八個徽章位元未驗證，唔輸出 `ram["badges"]`。YIN 指出而家介面資料太多、更新太快，人類睇唔切——**人類優先版面規格已收緊，但未實作／未合入**（預設只留畫面、地圖名、出戰一隻、一句狀態、Auto Learn 開／關；其餘收摺）。
+而家能力：預設大腦仍係 `battle,path,rule`；situation select（#91）、path cache、progress signal、experiments CLI、party 列表＋`/icons/<id>.png`、`set_auto_learn` 協定＋dashboard 掣、六格隊伍、raw frame buffer／ack 都喺 main。**人類優先預設畫面已合入（#104）**：預設只留畫面、地圖名、出戰一隻、一句狀態、Auto Learn；其餘收進摺起嘅「開發者資訊」。開發者資訊有最近約 40 步可展開（#105）；隊伍 icon 透明底（#108）。PathBrain 自由探索會記失敗 warp、NPC TTL 擋路、地圖邊緣出口（#107）；常青森林南門要 `0x60`（#106）。圖鑑 owned／seen 已驗證並接入 `ram`；八個徽章位元未驗證，唔輸出 `ram["badges"]`（呢隻 metronome ROM 難穩妥打到 Brock，暫緩；金錢／遊戲時間只維持候選）。
 
 | 項目 | 狀態 |
 |---|---|
 | 模擬器 | ✅ mGBA 0.10.5 headless bindings；act 可重現，replay 0 mismatch |
-| PathBrain | ✅ A* 尋路、避 NPC、過劇情、跳台當牆；#95 重用已算好嘅 route。Goal 17（尼比／常磐道館）未有劇本，對白完之後改為自由探索 |
+| PathBrain | ✅ A* 尋路、避 NPC、過劇情、跳台當牆；#95 重用已算好嘅 route；#107 自由探索記死 warp／NPC TTL／地圖邊緣（可經邊緣由真新鎮北上 1 號道路）。Goal 17（尼比／常磐道館）未有劇本，對白完之後改為自由探索 |
 | RuleBattleBrain | ✅ 讀 `ram["battle"]`，用 PokeAPI 靜態表揀招。勁敵戰已打完並返到研究所。未做換寵、道具；RUN 預設唔用 |
 | RuleBrain / RandomBrain | ✅ 後備；#94 有 `ProgressSignal`。RuleBrain 過開場後只會亂行 |
 | Situation select（#91） | ✅ Auto／Assist／Shadow 按情況揀低階腦（battle／path／probe／rl 次序） |
 | LLMBrain | ⛔ stub，未接 provider。呼叫會 fallback |
 | 存檔／續玩 | ✅ `--save-dir`／`--resume latest`、里程碑＋periodic＋final；`live.py` 同 CLI 共用 `setup.py`；`--starter random`（或固定御三家） |
-| Party RAM | ✅ `ram["party"]` 解密讀取。Dashboard 六格隊伍：種族、等級、HP 條、狀態、迷你 icon `/icons/<id>.png` |
+| Party RAM | ✅ `ram["party"]` 解密讀取。Dashboard 六格隊伍：種族、等級、HP 條、狀態、迷你 icon `/icons/<id>.png`（#108 無黑底） |
 | Auto Learn（#99） | ✅ `set_auto_learn` 協定＋dashboard on／off 掣；六態（關／開／計步／轉自由探索／後端未支援／Manual 時提示）。Fullstack 真 ROM e2e 已確認 |
 | 畫面閃爍（#100／#101） | ✅ 頁面 buffer 保留 240×160；只畫有變格；Auto 對 raw frame 回 `frame_ack`。開住頁要重新載入 |
-| 圖鑑 RAM（#98） | ✅ `ram["pokedex_owned"]`／`ram["pokedex_seen"]`（SaveBlock2 `+0x28`／`+0x5C`）。開機 pointer 0 時唔出 key。⛔ 畫面未畫圖鑑（等人類版面） |
-| 徽章 RAM | ⛔ 理論 `SaveBlock1+0x0FE4` 未驗證（冇道館 0→1），唔輸出 `ram["badges"]`，徽章分唔計 |
+| 圖鑑 RAM（#98） | ✅ `ram["pokedex_owned"]`／`ram["pokedex_seen"]`（SaveBlock2 `+0x28`／`+0x5C`）。開機 pointer 0 時唔出 key。畫面圖鑑數量仍未喺開發者資訊顯示 |
+| 徽章 RAM | ⛔ 理論 `SaveBlock1+0x0FE4` 未驗證（冇道館 0→1），唔輸出 `ram["badges"]`，徽章分唔計；metronome ROM 暫緩硬衝 Brock |
+| Warp metatile（#106） | ✅ `MB_CAVE_DOOR` `0x60` 當 `WARP_ENTER` UP（常青森林南門）；其餘往尼比路徑仍要逐個真 ROM 核對 |
 | 實驗摘要（#96） | ✅ `python -m game_brain.experiments` 寫 JSON／markdown 去 `experiments/`；拒絕 ROM、savestate、截圖欄位 |
 | 讀檔目標 | ✅ 未有第一隻就重行劇本。只得御三家就自由探索。已有之後的里程碑會保留 |
 | ProbeBrain | ✅ 新地圖或 NPC 會記一條未驗證目標。唔寫入 `goals.json`，預設未啟用 |
@@ -103,7 +104,7 @@
 | Gym／RL env（#59） | ✅ `rl/anti_loop.py`、`rl/env.py`（Gymnasium adapter wrapper）、`rl/curriculum.py`；進度分 `rl/progress.py`。圖鑑 seen／owned 已驗證；徽章位元未驗證 |
 | 短局 runner（#60） | ✅ `rl/short.py`：starter 短局（CPU），做 deep PPO 之前嘅門檻。**唔會**取代預設 `battle,path,rule` |
 | PPO | ⚠️ `rl/ppo.py` 目前係未接入執行策略的全域按鍵權重 baseline，唔係 PPO。⛔ 真正 PPO／GPU 未開始 |
-| Dashboard | ✅ 畫面、計劃、模式、手掣、里程碑、小地圖、戰鬥 panel、六格隊伍、Auto Learn、繁中／英文、ROM picker、存檔。⚠️ **人類優先精簡版未做**：而家仍一次顯示太多（六條 HP、step／frame、開發欄預設打開等）。YIN／Designer 規格已收緊，等 Frontend 實作 |
+| Dashboard | ✅ **人類優先預設（#104）**：畫面、地圖名、出戰一隻、一句狀態、Auto Learn；其餘收進摺起「開發者資訊」（含最近約 40 步 #105）。仍有計劃／模式／手掣／里程碑／小地圖／戰鬥 panel／六格隊伍／繁中／英文／ROM picker／存檔 |
 | Docker / 本機啟動 | ✅ `start_in_docker.bat`、`start_local.bat`；#93 ROM 可 bind（預設）或本機 image copy（`compose.image.yaml`）。唔好 push 含 ROM 嘅 image |
 | CI / License | ✅ push 同 pull request 跑 `pytest`，真 ROM 測試會 skip。License 未揀；repo 係 **PUBLIC** |
 
@@ -111,15 +112,15 @@
 
 詳細位址、實測 step 同架構見下面。
 
-## 下一步計劃（2026-10-10）
+## 下一步計劃（2026-10-11）
 
-每人一件具體下一步（README 係日更計劃嘅 source of truth；週末未開工，任務同上日）：
+每人一件具體下一步（README 係日更計劃嘅 source of truth）：
 
-1. **Frontend**：實作人類優先 dashboard（Designer 已收緊）：預設只留遊戲畫面、地圖名、**出戰一隻**（圖／名／Lv／HP 條）、一句狀態（四種文案）、Auto Learn 開／關。另外五隻同精確 HP／招式撳開先睇；其餘全部收進預設摺起嘅「開發者資訊」。出桌面摺起、390×844 摺起、開發者打開三張截圖，Designer 同 Project Mannger 點頭先合。
-2. **Designer**：Frontend 三張截圖到齊後對規格逐張確認（預設唔好同時亮六條 HP；開發者資訊預設摺起；四句狀態文案）。OK 先至准 merge。
-3. **Backend**：只喺已驗證 FireRed ROM（SHA1 `e0194282…`）搵／做出打贏道館（Brock）前後存檔，證明徽章 byte `0→1` 先至輸出 `ram["badges"]`。未驗證之前唔好畫、唔好計徽章分。
-4. **Research**：為 Backend 嘅徽章驗證提供可重跑路徑（邊個 milestone／點樣打到 Brock）；金錢／遊戲時間只出候選 offset，未見 0→1 或穩定讀數前唔好寫入 status。
-5. **Fullstack**：人類版面合入後，用現有 JSONL 喺摺起嘅「開發者資訊」加最近約 40 步可展開紀錄（地圖、決定、原因）；唔做自動捲直播欄，唔抄 pokemon-harness 嘅 LLM trace。
+1. **Frontend**：喺摺起嘅「開發者資訊」顯示已驗證嘅 `pokedex_seen`／`pokedex_owned` 數量（唔好放上人類預設畫面）；仍然唔畫徽章／金錢／時間。出一張開發者打開截圖畀 Designer。
+2. **Designer**：確認 Frontend 圖鑑數量喺開發者資訊嘅排版（唔搶人類預設）；OK 先至准 merge。
+3. **Backend**：喺 #106 之後繼續核對常青森林→尼比市路徑尚欠嘅 warp／metatile（只加已真 ROM 驗證嘅 `WARP_ENTER`）；`ram["badges"]` 仍然要等道館 0→1 先出（呢隻 metronome ROM 暫緩硬衝 Brock）。
+4. **Research**：寫可重跑筆記：parcel 後自由探索 Pallet→Route1→常磐→Route2→森林南門（0x60）→往尼比；金錢／遊戲時間只維持候選 offset。
+5. **Fullstack**：為 #107 加回歸（mock-house 或短真 ROM）：goal 17 後自由探索可以經地圖邊緣由 Pallet 行去 Route 1；唔 commit save／log／截圖。
 
 ## 架構
 
