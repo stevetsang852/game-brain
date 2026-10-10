@@ -178,6 +178,44 @@ class PathBrain(Brain):
                 continue
         return tiles
 
+    @staticmethod
+    def _npc_near(npcs: Set[Tile], pos: Tile, radius: int = 1) -> bool:
+        """True if any NPC tile is within Chebyshev distance ``radius`` of ``pos``."""
+        px, py = pos
+        return any(max(abs(x - px), abs(y - py)) <= radius for x, y in npcs)
+
+    def _record_failed_transition(self, obs: Observation, grid: MapGrid, pos: Tile,
+                                  prev_pos: Optional[Tile], last) -> None:
+        """Count a free-explore / scripted warp or edge press that did not leave the map.
+
+        NPCs that briefly block a stand / edge tile must not permanently kill it: when an NPC is
+        adjacent we skip the try counter and (for bumps) rely on TTL ``_blocked`` instead.
+        Frozen players (could not even turn onto the warp) are handled by the caller before this.
+        """
+        if not last or grid is None:
+            return
+        kind, detail = last
+        npcs = self._npc_tiles(obs) if self.avoid_npcs else set()
+        if kind == "edge" and detail[0] == grid.key and pos == detail[1]:
+            key = (detail[0], detail[1])
+            if self._npc_near(npcs, pos):
+                # NPC / dialogue near the edge: temporary, do not burn a dead-edge try
+                self._blocked[(grid.key, pos)] = self._t + self.block_ttl
+                return
+            self._edge_tries[key] = self._edge_tries.get(key, 0) + 1
+            if self._edge_tries[key] >= self.max_warp_tries:
+                self._dead_edges.add(key)
+            return
+        if kind == "warp" and detail[0] == grid.key:
+            # still on the same map after a warp press -> failed (map change would have settled)
+            key = detail
+            if self._npc_near(npcs, pos):
+                self._blocked[(grid.key, pos)] = self._t + self.block_ttl
+                return
+            self._warp_tries[key] = self._warp_tries.get(key, 0) + 1
+            if self._warp_tries[key] >= self.max_warp_tries:
+                self._dead_warps.add(key)
+
     def _press(self, button: str, kind: str, milestone) -> Action:
         self._script_n[milestone.id] = self._script_n.get(milestone.id, 0) + 1
         self.stats["script_presses"] += 1
@@ -201,6 +239,10 @@ class PathBrain(Brain):
                     goal=milestone.label, path=[pos])
         if mid in self._free or self._script_n.get(mid, 0) >= self.max_placeholder_presses or not obs.ram.get("in_battle"):
             self._free.add(mid)
+            # _placeholder clears _last for the dialogue probe; put a failed free-explore warp /
+            # edge back so _free_explore can count it toward _dead_warps / _dead_edges
+            if last and last[0] in ("warp", "edge"):
+                self._last = last
             return self._free_explore(obs, milestone, pos)
         d = "RIGHT" if facing == "LEFT" else "LEFT"   # horizontal: never moves a YES/NO cursor
         self._last = ("probe", d)
@@ -223,19 +265,50 @@ class PathBrain(Brain):
         return "自由探索（卡住後自動切換）" if self._forced_explore else "自由探索（goal 17 之後）"
 
     def _free_explore(self, obs: Observation, milestone, pos: Tile):
-        """After goal 17, actually walk. Same step timing as PathBrain, not a turn-only probe."""
+        """After goal 17, actually walk. Same step timing as PathBrain, not a turn-only probe.
+
+        Also takes door-mat warps and walkable map-edge exits (Pallet north -> Route 1), records
+        failed warps/edges into ``_dead_warps`` / ``_dead_edges``, and treats NPC bumps as TTL
+        blocks instead of permanently poisoning a tile via ``_visits``.
+        """
         grid = self.maps.current_map()
         facing = obs.ram.get("facing")
         map_key = grid.key if grid is not None else obs.ram.get("map_id")
+        # failed free-explore warp / edge (still on same map) -> dead_* after max_warp_tries
+        pending, self._last = self._last, None
+        if pending and pending[0] in ("warp", "edge") and grid is not None:
+            if pending[0] == "warp":
+                w = pending[1][1]
+                # could not even turn onto the warp: frozen (script/text), not a dead warp
+                if facing not in (None, w.enter) and pos == self._last_pos:
+                    self._turn_fails += 1
+                    self.stats["frozen"] += 1
+                    if self._turn_fails % self.frozen_press_every == 0:
+                        self._last = ("explore", "A")
+                        return self._act("A", 2, 10), self._dec(
+                            "free explore",
+                            f"could not turn {w.enter} onto the warp (player frozen) -> press A",
+                            goal=self._explore_goal(), path=[pos])
+                    self._last = pending  # keep trying after a wait
+                    return self._wait(8, "frozen"), self._dec(
+                        "free explore",
+                        f"could not turn {w.enter} onto the warp (player frozen) -> wait",
+                        goal=self._explore_goal(), path=[pos])
+            self._record_failed_transition(obs, grid, pos, self._last_pos, pending)
+            self._turn_fails = 0
         key = (map_key, pos[0], pos[1])
         self._visits[key] = self._visits.get(key, 0) + 1
         walked, self._explore_walk = self._explore_walk, None
+        npcs = self._npc_tiles(obs) if self.avoid_npcs else set()
         if walked and walked[0] == key:
-            # the last step didn't move us (unlisted obstacle): count the tile we bumped into as
-            # visited, otherwise it stays the least-visited choice and we walk into it forever
+            # last step did not move us: wall/unlisted obstacle -> mark visited; NPC -> TTL block only
             dx, dy = _DELTA[walked[1]]
-            bumped = (map_key, pos[0] + dx, pos[1] + dy)
-            self._visits[bumped] = self._visits.get(bumped, 0) + 1
+            bx, by = pos[0] + dx, pos[1] + dy
+            if (bx, by) in npcs:
+                if grid is not None:
+                    self._blocked[(grid.key, (bx, by))] = self._t + self.block_ttl
+            else:
+                self._visits[(map_key, bx, by)] = self._visits.get((map_key, bx, by), 0) + 1
         stuck = self._last_pos == pos and self._visits[key] > 2
         self._last_pos = pos
         if stuck and self._visits[key] % 4 == 0:
@@ -243,19 +316,29 @@ class PathBrain(Brain):
             return self._act("A", 2, 10), self._dec(
                 "free explore", "position unchanged, press A to clear dialogue, then keep walking",
                 goal=self._explore_goal(), path=[pos])
-        npcs = self._npc_tiles(obs) if self.avoid_npcs else set()
-        # a usable warp whose stand tile is here (door mat: press DOWN into the wall; door: walk
-        # into it) is a move too, otherwise free explore can never leave a building
+        remembered = self._blocked_tiles() if self._map is not None else set()
+        # usable warp whose stand tile is here (door mat / door)
         warps = {w.enter: w for w in (grid.usable_warps() if grid is not None else ())
                  if grid.warp_stand_tile(w) == pos and (grid.key, w) not in self._dead_warps}
+        # walkable map-edge exits (Pallet Town north -> Route 1): step off like Target.edge
+        edge_dirs: Dict[str, Tile] = {}
+        if grid is not None:
+            for name in _DELTA:
+                if pos in self._edge_tiles(grid, name) and (grid.key, pos) not in self._dead_edges:
+                    edge_dirs[name] = pos
         choices = []
         for name, (dx, dy) in _DELTA.items():
             nx, ny = pos[0] + dx, pos[1] + dy
-            if (nx, ny) in npcs:
+            if (nx, ny) in npcs or (nx, ny) in remembered:
                 continue
-            if grid is not None and not grid.is_walkable(nx, ny) and name not in warps:
+            is_edge = name in edge_dirs
+            if grid is not None and not grid.is_walkable(nx, ny) and name not in warps and not is_edge:
                 continue
-            choices.append((self._visits.get((map_key, nx, ny), 0), 0 if name == self._explore_dir else 1, name))
+            if is_edge:
+                vkey = (map_key, "edge", name, pos[0], pos[1])
+            else:
+                vkey = (map_key, nx, ny)
+            choices.append((self._visits.get(vkey, 0), 0 if name == self._explore_dir else 1, name))
         if not choices:
             for name in _DELTA:
                 choices.append((0, 1, name))
@@ -272,10 +355,18 @@ class PathBrain(Brain):
                 goal=self._explore_goal(), path=[pos, nxt])
         if direction in warps:
             w = warps[direction]
-            self._visits[(map_key,) + nxt] = self._visits.get((map_key,) + nxt, 0) + 1  # ranks like a visited tile
-            self._last = ("warp", (grid.key, w))      # wait out the fade like a normal warp
+            self._visits[(map_key,) + nxt] = self._visits.get((map_key,) + nxt, 0) + 1
+            self._last = ("warp", (grid.key, w))
             return self._act(direction, self.step_frames, self.warp_release), self._dec(
                 "free explore", f"at {pos}: press {direction} to take warp ({w.x},{w.y}) -> {w.dest} ({cells} cells)",
+                goal=self._explore_goal(), path=[pos])
+        if direction in edge_dirs:
+            self._visits[(map_key, "edge", direction, pos[0], pos[1])] = (
+                self._visits.get((map_key, "edge", direction, pos[0], pos[1]), 0) + 1)
+            self._last = ("edge", (grid.key, pos, direction))
+            return self._act(direction, self.step_frames, self.step_release), self._dec(
+                "free explore",
+                f"at {pos}: step {direction} off the map edge (map connection) ({cells} cells)",
                 goal=self._explore_goal(), path=[pos])
         self.stats["steps"] += 1
         self._explore_walk = (key, direction)
@@ -399,13 +490,6 @@ class PathBrain(Brain):
                 return self._act(sb, 2, 8), self._dec(goal_txt, why, goal=goal_txt, path=[pos])
             if pos != prev_pos:
                 self._fails.clear()
-            if kind == "edge" and detail[0] == grid.key and pos == detail[1]:
-                # pressed off the edge but still on the same map: a text box, an NPC, or no
-                # connection there. After max_warp_tries, stop using that edge tile.
-                key = (detail[0], detail[1])
-                self._edge_tries[key] = self._edge_tries.get(key, 0) + 1
-                if self._edge_tries[key] >= self.max_warp_tries:
-                    self._dead_edges.add(key)
             if kind == "warp" and detail[0] == grid.key and pos == prev_pos and \
                     obs.ram.get("facing") not in (None, detail[1].enter):
                 # Pressed the warp's direction but could not even turn that way: the player is
@@ -424,11 +508,9 @@ class PathBrain(Brain):
                 return self._act(sb, 2, 8), self._dec(
                     goal_txt, f"still frozen on the warp tile (script/text box) -> press {sb} to advance",
                     goal=goal_txt, path=[pos])
-            if kind == "warp":
-                key = detail
-                self._warp_tries[key] = self._warp_tries.get(key, 0) + 1
-                if self._warp_tries[key] >= self.max_warp_tries:
-                    self._dead_warps.add(key)
+            if kind in ("warp", "edge"):
+                # failed warp / edge (still on map). NPC-adjacent failures use TTL, not dead_*.
+                self._record_failed_transition(obs, grid, pos, prev_pos, last)
 
         # 4. plan
         if target.kind == "warp":

@@ -179,6 +179,97 @@ def test_free_explore_does_not_walk_into_an_unlisted_obstacle_forever():
     assert len(set(dirs)) >= 2, pressed                   # verbatim 1252fcc: one direction forever
 
 
+def test_free_explore_failed_warp_becomes_dead_warp():
+    """Free-explore warps that never leave the map must join ``_dead_warps`` after max_warp_tries
+    (previously only the scripted PathBrain path counted tries, so door mats were retried forever)."""
+    rows = ["###",
+            "#.#",
+            "#.#",
+            "###"]
+    mat = {"x": 1, "y": 2, "dest_bank": 3, "dest_map": 0, "enter": "DOWN", "behavior": 101}
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0, max_warp_tries=2)
+    settle(b, obs(1, 2, "DOWN", rows=rows, warps=[mat]))
+    act, dec = b.decide(obs(1, 2, "DOWN", rows=rows, warps=[mat]))
+    assert "take warp" in dec.reason and not b._dead_warps
+    act, dec = b.decide(obs(1, 2, "DOWN", rows=rows, warps=[mat]))  # fail #1
+    assert len(b._warp_tries) == 1 and not b._dead_warps
+    act, dec = b.decide(obs(1, 2, "DOWN", rows=rows, warps=[mat]))  # fail #2 -> dead
+    assert b._dead_warps and "take warp" not in dec.reason
+
+
+def test_free_explore_npc_bump_is_ttl_not_permanent_visit():
+    """An NPC that steps onto the tile we walked into must not permanently poison ``_visits``;
+    use TTL ``_blocked`` so free explore can try the tile again after the NPC moves."""
+    rows = ["#######",
+            "#.....#",
+            "#.....#",
+            "#######"]
+    b = _explorer()
+    settle(b, obs(3, 1, "RIGHT", rows=rows))
+    for t in ((3, 2), (2, 1), (3, 0)):
+        b._visits[((9, 9),) + t] = 10          # make RIGHT the unique least-visited neighbour
+    act, dec = b.decide(obs(3, 1, "RIGHT", rows=rows))
+    assert act.presses[0].button == "RIGHT" and "walk RIGHT" in dec.reason
+    assert b._explore_walk and b._explore_walk[1] == "RIGHT"
+    o = obs(3, 1, "RIGHT", rows=rows)
+    o.ram["npcs"] = [{"x": 4, "y": 1}]
+    act, dec = b.decide(o)                     # bumped: still at (3,1), NPC now on (4,1)
+    assert b._visits.get(((9, 9), 4, 1)) is None
+    assert (4, 1) in {t for (m, t) in b._blocked}
+    b._t += 100
+    assert (4, 1) not in b._blocked_tiles()    # TTL expired: tile is fair game again
+
+
+def test_free_explore_can_step_off_map_edge_toward_route_1():
+    """Pallet Town has no warp to Route 1: free explore must step off a walkable north-edge tile
+    (like Target.edge). A non-connecting edge eventually joins ``_dead_edges``; an NPC nearby
+    must not burn those tries."""
+    rows = ["#...#",
+            "#...#",
+            "#...#"]
+    bank, mid = 3, 0
+
+    def edge_obs(x, y, facing="UP", npcs=None):
+        ram = {"player_x": x, "player_y": y, "facing": facing, "map_bank": bank, "map_id": mid,
+               "map_w": 5, "map_h": 3, "collision": list(rows), "warps": []}
+        if npcs is not None:
+            ram["npcs"] = npcs
+        return Observation(frame=0, ram=ram)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0, max_warp_tries=2)
+    settle(b, edge_obs(2, 0, "UP"))
+    for x, y in ((1, 1), (2, 1), (3, 1), (1, 2), (2, 2), (3, 2), (1, 0), (3, 0)):
+        b._visits[((bank, mid), x, y)] = 5     # interior exhausted -> prefer the north edge exit
+    act, dec = b.decide(edge_obs(2, 0, "UP"))
+    assert act.presses[0].button == "UP" and "off the map edge" in dec.reason
+    assert b._last and b._last[0] == "edge"
+    # NPC adjacent: fail must not count toward dead_edges
+    act, dec = b.decide(edge_obs(2, 0, "UP", npcs=[{"x": 2, "y": 1}]))
+    assert not b._dead_edges and not b._edge_tries
+    assert (2, 0) in {t for (m, t) in b._blocked}
+    # without NPC, two fails kill the edge tile
+    b2 = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                   settle_checks=0, max_warp_tries=2)
+    settle(b2, edge_obs(2, 0, "UP"))
+    for x, y in ((1, 1), (2, 1), (3, 1), (1, 2), (2, 2), (3, 2), (1, 0), (3, 0)):
+        b2._visits[((bank, mid), x, y)] = 5
+    b2.decide(edge_obs(2, 0, "UP"))
+    b2.decide(edge_obs(2, 0, "UP"))             # fail #1
+    act, dec = b2.decide(edge_obs(2, 0, "UP"))  # fail #2 -> dead, pick another direction
+    assert ((bank, mid), (2, 0)) in b2._dead_edges
+    # after the edge tile is dead, free explore must not keep offering that exit
+    facing = act.presses[0].button if act.presses[0].button in ("UP", "DOWN", "LEFT", "RIGHT") else "UP"
+    edge_reasons = []
+    for _ in range(8):
+        act, dec = b2.decide(edge_obs(2, 0, facing))
+        btn = act.presses[0].button
+        facing = btn if btn in ("UP", "DOWN", "LEFT", "RIGHT") else facing
+        edge_reasons.append(dec.reason)
+    assert not any("off the map edge" in r for r in edge_reasons)
+
+
 def test_placeholder_milestone_in_battle_finishes_dialogue_first():
     pl = GoalPlanner([Milestone("later", "not yet", placeholder=True, script_button="B")])
     b = PathBrain(planner=pl, settle_checks=0)
@@ -324,7 +415,10 @@ def test_pathbrain_walks_mock_house_through_parcel_and_replays(tmp_path):
     done = {m["id"]: m["done"] for m in last["milestones"]}
     assert done["get_starter"] and done["rival_battle"] and done["rival_battle_over"]
     assert all(v for k, v in done.items() if k != "pewter_city") and not done["pewter_city"]
-    assert sum("off the map edge" in t for t in reasons) == 4
+    # M3 scripted edges: Pallet↔Route1↔Viridian (4). Free explore after goal 17 may also step off edges.
+    assert sum("off the map edge" in t for t in reasons) >= 4
+    assert any(r["decision"]["plan"] == "free explore" and "off the map edge" in r["decision"]["reason"]
+               for r in steps if r["decision"]["brain"] == "path")
     assert any("onto the warp (player frozen" in t for t in reasons)   # the mart clerk's script
     assert {n["local_id"] for n in s["final_ram"]["npcs"]} == {4, 8}      # Pokedexes taken off the table
     # the mock rival stopped us on row 8; the battle (no ram["battle"]) was RuleBrain's A presses
