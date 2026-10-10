@@ -106,6 +106,7 @@ The live wire still carries collision/warps on every observation; log dedupe (ma
 - `ram.npcs` `[{x, y, local_id, elevation, gfx, ...}]` -> purple squares on the mini-map; hovering one shows its
   `local_id`, position, elevation and gfx. Entries outside the map or without integer x/y are skipped.
 - `ram.party_count` -> "隊伍：n 隻" pill in the header ("–" when the adapter does not report it).
+- `ram.pokedex_seen` / `ram.pokedex_owned` (Kanto id lists from #98) -> counts in the collapsed 開發者資訊 pill 「圖鑑 見過 N · 擁有 M」. Absent when SaveBlock2 is not ready. Never shown on the human default view; badges, money, and game time stay off the page.
 - The RAM table shows `npcs` as a count. The live wire carries the full NPC list every step; the log dedupe
   from PR #14 (`npcs_same` / `npcs_delta`) only affects the file.
 

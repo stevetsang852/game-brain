@@ -887,6 +887,7 @@ body:not(.mode-manual) .padrow { display: none; }
     <span id="phase" class="pill">進行中</span>
     <span id="adapter" class="pill">adapter: –</span>
     <span id="party" class="pill" title="ram.party_count">隊伍：–</span>
+    <span id="dex" class="pill" title="ram.pokedex_seen / ram.pokedex_owned" hidden>圖鑑：–</span>
     <span class="meta">step <b id="step">–</b> · frame <b id="frame">–</b></span>
     <div id="fpsStat">–</div>
     <div id="screenNote">等待畫面…</div>
@@ -1251,7 +1252,22 @@ function fmtRam(k, v) {
   if (k === "npcs" && Array.isArray(v)) return `${v.length} 個（見地圖，滑鼠移上去看 local_id）`;
   if (k === "battle" && v && typeof v === "object") return `${v.menu ?? "?"}${v.outcome ? " · " + v.outcome : ""}（見戰鬥面板）`;
   if (k === "warps" && Array.isArray(v)) return `${v.length} 個（${v.filter(w => w.enter).length} 個可用）`;
+  if ((k === "pokedex_seen" || k === "pokedex_owned") && Array.isArray(v)) return `${v.length} 種`;
   return typeof v === "object" ? JSON.stringify(v) : String(v);
+}
+function renderDex(ram) {
+  const el = $("dex");
+  if (!el) return;
+  const ramObj = ram || {};
+  const hasSeen = Array.isArray(ramObj.pokedex_seen);
+  const hasOwned = Array.isArray(ramObj.pokedex_owned);
+  if (!hasSeen && !hasOwned) { el.hidden = true; el.textContent = "圖鑑：–"; return; }
+  el.hidden = false;
+  const seen = hasSeen ? ramObj.pokedex_seen.length : "–";
+  const owned = hasOwned ? ramObj.pokedex_owned.length : "–";
+  el.textContent = LANG === "en"
+    ? `Dex seen ${seen} · owned ${owned}`
+    : `圖鑑 見過 ${seen} · 擁有 ${owned}`;
 }
 
 // Short Chinese names for the milestone ids in game_brain/brain/goals.py; unknown ids fall back to the label.
@@ -1326,6 +1342,7 @@ function onObservation(env) {
   }
   const pc = (p.ram || {}).party_count;
   $("party").textContent = `${t("party")}: ${Number.isInteger(pc) ? pc : "–"}`;
+  renderDex(p.ram);
   renderMapName(p.ram);
   redrawMaps();
   renderBattle();
