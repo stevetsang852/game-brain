@@ -375,6 +375,33 @@ def test_fake_map_layout_collision_and_warps():
     assert ram["warps"] == [{"x": 2, "y": 1, "dest_bank": 3, "dest_map": 0, "behavior": 0x65, "enter": "DOWN"}]
 
 
+def test_warp_enter_cave_door_maps_to_up():
+    """MB_CAVE_DOOR (0x60): Route2 Viridian Forest gate mats; walk UP (ROM e0194282)."""
+    assert fr.WARP_ENTER[0x60] == "UP"
+
+
+def test_fake_map_cave_door_enter_is_up():
+    """Same fake layout path as south-arrow, but metatile behavior 0x60 resolves enter UP."""
+    core = FakeCore()
+    overworld(core, x=1, y=1)
+    m = core.memory
+    layout, vmap, events, warps, ts, attrs = 0x08100000, 0x02031000, 0x08200000, 0x08300000, 0x08400000, 0x08500000
+    m.put(fr.G_MAP_HEADER, layout, 4); m.put(fr.G_MAP_HEADER + 4, events, 4)
+    m.put(layout, 3, 4); m.put(layout + 4, 2, 4); m.put(layout + 0x10, ts, 4)
+    m.put(ts + 0x14, attrs, 4)
+    vw = 3 + 15
+    m.put(fr.G_BACKUP_MAP_LAYOUT, vw, 4); m.put(fr.G_BACKUP_MAP_LAYOUT + 8, vmap, 4)
+    def tile(x, y, metatile, coll):
+        m.put(vmap + 2 * ((y + 7) * vw + x + 7), metatile | (coll << 10), 2)
+    tile(0, 0, 1, 1); tile(1, 0, 1, 1); tile(2, 0, 1, 1)
+    tile(0, 1, 2, 0); tile(1, 1, 2, 0); tile(2, 1, 3, 0)
+    m.put(attrs + 4 * 3, 0x60, 4)  # metatile 3 = MB_CAVE_DOOR
+    m.put(events + 1, 1, 1); m.put(events + 8, warps, 4)
+    m.put(warps, 2, 2); m.put(warps + 2, 1, 2); m.put(warps + 6, 0, 1); m.put(warps + 7, 15, 1)
+    ram = MgbaFireRedAdapter(core=core).reset().ram
+    assert ram["warps"] == [{"x": 2, "y": 1, "dest_bank": 15, "dest_map": 0, "behavior": 0x60, "enter": "UP"}]
+
+
 def _bfs(ram, goal):
     """Shortest path over ram['collision'] (goal tile allowed even if blocked)."""
     start = (ram["player_x"], ram["player_y"])
