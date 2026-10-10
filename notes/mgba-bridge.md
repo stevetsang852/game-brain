@@ -99,10 +99,12 @@ ROM headless, mashing A through the intro (8 frames A, 8 frames released):
 | `warps` | `gMapHeader->events` (`+4`): warpCount `+1`, warps `+8`, 8 bytes each (`x, y, elevation, warpId, mapNum, mapGroup`); `behavior` = metatile behavior of the warp tile (tileset attributes, bits 0-8) | each warp: `x, y, dest_bank, dest_map, behavior, enter`. Walked with BFS over `collision` only: 2F stairs (10,2) + LEFT goes to 1F (4/0); 1F mat (4,8) + DOWN goes to Pallet Town (3/0) at (6,8); Pallet door (6,7) + UP goes back to 4/0 |
 
 `enter` is the button that triggers the warp from (or, for doors, into) its tile, and is only set for
-behaviors verified above: `0x65` south arrow mat = DOWN, `0x69` door = UP (walk into it from the tile
-below), `0x6F` the house stairs = LEFT. Other warps keep `enter: null`. Note the event table can
-list warps that do not trigger: on 1F, (5,8) and (3,9) are listed but have behavior 0 and pressing
-DOWN there does nothing; only (4,8) works.
+behaviors verified above: `0x60` cave door = UP (Route2 Viridian Forest gate mats at (5,51)/(6,51)
+on map 3/20; walk UP into them to reach forest south 15/0 — verified on ROM SHA1 e0194282…),
+`0x65` south arrow mat = DOWN, `0x69` door = UP (walk into it from the tile below), `0x6F` the
+house stairs = LEFT. Other warps keep `enter: null`. Note the event table can list warps that do
+not trigger: on 1F, (5,8) and (3,9) are listed but have behavior 0 and pressing DOWN there does
+nothing; only (4,8) works.
 
 Not handled yet: NPCs/objects blocking tiles, ledges (one-way jumps) and elevation, other warp
 behaviors. `collision` and `warps` are re-read on every observe (a few hundred reads, under 1 ms) so

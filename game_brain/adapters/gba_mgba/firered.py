@@ -39,6 +39,7 @@ CB2_OVERWORLD = 0x080565B5       # gMain.callback2 while walking around
 
 #: metatile behavior -> button that triggers the warp from its tile (verified ones only, see notes)
 WARP_ENTER = {
+    0x60: "UP",     # MB_CAVE_DOOR: Route2 Viridian Forest gate mats; walk UP into them (verified e0194282)
     0x65: "DOWN",   # MB_SOUTH_ARROW_WARP: house door mat, press DOWN while standing on it
     0x69: "UP",     # MB_ANIMATED_DOOR: building door, walk UP into it from the tile below
     0x6F: "LEFT",   # stairs in the player's house 2F, press LEFT on the stair tile
