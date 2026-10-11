@@ -315,6 +315,99 @@ def test_pr107_free_explore_pallet_north_edge_reaches_route1():
     assert adapter.warps_taken == [((3, 0), (3, 19))]
 
 
+def _forest_south_bldg_rows():
+    """Synthetic 15/0 corridor: walkable column x=7 from y=1..10 (south mat / north cave door)."""
+    rows = []
+    for y in range(12):
+        row = ["#"] * 15
+        if 1 <= y <= 10:
+            row[7] = "."
+        rows.append("".join(row))
+    return rows
+
+
+def _forest_south_warps():
+    # Real ROM (FINDINGS): (7,10) 0x65 DOWN -> Route2 3/20; (7,1) 0x60 UP -> forest 1/0.
+    return [
+        {"x": 7, "y": 10, "dest_bank": 3, "dest_map": 20, "enter": "DOWN", "behavior": 0x65},
+        {"x": 7, "y": 1, "dest_bank": 1, "dest_map": 0, "enter": "UP", "behavior": 0x60},
+    ]
+
+
+def test_free_explore_15_0_does_not_reverse_on_south_mat():
+    """README 2026-10-12: on forest south bldg 15/0, do not spin on south mats (7,10) that
+    DOWN-warp back to Route2 — walk north instead. Reverse-warp bias uses ``_prev_map``."""
+    rows = _forest_south_bldg_rows()
+    warps = _forest_south_warps()
+    route2 = ["#######", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#######"]
+    door = {"x": 5, "y": 5, "dest_bank": 15, "dest_map": 0, "enter": "UP", "behavior": 0x60}
+
+    def o15(x, y, facing="UP"):
+        return obs(x, y, facing, rows=rows, warps=warps, bank=15, mid=0)
+
+    def o2(x, y, facing="UP"):
+        return obs(x, y, facing, rows=route2, warps=[door], bank=3, mid=20)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0)
+    settle(b, o2(5, 5, "UP"))
+    assert b._map == (3, 20)
+    act, dec = b.decide(o15(7, 10, "UP"))  # arrive from Route2
+    assert act.presses[0].button == "NONE" and b._prev_map == (3, 20)
+
+    # First free-explore decision on the south mat must walk north, not take DOWN.
+    act, dec = b.decide(o15(7, 10, "UP"))
+    assert dec.plan == "free explore"
+    assert "take warp" not in dec.reason
+    assert act.presses[0].button == "UP"
+    assert "walk UP" in dec.reason or "turn UP" in dec.reason
+
+
+def test_free_explore_15_0_walks_to_forest_north_warp():
+    """From 15/0 (7,10) after arriving from Route2, free explore reaches (7,1)/(7,2) and
+    presses UP into Viridian Forest 1/0 — without taking the south DOWN warp."""
+    rows = _forest_south_bldg_rows()
+    warps = _forest_south_warps()
+    route2 = ["#######", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#######"]
+    door = {"x": 5, "y": 5, "dest_bank": 15, "dest_map": 0, "enter": "UP", "behavior": 0x60}
+
+    def o15(x, y, facing="UP"):
+        return obs(x, y, facing, rows=rows, warps=warps, bank=15, mid=0)
+
+    def o2(x, y, facing="UP"):
+        return obs(x, y, facing, rows=route2, warps=[door], bank=3, mid=20)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0)
+    settle(b, o2(5, 5, "UP"))
+    b.decide(o15(7, 10, "UP"))  # settle on 15/0; _prev_map = Route2
+    assert b._prev_map == (3, 20)
+
+    pos, facing = (7, 10), "UP"
+    forest = False
+    for _ in range(40):
+        act, dec = b.decide(o15(pos[0], pos[1], facing))
+        btn, frames = act.presses[0].button, act.presses[0].frames
+        if btn not in ("UP", "DOWN", "LEFT", "RIGHT"):
+            continue
+        if frames <= 3:
+            facing = btn
+            continue
+        facing = btn
+        if "take warp" in dec.reason:
+            assert btn == "UP", dec.reason
+            assert pos in ((7, 1), (7, 2)), pos
+            assert "-> (1, 0)" in dec.reason
+            forest = True
+            break
+        assert not (btn == "DOWN" and pos == (7, 10)), "must not reverse on south mat"
+        dx, dy = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}[btn]
+        nxt = (pos[0] + dx, pos[1] + dy)
+        if 0 <= nxt[1] < len(rows) and rows[nxt[1]][nxt[0]] == ".":
+            pos = nxt
+    assert forest
+
+
 def test_placeholder_milestone_in_battle_finishes_dialogue_first():
     pl = GoalPlanner([Milestone("later", "not yet", placeholder=True, script_button="B")])
     b = PathBrain(planner=pl, settle_checks=0)

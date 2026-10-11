@@ -66,7 +66,7 @@ class PathBrain(Brain):
                  idle_on_placeholder: bool = True, settle_checks: int = 4,
                  frozen_press_every: int = 2, max_frozen: int = 400, max_script_decisions: int = 600,
                  max_interact_presses: int = 200, max_placeholder_presses: int = 200,
-                 avoid_npcs: bool = True):
+                 avoid_npcs: bool = True, reverse_warp_penalty: int = 8):
         self.planner = planner or GoalPlanner()
         self.maps = map_provider or RamMapProvider()
         self.turn_frames, self.turn_release = turn_frames, turn_release
@@ -80,12 +80,16 @@ class PathBrain(Brain):
         self.max_script_decisions, self.max_interact_presses = max_script_decisions, max_interact_presses
         self.max_placeholder_presses = max_placeholder_presses
         self.avoid_npcs = avoid_npcs
+        # Free-explore: prefer walking the current map over immediately reversing through the
+        # push-warp we just arrived from (Viridian Forest south bldg 15/0 at (7,10) DOWN->Route2).
+        self.reverse_warp_penalty = reverse_warp_penalty
         self.reset()
 
     def reset(self) -> None:
         self.planner.reset()
         self._t = 0
         self._map: Optional[Tile] = None
+        self._prev_map: Optional[Tile] = None  # map we arrived from (free-explore reverse-warp bias)
         self._last_pos: Optional[Tile] = None
         self._last: Optional[Tuple[str, object]] = None   # (kind, detail) of our previous action
         self._blocked: Dict[Tuple[Tile, Tile], int] = {}  # ((map), tile) -> expiry decision index
@@ -270,6 +274,11 @@ class PathBrain(Brain):
         Also takes door-mat warps and walkable map-edge exits (Pallet north -> Route 1), records
         failed warps/edges into ``_dead_warps`` / ``_dead_edges``, and treats NPC bumps as TTL
         blocks instead of permanently poisoning a tile via ``_visits``.
+
+        Push-warps score by destination visits (not the wall tile beyond the mat). A warp back
+        to ``_prev_map`` gets ``reverse_warp_penalty`` so free explore walks the building
+        (e.g. 15/0 north to (7,1)/(7,2) then UP into forest) instead of spinning on the south
+        mats that DOWN-warp to Route 2.
         """
         grid = self.maps.current_map()
         facing = obs.ram.get("facing")
@@ -332,13 +341,24 @@ class PathBrain(Brain):
             if (nx, ny) in npcs or (nx, ny) in remembered:
                 continue
             is_edge = name in edge_dirs
-            if grid is not None and not grid.is_walkable(nx, ny) and name not in warps and not is_edge:
+            is_warp = name in warps
+            if grid is not None and not grid.is_walkable(nx, ny) and not is_warp and not is_edge:
                 continue
-            if is_edge:
+            if is_warp:
+                w = warps[name]
+                # Score by destination map visits — not the wall tile beyond a push-mat
+                # (that tile stays at 0 forever and made DOWN on 15/0 beat walking north).
+                vkey = (map_key, "warp", w.dest[0], w.dest[1])
+                score = self._visits.get(vkey, 0)
+                if self._prev_map is not None and w.dest == self._prev_map:
+                    score += self.reverse_warp_penalty
+            elif is_edge:
                 vkey = (map_key, "edge", name, pos[0], pos[1])
+                score = self._visits.get(vkey, 0)
             else:
                 vkey = (map_key, nx, ny)
-            choices.append((self._visits.get(vkey, 0), 0 if name == self._explore_dir else 1, name))
+                score = self._visits.get(vkey, 0)
+            choices.append((score, 0 if name == self._explore_dir else 1, name))
         if not choices:
             for name in _DELTA:
                 choices.append((0, 1, name))
@@ -355,7 +375,8 @@ class PathBrain(Brain):
                 goal=self._explore_goal(), path=[pos, nxt])
         if direction in warps:
             w = warps[direction]
-            self._visits[(map_key,) + nxt] = self._visits.get((map_key,) + nxt, 0) + 1
+            wkey = (map_key, "warp", w.dest[0], w.dest[1])
+            self._visits[wkey] = self._visits.get(wkey, 0) + 1
             self._last = ("warp", (grid.key, w))
             return self._act(direction, self.step_frames, self.warp_release), self._dec(
                 "free explore", f"at {pos}: press {direction} to take warp ({w.x},{w.y}) -> {w.dest} ({cells} cells)",
@@ -407,6 +428,7 @@ class PathBrain(Brain):
         if grid.key != self._map:
             if self._map is not None:
                 self.stats["warps"] += 1
+            self._prev_map = self._map
             self._map, self._settling, self._settle_waits, self._stable = grid.key, True, 0, 0
             self._fails.clear()
             self._last_pos = pos
