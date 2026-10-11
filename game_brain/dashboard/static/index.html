@@ -888,6 +888,7 @@ body:not(.mode-manual) .padrow { display: none; }
     <span id="adapter" class="pill">adapter: –</span>
     <span id="party" class="pill" title="ram.party_count">隊伍：–</span>
     <span id="dex" class="pill" title="ram.pokedex_seen / ram.pokedex_owned" hidden>圖鑑：–</span>
+    <span id="navHint" class="pill" title="free explore / PathBrain edge or warp" hidden>導航：–</span>
     <span class="meta">step <b id="step">–</b> · frame <b id="frame">–</b></span>
     <div id="fpsStat">–</div>
     <div id="screenNote">等待畫面…</div>
@@ -1269,6 +1270,37 @@ function renderDex(ram) {
     ? `Dex seen ${seen} · owned ${owned}`
     : `圖鑑 見過 ${seen} · 擁有 ${owned}`;
 }
+function navIntent(d) {
+  if (!d) return "";
+  const reason = String(d.reason || "");
+  const plan = String(d.plan || "");
+  let m = reason.match(/step (UP|DOWN|LEFT|RIGHT) off the map edge/i);
+  if (m) return LANG === "en" ? `edge ${m[1]}` : `邊緣 ${m[1]}`;
+  m = reason.match(/press (UP|DOWN|LEFT|RIGHT) to take warp[^\)]*\)\s*->\s*([^\s(]+)/i);
+  if (m) return LANG === "en" ? `warp ${m[1]} → ${m[2]}` : `warp ${m[1]} → ${m[2]}`;
+  m = reason.match(/press (UP|DOWN|LEFT|RIGHT) to take warp/i);
+  if (m) return LANG === "en" ? `warp ${m[1]}` : `warp ${m[1]}`;
+  if (/free explore/i.test(plan)) {
+    m = reason.match(/\b(walk|turn) (UP|DOWN|LEFT|RIGHT)/i);
+    if (m) return LANG === "en" ? `explore ${m[1]} ${m[2]}` : `自由探索 ${m[1]} ${m[2]}`;
+    return LANG === "en" ? "free explore" : "自由探索";
+  }
+  if (/warp transition/i.test(plan)) return LANG === "en" ? "warp transition" : "warp 過渡";
+  return "";
+}
+function renderNavHint() {
+  const el = $("navHint");
+  if (!el) return;
+  const ram = (state.lastObs && state.lastObs.ram) || {};
+  const hasMap = ram.map_bank != null && ram.map_id != null;
+  const intent = navIntent(state.lastDecision);
+  if (!hasMap && !intent) { el.hidden = true; el.textContent = "導航：–"; return; }
+  el.hidden = false;
+  const map = hasMap ? `${ram.map_bank}/${ram.map_id}` : "–";
+  el.textContent = intent
+    ? (LANG === "en" ? `Nav ${map} · ${intent}` : `導航 ${map} · ${intent}`)
+    : (LANG === "en" ? `Nav ${map}` : `導航 ${map}`);
+}
 
 // Short Chinese names for the milestone ids in game_brain/brain/goals.py; unknown ids fall back to the label.
 function msName(m) {
@@ -1343,6 +1375,7 @@ function onObservation(env) {
   const pc = (p.ram || {}).party_count;
   $("party").textContent = `${t("party")}: ${Number.isInteger(pc) ? pc : "–"}`;
   renderDex(p.ram);
+  renderNavHint();
   renderMapName(p.ram);
   redrawMaps();
   renderBattle();
@@ -1358,6 +1391,7 @@ function onObservation(env) {
 
 function onDecision(env) {
   const d = env.payload; state.lastDecision = d;
+  renderNavHint();
   $("brain").textContent = d.brain;
   const actor = d.actor || "brain";
   $("actor").innerHTML = `<span class="badge actor-${actor}">${ACTOR_LABEL[actor] ?? actor}</span>`;
