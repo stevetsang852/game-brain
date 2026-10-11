@@ -92,7 +92,7 @@ def test_page_party_card_is_six_slots():
     html = HTML.read_text(encoding="utf-8")
     assert 'id="mapName"' in html and "party-card" in html
     assert "/icons/" in html and "412" in html
-    assert "minmax(0, 1fr) 320px" in html
+    assert "minmax(0, 1fr) 220px" in html
 
 
 def test_party_rows_in_node():
