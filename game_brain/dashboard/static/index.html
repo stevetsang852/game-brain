@@ -740,8 +740,7 @@ dd { margin: 0; word-break: break-word; }
 }
 .party-ico { object-fit: cover; object-position: top center; background: transparent; }
 .party-fallback {
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; color: #fff; font-weight: 700;
+  display: block; background: transparent; border-radius: 0;
 }
 .party-main { flex: 1; min-width: 0; }
 .party-line { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
@@ -1690,8 +1689,6 @@ function renderParty(list) {
       img.onerror = () => {
         const fb = document.createElement("span");
         fb.className = "party-fallback";
-        fb.textContent = String(name).slice(0, 1) || "?";
-        fb.style.background = PARTY_COLORS[(Number(iconId) || 0) % PARTY_COLORS.length];
         img.replaceWith(fb);
       };
       row.appendChild(img);
