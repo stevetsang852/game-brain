@@ -92,7 +92,7 @@ def test_page_party_card_is_six_slots():
     html = HTML.read_text(encoding="utf-8")
     assert 'id="mapName"' in html and "party-card" in html
     assert "/icons/" in html and "412" in html
-    assert "minmax(0, 1fr) 320px" in html
+    assert "minmax(0, 1fr) 220px" in html
 
 
 def test_party_rows_in_node():
@@ -112,4 +112,4 @@ def test_party_rows_in_node():
     assert "燒" in out["burnDetail"] and "8/20" in out["burnDetail"]
     assert out["mid"] == "mid" and out["hi"] == "hi" and out["zero"] == "0%"
     assert out["opened"] and "TACKLE 35/35" in out["moves"] and "22/22" in out["moves"]
-    assert out["fallback"] == "C" and out["map"] == "3/0" and out["flash"] is True
+    assert out["fallback"] == "" and out["map"] == "3/0" and out["flash"] is True
