@@ -93,6 +93,7 @@ def test_page_party_card_is_six_slots():
     assert 'id="mapName"' in html and "party-card" in html
     assert "/icons/" in html and "412" in html
     assert "minmax(0, 1fr) 220px" in html
+    assert "show-rest .party-moves" in html and "其餘隊伍" in html
 
 
 def test_party_rows_in_node():
