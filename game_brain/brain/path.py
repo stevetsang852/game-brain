@@ -55,6 +55,14 @@ from .goals import GoalPlanner
 Tile = Tuple[int, int]
 _DELTA = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
 
+# Free-explore map-edge exits that actually connect (FINDINGS / README 2026-10-13).
+# Key: (map_key, edge direction) -> preferred x (UP/DOWN) or y (LEFT/RIGHT) values.
+# Non-preferred walkable edge tiles still work via _dead_edges after failed presses; this just
+# biases first tries (Route2 3/20 north: only x=8..11 leave to Pewter 3/2; (5,2) trees do not).
+PREFERRED_EDGE_COLUMNS: Dict[Tuple[Tile, str], frozenset] = {
+    ((3, 20), "UP"): frozenset(range(8, 12)),
+}
+
 
 class PathBrain(Brain):
     name = "path"
@@ -66,7 +74,8 @@ class PathBrain(Brain):
                  idle_on_placeholder: bool = True, settle_checks: int = 4,
                  frozen_press_every: int = 2, max_frozen: int = 400, max_script_decisions: int = 600,
                  max_interact_presses: int = 200, max_placeholder_presses: int = 200,
-                 avoid_npcs: bool = True, reverse_warp_penalty: int = 8):
+                 avoid_npcs: bool = True, reverse_warp_penalty: int = 8,
+                 preferred_edge_penalty: int = 8):
         self.planner = planner or GoalPlanner()
         self.maps = map_provider or RamMapProvider()
         self.turn_frames, self.turn_release = turn_frames, turn_release
@@ -83,6 +92,8 @@ class PathBrain(Brain):
         # Free-explore: prefer walking the current map over immediately reversing through the
         # push-warp we just arrived from (Viridian Forest south bldg 15/0 at (7,10) DOWN->Route2).
         self.reverse_warp_penalty = reverse_warp_penalty
+        # Prefer known-good map-edge columns (Route2 north x=8..11 -> Pewter) over lookalike edges.
+        self.preferred_edge_penalty = preferred_edge_penalty
         self.reset()
 
     def reset(self) -> None:
@@ -277,8 +288,9 @@ class PathBrain(Brain):
 
         Push-warps score by destination visits (not the wall tile beyond the mat). A warp back
         to ``_prev_map`` gets ``reverse_warp_penalty`` so free explore walks the building
-        (e.g. 15/0 north to (7,1)/(7,2) then UP into forest) instead of spinning on the south
-        mats that DOWN-warp to Route 2.
+        (e.g. 15/0 or 15/3 north to (7,1)/(7,2) then UP) instead of spinning on the south mats.
+        Map-edge exits listed in ``PREFERRED_EDGE_COLUMNS`` (Route2 3/20 UP x=8..11 -> Pewter)
+        beat lookalike north-edge tiles that do not leave the map.
         """
         grid = self.maps.current_map()
         facing = obs.ram.get("facing")
@@ -355,6 +367,14 @@ class PathBrain(Brain):
             elif is_edge:
                 vkey = (map_key, "edge", name, pos[0], pos[1])
                 score = self._visits.get(vkey, 0)
+                pref = PREFERRED_EDGE_COLUMNS.get((grid.key, name))
+                if pref is not None:
+                    axis = pos[0] if name in ("UP", "DOWN") else pos[1]
+                    if axis in pref:
+                        # Beat same-score walks along the edge row (LEFT/RIGHT to other y=0 tiles).
+                        score -= self.preferred_edge_penalty
+                    else:
+                        score += self.preferred_edge_penalty
             else:
                 vkey = (map_key, nx, ny)
                 score = self._visits.get(vkey, 0)

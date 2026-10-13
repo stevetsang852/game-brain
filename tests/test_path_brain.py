@@ -408,6 +408,188 @@ def test_free_explore_15_0_walks_to_forest_north_warp():
     assert forest
 
 
+def _forest_north_bldg_rows():
+    """Synthetic 15/3 corridor: same layout as 15/0 (south mat / north cave door on x=7)."""
+    return _forest_south_bldg_rows()
+
+
+def _forest_north_warps():
+    # Real ROM (FINDINGS 2026-10-12): (7,10) 0x65 DOWN -> forest 1/0; (7,1) 0x60 UP -> Route2 3/20.
+    return [
+        {"x": 7, "y": 10, "dest_bank": 1, "dest_map": 0, "enter": "DOWN", "behavior": 0x65},
+        {"x": 7, "y": 1, "dest_bank": 3, "dest_map": 20, "enter": "UP", "behavior": 0x60},
+    ]
+
+
+def test_free_explore_15_3_does_not_reverse_on_south_mat():
+    """README 2026-10-13: on forest north bldg 15/3, do not spin on south mats (7,10) that
+    DOWN-warp back to forest 1/0 — walk north to (7,1)/(7,2) then UP to Route2."""
+    rows = _forest_north_bldg_rows()
+    warps = _forest_north_warps()
+    forest = ["#######", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#######"]
+    door = {"x": 5, "y": 5, "dest_bank": 15, "dest_map": 3, "enter": "UP", "behavior": 0x60}
+
+    def o15(x, y, facing="UP"):
+        return obs(x, y, facing, rows=rows, warps=warps, bank=15, mid=3)
+
+    def o1(x, y, facing="UP"):
+        return obs(x, y, facing, rows=forest, warps=[door], bank=1, mid=0)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0)
+    settle(b, o1(5, 5, "UP"))
+    assert b._map == (1, 0)
+    act, dec = b.decide(o15(7, 10, "UP"))  # arrive from forest
+    assert act.presses[0].button == "NONE" and b._prev_map == (1, 0)
+
+    act, dec = b.decide(o15(7, 10, "UP"))
+    assert dec.plan == "free explore"
+    assert "take warp" not in dec.reason
+    assert act.presses[0].button == "UP"
+    assert "walk UP" in dec.reason or "turn UP" in dec.reason
+
+
+def test_free_explore_15_3_walks_to_route2_north_warp():
+    """From 15/3 (7,10) after arriving from forest, free explore reaches (7,1)/(7,2) and
+    presses UP into Route2 3/20 — without taking the south DOWN warp."""
+    rows = _forest_north_bldg_rows()
+    warps = _forest_north_warps()
+    forest = ["#######", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#######"]
+    door = {"x": 5, "y": 5, "dest_bank": 15, "dest_map": 3, "enter": "UP", "behavior": 0x60}
+
+    def o15(x, y, facing="UP"):
+        return obs(x, y, facing, rows=rows, warps=warps, bank=15, mid=3)
+
+    def o1(x, y, facing="UP"):
+        return obs(x, y, facing, rows=forest, warps=[door], bank=1, mid=0)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0)
+    settle(b, o1(5, 5, "UP"))
+    b.decide(o15(7, 10, "UP"))
+    assert b._prev_map == (1, 0)
+
+    pos, facing = (7, 10), "UP"
+    routed = False
+    for _ in range(40):
+        act, dec = b.decide(o15(pos[0], pos[1], facing))
+        btn, frames = act.presses[0].button, act.presses[0].frames
+        if btn not in ("UP", "DOWN", "LEFT", "RIGHT"):
+            continue
+        if frames <= 3:
+            facing = btn
+            continue
+        facing = btn
+        if "take warp" in dec.reason:
+            assert btn == "UP", dec.reason
+            assert pos in ((7, 1), (7, 2)), pos
+            assert "-> (3, 20)" in dec.reason
+            routed = True
+            break
+        assert not (btn == "DOWN" and pos == (7, 10)), "must not reverse on south mat"
+        dx, dy = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}[btn]
+        nxt = (pos[0] + dx, pos[1] + dy)
+        if 0 <= nxt[1] < len(rows) and rows[nxt[1]][nxt[0]] == ".":
+            pos = nxt
+    assert routed
+
+
+def _route2_north_rows():
+    """Route2-ish strip: north edge y=0 walkable at x=5 (trees / no exit) and x=8..11 (Pewter)."""
+    rows = []
+    for y in range(8):
+        row = ["#"] * 14
+        if y == 0:
+            for x in (5, 8, 9, 10, 11):
+                row[x] = "."
+        elif 1 <= y <= 6:
+            for x in range(5, 12):
+                row[x] = "."
+        rows.append("".join(row))
+    return rows
+
+
+def test_free_explore_route2_prefers_pewter_north_edge_x_8_11():
+    """README 2026-10-13: on Route2 3/20, north-edge exit to Pewter is x=8..11 only —
+    do not prefer lookalike (5,0) UP (trees; FINDINGS)."""
+    rows = _route2_north_rows()
+    # Exhaust interior visits so edge exits compete; leave preferred columns fresher.
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0)
+    settle(b, obs(5, 2, "UP", rows=rows, warps=(), bank=3, mid=20))
+
+    for x in range(5, 12):
+        for y in range(1, 7):
+            b._visits[((3, 20), x, y)] = 6
+    # Make the bad edge look "tried" less than preferred? Preferred should win even if both fresh.
+    b._visits[((3, 20), "edge", "UP", 5, 0)] = 0
+    for x in (8, 9, 10, 11):
+        b._visits[((3, 20), "edge", "UP", x, 0)] = 0
+
+    act, dec = b.decide(obs(5, 0, "UP", rows=rows, warps=(), bank=3, mid=20))
+    assert dec.plan == "free explore"
+    # At (5,0) facing UP: preferred-edge penalty must make walking RIGHT beat taking the bad edge.
+    assert "off the map edge" not in dec.reason, dec.reason
+    assert act.presses[0].button in ("RIGHT", "LEFT", "DOWN"), dec.reason
+
+    # Standing on a preferred column: take the edge UP toward Pewter.
+    # visits%5==0 so sticky _explore_dir from the previous decide does not override the best score.
+    b._explore_dir = None
+    b._visits[((3, 20), 9, 0)] = 4
+    act, dec = b.decide(obs(9, 0, "UP", rows=rows, warps=(), bank=3, mid=20))
+    assert "off the map edge" in dec.reason
+    assert act.presses[0].button == "UP"
+    assert b._last and b._last[0] == "edge"
+
+
+def test_free_explore_route2_bad_north_edge_becomes_dead_then_walks_to_preferred():
+    """(5,0) UP fails -> dead_edges; free explore then leaves via x in 8..11."""
+    rows = _route2_north_rows()
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0, max_warp_tries=2)
+    settle(b, obs(5, 0, "UP", rows=rows, warps=(), bank=3, mid=20))
+    for x in range(5, 12):
+        for y in range(1, 7):
+            b._visits[((3, 20), x, y)] = 8
+    # Force trying the bad edge by temporarily clearing preferred penalty path: mark preferred
+    # columns heavily visited as edges so only (5,0) looks fresh — then fail it twice.
+    for x in (8, 9, 10, 11):
+        b._visits[((3, 20), "edge", "UP", x, 0)] = 20
+    # Prefer walking to preferred columns over repeating a dead bad edge: kill (5,0) first.
+    b.decide(obs(5, 0, "UP", rows=rows, warps=(), bank=3, mid=20))  # may walk or edge
+    # Explicitly record two failed edge presses on (5,0)
+    b._last = ("edge", ((3, 20), (5, 0), "UP"))
+    b.decide(obs(5, 0, "UP", rows=rows, warps=(), bank=3, mid=20))  # fail #1
+    b._last = ("edge", ((3, 20), (5, 0), "UP"))
+    act, dec = b.decide(obs(5, 0, "UP", rows=rows, warps=(), bank=3, mid=20))  # fail #2 -> dead
+    assert ((3, 20), (5, 0)) in b._dead_edges
+    assert "off the map edge" not in dec.reason
+
+    # From (5,0) walk toward preferred columns, then exit.
+    pos, facing = (5, 0), "UP"
+    exited = False
+    for _ in range(60):
+        act, dec = b.decide(obs(pos[0], pos[1], facing, rows=rows, warps=(), bank=3, mid=20))
+        btn, frames = act.presses[0].button, act.presses[0].frames
+        if btn not in ("UP", "DOWN", "LEFT", "RIGHT"):
+            continue
+        if frames <= 3:
+            facing = btn
+            continue
+        facing = btn
+        if "off the map edge" in dec.reason:
+            assert btn == "UP"
+            assert pos[0] in (8, 9, 10, 11) and pos[1] == 0, pos
+            exited = True
+            break
+        dx, dy = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}[btn]
+        nxt = (pos[0] + dx, pos[1] + dy)
+        if 0 <= nxt[1] < len(rows) and 0 <= nxt[0] < len(rows[0]) and rows[nxt[1]][nxt[0]] == ".":
+            pos = nxt
+    assert exited
+
+
+
 def test_placeholder_milestone_in_battle_finishes_dialogue_first():
     pl = GoalPlanner([Milestone("later", "not yet", placeholder=True, script_button="B")])
     b = PathBrain(planner=pl, settle_checks=0)
