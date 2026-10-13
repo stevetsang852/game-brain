@@ -37,6 +37,7 @@ const box = el();
 const mapName = el();
 const $ = id => id === "partyList" ? box : mapName;
 const document = { createElement: () => el() };
+function isConnected(){ return !!(state.ws && state.ws.readyState === 1); }
 eval(src.slice(start, end));
 const full = [
   { slot: 0, species_id: 1, species: "BULBASAUR", level: 5, hp: 22, max_hp: 22, active: true,

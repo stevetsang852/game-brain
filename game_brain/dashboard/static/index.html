@@ -743,7 +743,6 @@ dd { margin: 0; word-break: break-word; }
 }
 
 #mapName { font-size: 15px; font-weight: 700; margin: 0 0 8px; }
-#mapName:empty { display: none; }
 .party-slot {
   display: flex; gap: 8px; align-items: flex-start;
   min-height: 48px; padding: 6px 8px; margin: 0 0 6px;
@@ -955,7 +954,7 @@ body:not(.mode-manual) .padrow { display: none; }
   <summary>開發者資訊</summary>
   <div class="dev-meta">
     <span id="conn" class="pill off">未連線</span>
-    <span id="phase" class="pill">進行中</span>
+    <span id="phase" class="pill off">未連線</span>
     <span id="adapter" class="pill">adapter: –</span>
     <span id="party" class="pill" title="ram.party_count">隊伍：–</span>
     <span id="dex" class="pill" title="ram.pokedex_seen / ram.pokedex_owned" hidden>圖鑑：–</span>
@@ -1733,7 +1732,7 @@ function setMode(mode) {
 function renderMapName(ram) {
   const el = $("mapName");
   if (!el) return;
-  if (!ram || ram.map_bank == null || ram.map_id == null) { el.textContent = ""; return; }
+  if (!ram || ram.map_bank == null || ram.map_id == null) { el.textContent = "—"; return; }
   el.textContent = mapLabel([ram.map_bank, ram.map_id]);
 }
 const PARTY_STATUS = { poison: "毒", toxic: "毒", paralysis: "麻", sleep: "眠", burn: "燒", freeze: "凍" };
@@ -1761,7 +1760,8 @@ function renderParty(list) {
     const empty = !mon || mon.bad_egg;
     if (empty) {
       row.classList.add("empty");
-      row.textContent = LANG === "en" ? "Empty" : "空";
+      if (!isConnected() && i === 0) row.textContent = LANG === "en" ? "Offline" : "未連線";
+      else row.textContent = LANG === "en" ? "Empty" : "空";
       box.appendChild(row);
       return;
     }
@@ -1841,6 +1841,10 @@ function renderParty(list) {
     if (!empty && !egg) row.addEventListener("click", () => row.classList.toggle("open"));
     box.appendChild(row);
   });
+  if (lead < 0) {
+    const first = box.querySelector(".party-slot");
+    if (first) first.classList.add("lead");
+  }
   state.partySeen = seen;
 }
 
@@ -2065,9 +2069,13 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, 4000);
 }
+function isConnected() {
+  return !!(state.ws && state.ws.readyState === 1);
+}
 function humanNow(s) {
   const el = $("nowLine");
   if (!el) return;
+  if (!isConnected()) { el.textContent = LANG === "en" ? "Offline" : "未連線"; return; }
   const phase = (s && s.phase) || "running";
   let text = "";
   if (phase === "stopped") text = LANG === "en" ? "Stopped" : "已停止";
@@ -2098,12 +2106,19 @@ function renderLiveStatus(s) {
 function renderPhase(s) {
   renderLiveStatus(s);
   humanNow(s);
-  const phase = s.phase || "running";
-  const bar = $("msBar");
-  if (bar) bar.classList.toggle("free", phase === "free_explore");
   const sub = $("phaseSub");
   const pill = $("phase");
   const conn = $("conn");
+  if (!isConnected()) {
+    if (pill) { pill.textContent = LANG === "en" ? "Offline" : "未連線"; pill.className = "pill off"; }
+    if (sub) sub.textContent = "";
+    const bar = $("msBar");
+    if (bar) bar.classList.remove("free");
+    return;
+  }
+  const phase = (s && s.phase) || "running";
+  const bar = $("msBar");
+  if (bar) bar.classList.toggle("free", phase === "free_explore");
   if (phase === "stopped") {
     if (pill) pill.textContent = LANG === "en" ? "Stopped" : "已停止";
     const reason = s.stopped && s.stopped.reason;
@@ -2203,8 +2218,8 @@ function onAutoLearnError(payload) {
 }
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`); state.ws = ws;
-  ws.onopen = () => { state.displayChecked = false; $("conn").textContent = "已連線"; $("conn").className = "pill on"; renderLiveStatus(state.lastStatus); event("已連線"); };
-  ws.onclose = () => { $("conn").textContent = "未連線，重試中…"; $("conn").className = "pill off"; renderLiveStatus(null); setTimeout(connect, 1500); };
+  ws.onopen = () => { state.displayChecked = false; $("conn").textContent = "已連線"; $("conn").className = "pill on"; renderPhase(state.lastStatus || { phase: "running" }); event("已連線"); };
+  ws.onclose = () => { $("conn").textContent = "未連線，重試中…"; $("conn").className = "pill off"; renderPhase(null); setTimeout(connect, 1500); };
   ws.binaryType = "arraybuffer";
   ws.onmessage = (m) => {
     if (m.data instanceof ArrayBuffer) { drawRawFrame(m.data); return; }
@@ -2223,7 +2238,9 @@ if (restBtn) restBtn.addEventListener("click", () => {
   restBtn.textContent = card.classList.contains("show-rest") ? "收起隊伍" : "其餘隊伍";
 });
 setMode(null);
+renderMapName(null);
 renderParty([]);
+renderPhase(null);
 connect();
 loadRomSelection();
 refreshAvailableSaves();
