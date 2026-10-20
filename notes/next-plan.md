@@ -1,6 +1,7 @@
-# Current code and next plan (2026-10-13)
+# Current code and next plan (2026-10-20)
 
-Daily plan source of truth: README 「目前進度」／「下一步計劃（2026-10-13）」. Repo stays PUBLIC. Never commit ROM, battery save, savestate, screenshot, model, or secrets. `experiments/` may hold policy JSON, reward JSONL, and notes.
+
+Daily plan source of truth: README 「目前進度」／「下一步計劃（2026-10-20）」. Repo stays PUBLIC. Never commit ROM, battery save, savestate, screenshot, model, or secrets. `experiments/` may hold policy JSON, reward JSONL, and notes.
 
 ## Current code (summary)
 
@@ -25,3 +26,8 @@ See README 「下一步計劃（2026-10-13）」:
 3. Frontend: keep human default as map name + active mon; put the other five plus exact HP/moves behind expand (per Designer 10/12); desktop + 390×844 screenshots for Designer.
 4. Designer: confirm Frontend party expand (other five + exact HP/moves) layout; desktop + 390×844 OK before merge.
 5. Research: if addendum is already in notes/, short follow-up — Pewter interior next steps; money/time still candidates only; badges still deferred. If today's docs already landed the addendum, do that short note or align next-plan.
+
+## Update 2026-10-20
+
+- #120 merged: free-explore on Pewter 3/2 walks to an unused indoor warp and takes it. No new WARP_ENTER.
+- Next: after entering the indoor, do not reverse straight back out.
