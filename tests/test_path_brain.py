@@ -1,1 +1,1 @@
-$(cat /tmp/game-brain/tests/test_path_brain.py)
+PLACEHOLDER_WILL_BE_REPLACED
