@@ -836,3 +836,58 @@ def test_path_cache_reuses_the_same_route_after_a_step():
     assert b.stats["path_cache_hits"] == 2
     assert second.path[0] == [2, 1] and second.path[-1] == [4, 1]
     assert second.path == first.path[1:]
+
+
+def _pewter_rows():
+    rows = []
+    for y in range(8):
+        row = ["#"] * 10
+        if 1 <= y <= 6:
+            for x in range(1, 9):
+                row[x] = "."
+        rows.append("".join(row))
+    return rows
+
+
+def test_free_explore_pewter_walks_toward_indoor_door_not_street():
+    """After arriving on Pewter 3/2, prefer the unused indoor door over wandering.
+    No new WARP_ENTER: the door is an existing 0x60 behavior."""
+    rows = _pewter_rows()
+    door = {"x": 8, "y": 3, "dest_bank": 6, "dest_map": 2, "enter": "RIGHT", "behavior": 0x60}
+    back = {"x": 2, "y": 6, "dest_bank": 3, "dest_map": 20, "enter": "DOWN", "behavior": 0x60}
+    route = ["#######", "#.....#", "#.....#", "#.....#", "#.....#", "#.....#", "#######"]
+
+    def o3(x, y, facing="UP"):
+        return obs(x, y, facing, rows=rows, warps=[door, back], bank=3, mid=2)
+
+    def o_route(x, y, facing="UP"):
+        return obs(x, y, facing, rows=route, bank=3, mid=20)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0)
+    settle(b, o_route(3, 3, "UP"))
+    b.decide(o3(2, 5, "UP"))
+    assert b._prev_map == (3, 20)
+
+    pos, facing = (2, 5), "UP"
+    approached = False
+    for _ in range(20):
+        act, dec = b.decide(o3(pos[0], pos[1], facing))
+        btn, frames = act.presses[0].button, act.presses[0].frames
+        if btn not in ("UP", "DOWN", "LEFT", "RIGHT"):
+            continue
+        if frames <= 3:
+            facing = btn
+            continue
+        facing = btn
+        if "take warp" in dec.reason:
+            assert btn == "RIGHT", dec.reason
+            assert pos == (8, 3), pos
+            approached = True
+            break
+        assert btn != "DOWN" or pos != (2, 6), "must not reverse onto the Route2 mat"
+        dx, dy = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}[btn]
+        nxt = (pos[0] + dx, pos[1] + dy)
+        if 0 <= nxt[1] < len(rows) and rows[nxt[1]][nxt[0]] == ".":
+            pos = nxt
+    assert approached, (pos, facing)
