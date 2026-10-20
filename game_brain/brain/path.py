@@ -63,6 +63,10 @@ PREFERRED_EDGE_COLUMNS: Dict[Tuple[Tile, str], frozenset] = {
     ((3, 20), "UP"): frozenset(range(8, 12)),
 }
 
+# City maps where free-explore should walk toward an unused indoor warp
+# (not the map we just left). Pewter 3/2 doors are already 0x60/0x69 — no new WARP_ENTER.
+PREFERRED_INDOOR_MAPS = frozenset({(3, 2)})
+
 
 class PathBrain(Brain):
     name = "path"
@@ -338,6 +342,20 @@ class PathBrain(Brain):
                 "free explore", "position unchanged, press A to clear dialogue, then keep walking",
                 goal=self._explore_goal(), path=[pos])
         remembered = self._blocked_tiles() if self._map is not None else set()
+        indoor_stand = None
+        if grid is not None and grid.key in PREFERRED_INDOOR_MAPS:
+            indoor = []
+            for w in grid.usable_warps():
+                if (grid.key, w) in self._dead_warps:
+                    continue
+                if self._prev_map is not None and w.dest == self._prev_map:
+                    continue
+                stand = grid.warp_stand_tile(w)
+                if stand is None:
+                    continue
+                indoor.append((abs(stand[0] - pos[0]) + abs(stand[1] - pos[1]), stand))
+            if indoor:
+                indoor_stand = min(indoor)[1]
         # usable warp whose stand tile is here (door mat / door)
         warps = {w.enter: w for w in (grid.usable_warps() if grid is not None else ())
                  if grid.warp_stand_tile(w) == pos and (grid.key, w) not in self._dead_warps}
@@ -364,6 +382,9 @@ class PathBrain(Brain):
                 score = self._visits.get(vkey, 0)
                 if self._prev_map is not None and w.dest == self._prev_map:
                     score += self.reverse_warp_penalty
+                elif indoor_stand is not None and grid.warp_stand_tile(w) == indoor_stand:
+                    # Beat the explore-direction tie so we take the indoor door, not walk past it.
+                    score -= self.preferred_edge_penalty
             elif is_edge:
                 vkey = (map_key, "edge", name, pos[0], pos[1])
                 score = self._visits.get(vkey, 0)
@@ -378,12 +399,20 @@ class PathBrain(Brain):
             else:
                 vkey = (map_key, nx, ny)
                 score = self._visits.get(vkey, 0)
+                if indoor_stand is not None:
+                    before = abs(indoor_stand[0] - pos[0]) + abs(indoor_stand[1] - pos[1])
+                    after = abs(indoor_stand[0] - nx) + abs(indoor_stand[1] - ny)
+                    if after < before:
+                        score -= self.preferred_edge_penalty
             choices.append((score, 0 if name == self._explore_dir else 1, name))
         if not choices:
             for name in _DELTA:
                 choices.append((0, 1, name))
         choices.sort()
-        direction = self._explore_dir if self._explore_dir in {n for _, _, n in choices} and self._visits[key] % 5 else choices[0][2]
+        on_indoor_door = indoor_stand == pos and any(
+            grid is not None and grid.warp_stand_tile(w) == pos for w in warps.values())
+        sticky = self._explore_dir in {n for _, _, n in choices} and self._visits[key] % 5
+        direction = choices[0][2] if on_indoor_door or not sticky else self._explore_dir
         self._explore_dir = direction
         nxt = (pos[0] + _DELTA[direction][0], pos[1] + _DELTA[direction][1])
         self._last = ("explore", direction)
