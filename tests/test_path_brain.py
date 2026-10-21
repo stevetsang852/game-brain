@@ -891,3 +891,66 @@ def test_free_explore_pewter_walks_toward_indoor_door_not_street():
         if 0 <= nxt[1] < len(rows) and rows[nxt[1]][nxt[0]] == ".":
             pos = nxt
     assert approached, (pos, facing)
+
+
+def test_free_explore_pewter_indoor_does_not_reverse_immediately():
+    """After entering a Pewter indoor (6/2) from 3/2, do not reverse straight back out.
+    Free-explore walks inside first; reverse warp continues to be penalized."""
+    # Simple indoor: door at bottom (5,6) DOWN back to Pewter 3/2, interior above.
+    indoor_rows = [
+        "#######",
+        "#.....#",
+        "#.....#",
+        "#.....#",
+        "#.....#",
+        "#.....#",
+        "#######",
+    ]
+    reverse_door = {"x": 5, "y": 6, "dest_bank": 3, "dest_map": 2, "enter": "DOWN", "behavior": 0x60}
+    pewter_rows = _pewter_rows()
+    pewter_door = {"x": 8, "y": 3, "dest_bank": 6, "dest_map": 2, "enter": "RIGHT", "behavior": 0x60}
+
+    def o_indoor(x, y, facing="UP"):
+        return obs(x, y, facing, rows=indoor_rows, warps=[reverse_door], bank=6, mid=2)
+
+    def o_pewter(x, y, facing="UP"):
+        return obs(x, y, facing, rows=pewter_rows, warps=[pewter_door], bank=3, mid=2)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0)
+    # Arrive from Pewter 3/2 onto the indoor reverse mat.
+    settle(b, o_pewter(8, 3, "RIGHT"))
+    assert b._map == (3, 2)
+    act, dec = b.decide(o_indoor(5, 6, "UP"))  # settle on indoor; _prev_map = 3/2
+    assert act.presses[0].button == "NONE" and b._prev_map == (3, 2)
+
+    # First free-explore decision on the reverse mat must walk inside (UP), not take DOWN.
+    act, dec = b.decide(o_indoor(5, 6, "UP"))
+    assert dec.plan == "free explore"
+    assert "take warp" not in dec.reason
+    assert act.presses[0].button == "UP"
+    assert "walk UP" in dec.reason or "turn UP" in dec.reason
+
+    # Walk a few steps inside; never take the reverse on the mat during the first steps.
+    pos, facing = (5, 6), "UP"
+    walked_inside = False
+    for _ in range(12):
+        act, dec = b.decide(o_indoor(pos[0], pos[1], facing))
+        btn, frames = act.presses[0].button, act.presses[0].frames
+        if btn not in ("UP", "DOWN", "LEFT", "RIGHT"):
+            continue
+        if frames <= 3:
+            facing = btn
+            continue
+        facing = btn
+        if "take warp" in dec.reason:
+            assert False, f"took reverse warp too soon at {pos}: {dec.reason}"
+        assert not (btn == "DOWN" and pos == (5, 6)), "must not reverse on the indoor door mat"
+        dx, dy = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}[btn]
+        nxt = (pos[0] + dx, pos[1] + dy)
+        if 0 <= nxt[1] < len(indoor_rows) and indoor_rows[nxt[1]][nxt[0]] == ".":
+            pos = nxt
+            if pos[1] < 6:
+                walked_inside = True
+                break
+    assert walked_inside, (pos, facing)
