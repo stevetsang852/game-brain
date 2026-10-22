@@ -891,3 +891,66 @@ def test_free_explore_pewter_walks_toward_indoor_door_not_street():
         if 0 <= nxt[1] < len(rows) and rows[nxt[1]][nxt[0]] == ".":
             pos = nxt
     assert approached, (pos, facing)
+
+
+def _indoor_rows():
+    """Small synthetic indoor room (e.g. Pewter Center / gym interior)."""
+    rows = []
+    for y in range(6):
+        row = ["#"] * 8
+        if 1 <= y <= 4:
+            for x in range(1, 7):
+                row[x] = "."
+        rows.append("".join(row))
+    return rows
+
+
+def test_free_explore_indoor_does_not_reverse_immediately_after_entry():
+    """README 2026-10-20: after entering a Pewter indoor (from 3/2), free-explore must
+    walk a bit inside before reversing out the door. Reverse warp continues to be penalized.
+    No ROM, no saves, no screenshots."""
+    rows = _indoor_rows()
+    # Exit warp back to Pewter 3/2 (the door we just entered).
+    exit_warp = {"x": 3, "y": 1, "dest_bank": 3, "dest_map": 2, "enter": "UP", "behavior": 0x60}
+    # A second unused interior "object" stand is not needed; just walkable space.
+
+    def o_indoor(x, y, facing="DOWN"):
+        return obs(x, y, facing, rows=rows, warps=[exit_warp], bank=6, mid=2)
+
+    def o_pewter(x, y, facing="RIGHT"):
+        # Arrive from the city map so _prev_map is set to (3, 2).
+        return obs(x, y, facing, rows=_pewter_rows(), warps=[], bank=3, mid=2)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0, reverse_warp_penalty=8)
+    # Arrive on indoor from Pewter.
+    settle(b, o_pewter(8, 3, "RIGHT"))
+    act, dec = b.decide(o_indoor(3, 2, "DOWN"))  # appeared just inside the door
+    assert b._prev_map == (3, 2)
+    assert act.presses[0].button == "NONE"  # settle
+
+    # First several free-explore decisions must not take the reverse UP warp.
+    reverse_taken = False
+    walked_tiles = set()
+    pos, facing = (3, 2), "DOWN"
+    for step in range(8):
+        act, dec = b.decide(o_indoor(pos[0], pos[1], facing))
+        btn = act.presses[0].button
+        frames = act.presses[0].frames
+        if btn not in ("UP", "DOWN", "LEFT", "RIGHT"):
+            continue
+        if frames <= 3:
+            facing = btn
+            continue
+        if "take warp" in dec.reason and btn == "UP" and pos == (3, 1):
+            reverse_taken = True
+            break
+        # Simulate the step if walkable.
+        dx, dy = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}[btn]
+        nxt = (pos[0] + dx, pos[1] + dy)
+        if 0 <= nxt[1] < len(rows) and rows[nxt[1]][nxt[0]] == ".":
+            pos = nxt
+            walked_tiles.add(pos)
+            facing = btn
+    assert not reverse_taken, "must not reverse straight back out in the first 8 steps"
+    assert len(walked_tiles) >= 2, f"should walk inside; only saw {walked_tiles}"
