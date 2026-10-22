@@ -67,6 +67,10 @@ PREFERRED_EDGE_COLUMNS: Dict[Tuple[Tile, str], frozenset] = {
 # (not the map we just left). Pewter 3/2 doors are already 0x60/0x69 — no new WARP_ENTER.
 PREFERRED_INDOOR_MAPS = frozenset({(3, 2)})
 
+# After entering an indoor map (any map that is not in PREFERRED_INDOOR_MAPS),
+# reverse_warp_penalty already applies to the door we just came through, so free
+# explore walks the interior for several steps before considering the exit again.
+
 
 class PathBrain(Brain):
     name = "path"
@@ -293,6 +297,8 @@ class PathBrain(Brain):
         Push-warps score by destination visits (not the wall tile beyond the mat). A warp back
         to ``_prev_map`` gets ``reverse_warp_penalty`` so free explore walks the building
         (e.g. 15/0 or 15/3 north to (7,1)/(7,2) then UP) instead of spinning on the south mats.
+        The same penalty applies after entering a Pewter indoor from 3/2: do not reverse
+        straight back out the door; walk the interior first.
         Map-edge exits listed in ``PREFERRED_EDGE_COLUMNS`` (Route2 3/20 UP x=8..11 -> Pewter)
         beat lookalike north-edge tiles that do not leave the map.
         """
