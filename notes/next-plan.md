@@ -1,7 +1,7 @@
-# Current code and next plan (2026-10-20)
+# Current code and next plan (2026-10-22)
 
 
-Daily plan source of truth: README 「目前進度」／「下一步計劃（2026-10-20）」. Repo stays PUBLIC. Never commit ROM, battery save, savestate, screenshot, model, or secrets. `experiments/` may hold policy JSON, reward JSONL, and notes.
+Daily plan source of truth: README 「目前進度」／「下一步計劃（2026-10-22）」. Repo stays PUBLIC. Never commit ROM, battery save, savestate, screenshot, model, or secrets. `experiments/` may hold policy JSON, reward JSONL, and notes.
 
 ## Current code (summary)
 
@@ -31,3 +31,9 @@ See README 「下一步計劃（2026-10-13）」:
 
 - #120 merged: free-explore on Pewter 3/2 walks to an unused indoor warp and takes it. No new WARP_ENTER.
 - Next: after entering the indoor, do not reverse straight back out.
+
+
+## Update 2026-10-22
+
+- #122 merged (`f887af8`): free-explore after entering a Pewter indoor walks the interior first; reverse_warp_penalty continues to apply to the exit door. Mock test added. No ROM/saves/logs/screenshots.
+- Next safe item: Frontend — 開發者資訊 nav hint should say the current goal is a Pewter indoor door, not the Route2 north edge. Backend real-ROM observation of one interior is deferred (needs real ROM).
