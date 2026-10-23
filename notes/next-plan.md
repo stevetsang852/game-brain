@@ -37,3 +37,8 @@ See README 「下一步計劃（2026-10-13）」:
 
 - #122 merged (`f887af8`): free-explore after entering a Pewter indoor walks the interior first; reverse_warp_penalty continues to apply to the exit door. Mock test added. No ROM/saves/logs/screenshots.
 - Next safe item: Frontend — 開發者資訊 nav hint should say the current goal is a Pewter indoor door, not the Route2 north edge. Backend real-ROM observation of one interior is deferred (needs real ROM).
+
+## Update 2026-10-23
+
+- #124 merged (`b1bd0dc`): developer-info nav hint on Pewter 3/2 free-explore now states the current goal is a Pewter indoor door (not the Route2 north edge). Page test added. No ROM/saves/logs/screenshots.
+- Next safe item: Designer — confirm #117 party expand (other five + exact HP/moves) on desktop + 390×844. Backend real-ROM observation of one interior remains deferred (needs real ROM). Do not commit screenshots.
