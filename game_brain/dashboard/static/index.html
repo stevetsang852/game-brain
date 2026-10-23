@@ -1379,7 +1379,14 @@ function renderNavHint() {
   if (!el) return;
   const ram = (state.lastObs && state.lastObs.ram) || {};
   const hasMap = ram.map_bank != null && ram.map_id != null;
-  const intent = navIntent(state.lastDecision);
+  let intent = navIntent(state.lastDecision);
+  // On Pewter 3/2 free-explore the current goal is an unused indoor door, not the Route2 north edge.
+  if (hasMap && ram.map_bank === 3 && ram.map_id === 2
+      && state.lastDecision && /free explore/i.test(String(state.lastDecision.plan || ""))) {
+    intent = LANG === "en"
+      ? "goal: Pewter indoor door (not Route2 north edge)"
+      : "目標：尼比室內門（唔係 Route2 北緣）";
+  }
   if (!hasMap && !intent) { el.hidden = true; el.textContent = "導航：–"; return; }
   el.hidden = false;
   const map = hasMap ? `${ram.map_bank}/${ram.map_id}` : "–";
