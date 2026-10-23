@@ -43,6 +43,11 @@ state.lastDecision = { plan: "free explore",
   reason: "at (12,0): step UP off the map edge (map connection) (3 cells)" };
 renderNavHint();
 out.shown = { hidden: $("navHint").hidden, text: $("navHint").textContent };
+state.lastObs = { ram: { map_bank: 3, map_id: 2 } };
+state.lastDecision = { plan: "free explore",
+  reason: "at (8,5): press UP to take warp (8,4) -> 6/1 (4 cells)" };
+renderNavHint();
+out.pewter = { hidden: $("navHint").hidden, text: $("navHint").textContent };
 state.lastObs = { ram: {} };
 state.lastDecision = null;
 renderNavHint();
@@ -64,4 +69,5 @@ def test_nav_hint_parses_edge_and_warp():
     assert out["walk"] == "自由探索 walk DOWN"
     assert out["none"] == ""
     assert out["shown"]["hidden"] is False and out["shown"]["text"] == "導航 3/0 · 邊緣 UP"
+    assert out["pewter"]["hidden"] is False and out["pewter"]["text"] == "導航 3/2 · 目標：尼比室內門（唔係 Route2 北緣）"
     assert out["hidden"]["hidden"] is True
