@@ -42,3 +42,9 @@ See README 「下一步計劃（2026-10-13）」:
 
 - #124 merged (`b1bd0dc`): developer-info nav hint on Pewter 3/2 free-explore now states the current goal is a Pewter indoor door (not the Route2 north edge). Page test added. No ROM/saves/logs/screenshots.
 - Next safe item: Designer — confirm #117 party expand (other five + exact HP/moves) on desktop + 390×844. Backend real-ROM observation of one interior remains deferred (needs real ROM). Do not commit screenshots.
+
+
+## Update 2026-10-24
+
+- #126 merged (`4b9ca00`): research note `notes/money-time-candidates-2026-10-24.md` records that money and game-time candidates remain unverified (no before/after on existing milestone saves) and badges stay deferred. Unit test asserts the note and that `firered.py` does not emit those keys. No ROM/saves/logs/screenshots.
+- Next safe item: PathBrain — after entering a Pewter indoor, free-explore should walk several unvisited interior tiles before considering the exit again (strengthen mock coverage). Designer #117 visual OK and Backend real-ROM interior observation remain deferred (human OK / real ROM).
