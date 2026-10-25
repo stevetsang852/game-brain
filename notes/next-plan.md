@@ -48,3 +48,8 @@ See README 「下一步計劃（2026-10-13）」:
 
 - #126 merged (`4b9ca00`): research note `notes/money-time-candidates-2026-10-24.md` records that money and game-time candidates remain unverified (no before/after on existing milestone saves) and badges stay deferred. Unit test asserts the note and that `firered.py` does not emit those keys. No ROM/saves/logs/screenshots.
 - Next safe item: PathBrain — after entering a Pewter indoor, free-explore should walk several unvisited interior tiles before considering the exit again (strengthen mock coverage). Designer #117 visual OK and Backend real-ROM interior observation remain deferred (human OK / real ROM).
+
+## Update 2026-10-25
+
+- #128 merged (`9963c23`): free-explore after entering a Pewter indoor walks several unvisited interior tiles before considering the reverse exit. Strengthened mock coverage (at least 4 unique interior tiles). reverse_warp_penalty continues to apply. No ROM/saves/logs/screenshots.
+- Next safe item: Frontend — developer-info nav hint after entering a Pewter indoor should state the current goal is exploring the interior (not reversing straight out). Page test. Designer #117 visual OK and Backend real-ROM interior observation remain deferred (human OK / real ROM). Do not commit screenshots.
