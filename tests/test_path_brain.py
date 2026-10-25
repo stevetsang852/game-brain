@@ -954,3 +954,52 @@ def test_free_explore_indoor_does_not_reverse_immediately_after_entry():
             facing = btn
     assert not reverse_taken, "must not reverse straight back out in the first 8 steps"
     assert len(walked_tiles) >= 2, f"should walk inside; only saw {walked_tiles}"
+
+
+def test_free_explore_indoor_walks_several_unvisited_interior_tiles():
+    """README 2026-10-24: after entering a Pewter indoor, free-explore should walk
+    several unvisited interior tiles before considering the reverse exit again.
+    Strengthens coverage beyond the immediate-not-reverse check. No ROM/saves/logs/screenshots.
+    """
+    rows = _indoor_rows()
+    exit_warp = {"x": 3, "y": 1, "dest_bank": 3, "dest_map": 2, "enter": "UP", "behavior": 0x60}
+
+    def o_indoor(x, y, facing="DOWN"):
+        return obs(x, y, facing, rows=rows, warps=[exit_warp], bank=6, mid=2)
+
+    def o_pewter(x, y, facing="RIGHT"):
+        return obs(x, y, facing, rows=_pewter_rows(), warps=[], bank=3, mid=2)
+
+    b = PathBrain(planner=GoalPlanner([Milestone("later", "not yet", placeholder=True)]),
+                  settle_checks=0, reverse_warp_penalty=8)
+    settle(b, o_pewter(8, 3, "RIGHT"))
+    act, dec = b.decide(o_indoor(3, 2, "DOWN"))
+    assert b._prev_map == (3, 2)
+    assert act.presses[0].button == "NONE"
+
+    unique = set()
+    reverse_taken = False
+    pos, facing = (3, 2), "DOWN"
+    unique.add(pos)
+    for _ in range(30):
+        act, dec = b.decide(o_indoor(pos[0], pos[1], facing))
+        btn = act.presses[0].button
+        frames = act.presses[0].frames
+        if btn not in ("UP", "DOWN", "LEFT", "RIGHT"):
+            continue
+        if frames <= 3:
+            facing = btn
+            continue
+        if "take warp" in dec.reason and btn == "UP" and pos == (3, 1):
+            reverse_taken = True
+            break
+        dx, dy = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}[btn]
+        nxt = (pos[0] + dx, pos[1] + dy)
+        if 0 <= nxt[1] < len(rows) and rows[nxt[1]][nxt[0]] == ".":
+            pos = nxt
+            unique.add(pos)
+            facing = btn
+        if len(unique) >= 5:
+            break
+    assert not reverse_taken, "reverse exit must not be taken before several interior tiles are visited"
+    assert len(unique) >= 4, f"should visit at least 4 interior tiles; only {len(unique)}: {unique}"
