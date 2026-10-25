@@ -73,7 +73,7 @@
 
 驗收：圖鑑前步數唔好差過劇本腦太多、會自己入 2 號道路、卡住會換招。全圖鑑同通關係後期目標。圖鑑 `pokedex_seen`／`pokedex_owned` 已喺呢隻 ROM 驗證（`notes/badge-pokedex-ram.md`），進度分會計已見過嘅種類。八個徽章位元未驗證（冇打過道館，位元冇由 0 變 1），所以唔輸出 `ram["badges"]`，徽章分仍然唔會計。
 
-## 目前進度（2026-10-24，main `4b9ca00`）
+## 目前進度（2026-10-25，main `9963c23`）
 
 已喺真 ROM 由開機行到：主角屋 → 真新鎮 → 研究所攞御三家 → 勁敵戰 → 1 號道路 → 常磐市，再返研究所攞圖鑑（M1／M2／M3 + `oaks_parcel`／圖鑑）。#118 自由探索可由森林北出 Route2 北緣 x=8..11 入尼比。#120 喺尼比 3／2 行向未用過的室內門並入門，唔加新 `WARP_ENTER`。Wild／勁敵戰鬥交俾 RuleBattleBrain。輸咗會喺屋企醒，可以再行出去。存檔／續玩、live 共用 setup、`--starter random` 都已經落地。
 
@@ -82,6 +82,8 @@
 **#124 已合入（`b1bd0dc`）**：開發者資訊導航提示喺尼比 3／2 自由探索時寫明而家目標係尼比室內門，唔係 Route2 北緣。加咗 page 測，唔 commit 截圖。
 
 **#126 已合入（`4b9ca00`）**：Research 記錄金錢／遊戲時間候選仍然未查證（現有里程碑存檔未顯示 before/after），徽章繼續暫緩。加咗 note `notes/money-time-candidates-2026-10-24.md` 同 unit 測（adapter 唔輸出 money／game_time／badges）。唔 commit ROM／save／log／截圖。
+
+**#128 已合入（`9963c23`）**：入咗尼比室內之後，自由探索會行多幾格未行過嘅室內格先再考慮出口。加強 mock 覆蓋（證明至少 4 格 interior），`reverse_warp_penalty` 繼續生效。唔 commit ROM／save／log／截圖。
 
 **已合入 main（截至 2026-10-12 代碼；本 docs PR 更新 README）：** 前一日 docs #112（`b7345b2`）之後，Taipei 10/12 合入 #113 開發者資訊自由探索導航提示（`e9b7ad0`；page tests **29**；Designer OK on desk-nav-dev.png）、#114 PathBrain 15／0 行北入森林（`cc81fd6`；path tests **64**；full real-ROM pytest **451** passed）、#115 右欄收窄約 ~220px（`7fec75f`；page tests **2**；Designer OK）。代碼 tip 喺 `7fec75f`（#115）；本 docs PR 再更新 README／next-plan，並落地 Research addendum [`notes/free-explore-addendum-2026-10-12.md`](notes/free-explore-addendum-2026-10-12.md)。Backend 2026-10-12：真 ROM **已進**森林北建築 **15／3** 同尼比 **3／2**；仍然唔使新 `WARP_ENTER`（`0x60`／`0x65`／`0x69`）；Route2 北緣可出格只係 **x=8..11、y=0/1**；（5,2）UP 俾樹擋；徽章繼續暫緩。
 
@@ -118,11 +120,11 @@
 
 詳細位址、實測 step 同架構見下面。
 
-## 下一步計劃（2026-10-24）
+## 下一步計劃（2026-10-25）
 
-README 係日更計劃嘅 source of truth。#120 尼比入室內門、#122 室內唔即刻反出、#124 導航提示寫明尼比室內門目標、#126 金錢／時間候選未查證 note 已合入。
+README 係日更計劃嘅 source of truth。#120 尼比入室內門、#122 室內唔即刻反出、#124 導航提示寫明尼比室內門目標、#126 金錢／時間候選未查證 note、#128 室內行多幾格 interior 已合入。
 
-1. **PathBrain**（安全，mock 測）：入咗尼比室內之後，自由探索應繼續行多幾格未行過嘅室內格，先再考慮出口（`reverse_warp_penalty` 已有；加強覆蓋，證明會行到至少幾格 interior）。唔 commit ROM／save／log／截圖。
+1. **Frontend**（安全，page 測）：入咗尼比室內之後，開發者資訊導航提示應寫明而家目標係探索室內（唔係即刻反出）。加 page 測。唔 commit 截圖。
 2. **Designer**（需要人手視覺 OK，暫緩）：確認 #117 隊伍 expand（其餘五隻＋精確 HP／招式）desktop＋390×844。未 OK 唔當完成。唔 commit 截圖。
 3. **Backend**（需要真 ROM，暫緩）：真 ROM 觀察尼比一間室內（道館或中心）。只喺有新驗證 behavior 先開 `WARP_ENTER` PR。仍然唔出 `ram["badges"]`。
 
