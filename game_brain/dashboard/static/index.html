@@ -1387,6 +1387,13 @@ function renderNavHint() {
       ? "goal: Pewter indoor door (not Route2 north edge)"
       : "目標：尼比室內門（唔係 Route2 北緣）";
   }
+  // After entering a Pewter indoor (map bank 6), free-explore goal is exploring the interior, not reversing straight out.
+  if (hasMap && ram.map_bank === 6
+      && state.lastDecision && /free explore/i.test(String(state.lastDecision.plan || ""))) {
+    intent = LANG === "en"
+      ? "goal: exploring the interior (not reversing out)"
+      : "目標：探索室內（唔係即刻反出）";
+  }
   if (!hasMap && !intent) { el.hidden = true; el.textContent = "導航：–"; return; }
   el.hidden = false;
   const map = hasMap ? `${ram.map_bank}/${ram.map_id}` : "–";
